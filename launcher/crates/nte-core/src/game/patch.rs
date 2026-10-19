@@ -67,24 +67,22 @@ pub fn apply_hdiff(old: &Path, patch: &Path, out: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::{lock_env, write_script, TempDir};
+    use crate::testing::{write_script, EnvGuard, TempDir};
 
     #[test]
     fn hpatchz_path_follows_the_environment() {
-        let _guard = lock_env();
-        std::env::remove_var("NTE_HPATCHZ");
-        std::env::remove_var("HPATCHZ");
+        // EnvGuard 结束时会把这两个变量恢复成测试前的样子
+        let mut env = EnvGuard::new();
+        env.remove("NTE_HPATCHZ");
+        env.remove("HPATCHZ");
         assert_eq!(hpatchz_path(), PathBuf::from("hpatchz"));
 
-        std::env::set_var("HPATCHZ", "/opt/hpatchz");
+        env.set("HPATCHZ", "/opt/hpatchz");
         assert_eq!(hpatchz_path(), PathBuf::from("/opt/hpatchz"));
 
         // NTE_HPATCHZ 优先于 HPATCHZ
-        std::env::set_var("NTE_HPATCHZ", "/custom/hpatchz");
+        env.set("NTE_HPATCHZ", "/custom/hpatchz");
         assert_eq!(hpatchz_path(), PathBuf::from("/custom/hpatchz"));
-
-        std::env::remove_var("NTE_HPATCHZ");
-        std::env::remove_var("HPATCHZ");
     }
 
     #[test]
@@ -113,18 +111,17 @@ mod tests {
 
     #[test]
     fn reports_a_missing_tool() {
-        let _guard = lock_env();
+        let mut env = EnvGuard::new();
         let dir = TempDir::new("patch-tool");
         dir.write("old.bin", b"old");
         dir.write("p.bin", b"patch");
-        std::env::set_var("NTE_HPATCHZ", dir.join("missing-hpatchz"));
+        env.set("NTE_HPATCHZ", dir.join("missing-hpatchz"));
         let error = apply_hdiff(
             &dir.join("old.bin"),
             &dir.join("p.bin"),
             &dir.join("new.bin"),
         )
         .expect_err("no tool");
-        std::env::remove_var("NTE_HPATCHZ");
         assert!(
             error.to_string().contains("hpatchz not available"),
             "{error}"
@@ -133,7 +130,7 @@ mod tests {
 
     #[test]
     fn runs_the_tool_and_replaces_a_stale_output() {
-        let _guard = lock_env();
+        let mut env = EnvGuard::new();
         let dir = TempDir::new("patch-run");
         dir.write("old.bin", b"old");
         dir.write("p.bin", b"patched");
@@ -143,20 +140,19 @@ mod tests {
             "hpatchz-ok",
             "#!/bin/sh\n[ \"$1\" = \"-f\" ] || exit 9\ncp \"$3\" \"$4\"\n",
         );
-        std::env::set_var("NTE_HPATCHZ", &script);
+        env.set("NTE_HPATCHZ", &script);
         apply_hdiff(
             &dir.join("old.bin"),
             &dir.join("p.bin"),
             &dir.join("new.bin"),
         )
         .expect("apply hdiff");
-        std::env::remove_var("NTE_HPATCHZ");
         assert_eq!(dir.read("new.bin"), b"patched");
     }
 
     #[test]
     fn reports_tool_failures_and_missing_output() {
-        let _guard = lock_env();
+        let mut env = EnvGuard::new();
         let dir = TempDir::new("patch-fail");
         dir.write("old.bin", b"old");
         dir.write("p.bin", b"patched");
@@ -166,7 +162,7 @@ mod tests {
             "hpatchz-fail",
             "#!/bin/sh\necho boom >&2\nexit 3\n",
         );
-        std::env::set_var("NTE_HPATCHZ", &failing);
+        env.set("NTE_HPATCHZ", &failing);
         let error = apply_hdiff(
             &dir.join("old.bin"),
             &dir.join("p.bin"),
@@ -177,14 +173,13 @@ mod tests {
         assert!(error.to_string().contains("boom"), "{error}");
 
         let quiet = write_script(dir.path(), "hpatchz-quiet", "#!/bin/sh\nexit 0\n");
-        std::env::set_var("NTE_HPATCHZ", &quiet);
+        env.set("NTE_HPATCHZ", &quiet);
         let error = apply_hdiff(
             &dir.join("old.bin"),
             &dir.join("p.bin"),
             &dir.join("new.out"),
         )
         .expect_err("no output");
-        std::env::remove_var("NTE_HPATCHZ");
         assert!(error.to_string().contains("produced no output"), "{error}");
     }
 }

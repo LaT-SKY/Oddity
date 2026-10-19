@@ -12,7 +12,7 @@ struct LaunchFixture {
     dump: PathBuf,
     wine_log: PathBuf,
     path: String,
-    _env: EnvGuard,
+    env: EnvGuard,
 }
 
 impl LaunchFixture {
@@ -78,7 +78,7 @@ impl LaunchFixture {
             dump,
             wine_log,
             path,
-            _env: env,
+            env,
         }
     }
 
@@ -277,13 +277,13 @@ fn launch_direct_mode_targets_the_game_executable() {
 
 #[test]
 fn launch_can_skip_the_presence_tuning() {
-    let fixture = LaunchFixture::new("launch-no-presence");
+    let mut fixture = LaunchFixture::new("launch-no-presence");
     let config = fixture
         .bridge
         .join("NTELauncher/UserData/Config/Config.ini");
     std::fs::create_dir_all(config.parent().expect("config parent")).expect("create config dir");
     std::fs::write(&config, "[Setting]\nautoLogin=1\n").expect("write config");
-    std::env::set_var("NTE_DISABLE_PRESENCE_TUNING", "1");
+    fixture.env.set("NTE_DISABLE_PRESENCE_TUNING", "1");
 
     let invocation = launch_impl(&fixture.settings("background")).expect("launch");
     assert_eq!(
@@ -292,7 +292,6 @@ fn launch_can_skip_the_presence_tuning() {
     );
     assert!(!fixture.wine_log.exists());
     fixture.stop(invocation);
-    std::env::remove_var("NTE_DISABLE_PRESENCE_TUNING");
 }
 
 #[test]
@@ -321,15 +320,16 @@ fn launch_reports_an_immediate_exit_with_the_log_tail() {
 
 #[test]
 fn launch_requires_the_expected_tools_and_files() {
-    let fixture = LaunchFixture::new("launch-errors");
+    let mut fixture = LaunchFixture::new("launch-errors");
     let settings = fixture.settings("official");
 
-    // PATH 里没有 umu-run（fixture 已经拿着环境锁，这里直接改）
-    std::env::set_var("PATH", fixture.dir.join("empty-bin"));
+    // PATH 里没有 umu-run
+    fixture.env.set("PATH", fixture.dir.join("empty-bin"));
     let error = expect_launch_error(launch_impl(&settings));
     assert!(error.contains("PATH 中未找到 umu-run"), "{error}");
 
-    std::env::set_var("PATH", &fixture.path);
+    let path = fixture.path.clone();
+    fixture.env.set("PATH", path);
 
     // 找不到 Proton
     let without_proton = Settings {

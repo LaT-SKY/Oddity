@@ -432,7 +432,7 @@ mod tests {
     use super::*;
     use crate::game::check::{UpdatePlan, UpdateReason};
     use crate::game::manifest::{PakEntry, ResEntry};
-    use crate::testing::{lock_env, write_script, HttpServer, TempDir};
+    use crate::testing::{write_script, EnvGuard, HttpServer, TempDir};
 
     const BRANCH: &str = "publish_ob";
 
@@ -916,7 +916,7 @@ mod tests {
 
     #[test]
     fn patches_are_applied_when_hpatchz_is_available() {
-        let _guard = lock_env();
+        let mut env = EnvGuard::new();
         let dir = TempDir::new("dl-patch");
         let server = HttpServer::start();
         let mut config = config_for(&dir);
@@ -928,7 +928,7 @@ mod tests {
 
         // 假 hpatchz：把补丁文件当成新内容复制到输出路径
         let script = write_script(dir.path(), "hpatchz", "#!/bin/sh\ncp \"$3\" \"$4\"\n");
-        std::env::set_var("NTE_HPATCHZ", &script);
+        env.set("NTE_HPATCHZ", &script);
 
         let patch_md5 = new_md5.clone();
         server.route(res_path(&patch_md5, new_content.len() as u64), &new_content);
@@ -943,7 +943,6 @@ mod tests {
         item.download_size = new_content.len() as u64;
 
         let report = apply_plan(&config, &plan_of(vec![item]), &ApplyOptions::default());
-        std::env::remove_var("NTE_HPATCHZ");
         assert!(report.results[0].ok, "{:?}", report.results[0].error);
         assert_eq!(dir.read("install/data/a.bin"), new_content);
         assert_eq!(report.downloaded_bytes, new_content.len() as u64);
@@ -977,7 +976,7 @@ mod tests {
 
     #[test]
     fn a_bad_patch_output_is_rejected() {
-        let _guard = lock_env();
+        let mut env = EnvGuard::new();
         let dir = TempDir::new("dl-patch-bad");
         let server = HttpServer::start();
         let mut config = config_for(&dir);
@@ -988,7 +987,7 @@ mod tests {
 
         // 假 hpatchz 输出错误内容：校验失败后仍然回退到整包
         let script = write_script(dir.path(), "hpatchz", "#!/bin/sh\nprintf broken > \"$4\"\n");
-        std::env::set_var("NTE_HPATCHZ", &script);
+        env.set("NTE_HPATCHZ", &script);
 
         let patch_bytes = b"diff";
         let patch_md5 = crate::update::md5_bytes(patch_bytes);
@@ -1004,7 +1003,6 @@ mod tests {
         });
 
         let report = apply_plan(&config, &plan_of(vec![item]), &ApplyOptions::default());
-        std::env::remove_var("NTE_HPATCHZ");
         assert!(report.results[0].ok, "{:?}", report.results[0].error);
         assert_eq!(dir.read("install/data/a.bin"), new_content);
     }

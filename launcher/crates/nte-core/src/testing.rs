@@ -5,21 +5,64 @@
 //! 测试因此完全离线，也不依赖真实 CDN。
 
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
-/// 修改进程级环境变量的测试必须持有这把锁，否则并行测试会互相干扰。
-pub static ENV_LOCK: Mutex<()> = Mutex::new(());
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
-/// 获取环境变量锁；即使之前的测试 panic 过也继续执行。
-pub fn lock_env() -> std::sync::MutexGuard<'static, ()> {
-    ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner())
+/// 独占进程环境变量，并在离开作用域时恢复原值。
+///
+/// 互斥锁只保证并行测试不互相踩，恢复原值才能保证测试结束后进程环境不变，
+/// 也不会把使用者自己设置的 `NTE_HPATCHZ` 之类清掉。
+pub struct EnvGuard {
+    saved: Vec<(&'static str, Option<OsString>)>,
+    _lock: MutexGuard<'static, ()>,
+}
+
+impl EnvGuard {
+    pub fn new() -> Self {
+        // 之前的测试 panic 过也不影响后续用例
+        let lock = ENV_LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        Self {
+            saved: Vec::new(),
+            _lock: lock,
+        }
+    }
+
+    pub fn set(&mut self, key: &'static str, value: impl AsRef<OsStr>) {
+        self.remember(key);
+        std::env::set_var(key, value);
+    }
+
+    pub fn remove(&mut self, key: &'static str) {
+        self.remember(key);
+        std::env::remove_var(key);
+    }
+
+    /// 同一个变量只记第一次的原始值，之后覆盖都还原到它。
+    fn remember(&mut self, key: &'static str) {
+        if !self.saved.iter().any(|(saved, _)| *saved == key) {
+            self.saved.push((key, std::env::var_os(key)));
+        }
+    }
+}
+
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        for (key, value) in self.saved.drain(..) {
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+        }
+    }
 }
 
 /// 析构时自动删除的临时目录。
