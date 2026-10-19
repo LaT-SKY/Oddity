@@ -75,7 +75,12 @@ function collectMarkdown(directory) {
 }
 
 function checkMarkdownLinks() {
-  const files = [join(root, "README.md"), ...collectMarkdown(join(root, "docs"))];
+  const files = [
+    join(root, "README.md"),
+    join(root, "CONTRIBUTING.md"),
+    join(root, "SECURITY.md"),
+    ...collectMarkdown(join(root, "docs")),
+  ];
   let checked = 0;
 
   for (const file of files) {
@@ -134,6 +139,8 @@ function checkTrackedPaths() {
 }
 
 requireFile("README.md");
+requireFile("CONTRIBUTING.md");
+requireFile("SECURITY.md");
 requireFile("LICENSE");
 requireFile("launcher/Cargo.toml");
 requireFile("launcher/Cargo.lock");

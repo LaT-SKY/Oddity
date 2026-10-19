@@ -94,6 +94,11 @@ Neverness To Everness/
 - 查看日志、使用命令行诊断、更新或卸载 Oddity：[排障指南](docs/troubleshooting.md#日志与诊断)
 - 其他问题：[提交 Issue](https://github.com/LaT-SKY/Oddity/issues)
 
+## 参与贡献
+
+- 提交代码前请阅读 [贡献指南](CONTRIBUTING.md)。
+- 安全漏洞请按 [安全政策](SECURITY.md) 私下报告，不要在公开 Issue 中披露细节。
+
 ## 合规
 
 - 仅替代启动器；游戏本体、账号与资源仍来自官方渠道。
