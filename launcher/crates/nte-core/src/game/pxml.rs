@@ -146,10 +146,121 @@ mod tests {
     }
 
     #[test]
+    fn key_material_truncates_long_app_ids() {
+        let (key, _) = key_material("0123456789abcdefghij");
+        assert_eq!(&key, b"0123456789abcdef");
+    }
+
+    #[test]
     fn round_trip() {
         let xml = b"<ResList version=\"1.4.16\" tag=\"baseTag\"/>\n";
         let encoded = encode(xml, "1289").unwrap();
         let decoded = decode(&encoded, "1289").unwrap();
         assert_eq!(decoded, xml);
+        assert_eq!(
+            decode_to_string(&encoded, "1289").unwrap(),
+            "<ResList version=\"1.4.16\" tag=\"baseTag\"/>\n"
+        );
+    }
+
+    /// 用正确的 AES 密钥加密任意字节，用来构造 zlib 层失败的样本。
+    fn encrypt_raw(plain: &[u8], app_id: &str) -> Vec<u8> {
+        let (key, iv) = key_material(app_id);
+        Aes128CbcEnc::new(&key.into(), &iv.into()).encrypt_padded_vec_mut::<Pkcs7>(plain)
+    }
+
+    fn with_header(expected: u32, ciphertext: &[u8]) -> Vec<u8> {
+        let mut out = MAGIC.to_vec();
+        out.push(0);
+        out.extend_from_slice(&expected.to_le_bytes());
+        out.extend_from_slice(ciphertext);
+        out
+    }
+
+    #[test]
+    fn decode_rejects_malformed_containers() {
+        let error = decode(b"tiny", "1289").expect_err("too small");
+        assert!(error.to_string().contains("too small"), "{error}");
+
+        let mut bad_magic = with_header(0, &encrypt_raw(b"", "1289"));
+        bad_magic[..4].copy_from_slice(b"NOPE");
+        let error = decode(&bad_magic, "1289").expect_err("magic");
+        assert!(
+            error.to_string().contains("bad PatcherXML0 magic"),
+            "{error}"
+        );
+
+        let mut unaligned = encode(b"<ResList/>", "1289").unwrap();
+        unaligned.push(0);
+        let error = decode(&unaligned, "1289").expect_err("alignment");
+        assert!(error.to_string().contains("not block aligned"), "{error}");
+    }
+
+    #[test]
+    fn decode_rejects_a_wrong_expected_length() {
+        let mut encoded = encode(b"<ResList/>", "1289").unwrap();
+        encoded[12..16].copy_from_slice(&999u32.to_le_bytes());
+        let error = decode(&encoded, "1289").expect_err("length");
+        assert!(error.to_string().contains("length mismatch"), "{error}");
+    }
+
+    #[test]
+    fn decode_reports_zlib_and_utf8_failures() {
+        let garbage = with_header(64, &encrypt_raw(&[0u8; 64], "1289"));
+        let error = decode(&garbage, "1289").expect_err("zlib");
+        assert!(error.to_string().contains("zlib"), "{error}");
+
+        let encoded = encode(&[0xff, 0xfe, 0xfd], "1289").expect("encode");
+        let error = decode_to_string(&encoded, "1289").expect_err("utf8");
+        assert!(error.to_string().contains("utf8"), "{error}");
+    }
+
+    fn zip_of(entries: &[(&str, Vec<u8>)]) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for (name, contents) in entries {
+            writer
+                .start_file(*name, zip::write::SimpleFileOptions::default())
+                .expect("start entry");
+            writer.write_all(contents).expect("write entry");
+        }
+        writer.finish().expect("finish zip").into_inner()
+    }
+
+    #[test]
+    fn read_zip_manifests_accepts_encoded_and_plain_entries() {
+        let encoded = encode(b"<ResList version=\"1\"/>", "1289").expect("encode");
+        let zip = zip_of(&[
+            ("ResList.bin", encoded),
+            ("LastDiff.xml", b"<LastDiff/>".to_vec()),
+            ("readme.txt", b"ignored".to_vec()),
+        ]);
+        let m = read_zip_manifests(&zip, "1289").expect("manifests");
+        assert_eq!(m.res_list, "<ResList version=\"1\"/>");
+        assert_eq!(m.diff_list.as_deref(), Some("<LastDiff/>"));
+    }
+
+    #[test]
+    fn read_zip_manifests_allows_a_missing_diff() {
+        let zip = zip_of(&[("reslist.xml", b"<ResList/>".to_vec())]);
+        let m = read_zip_manifests(&zip, "1289").expect("manifests");
+        assert_eq!(m.res_list, "<ResList/>");
+        assert!(m.diff_list.is_none());
+    }
+
+    #[test]
+    fn read_zip_manifests_rejects_bad_archives() {
+        let error = read_zip_manifests(b"not a zip", "1289").expect_err("bad zip");
+        assert!(error.to_string().contains("open ResList zip"), "{error}");
+
+        let zip = zip_of(&[("LastDiff.bin", b"<LastDiff/>".to_vec())]);
+        let error = read_zip_manifests(&zip, "1289").expect_err("no res list");
+        assert!(error.to_string().contains("no ResList.bin"), "{error}");
+
+        let zip = zip_of(&[("ResList.bin", vec![0xff, 0xfe])]);
+        let error = read_zip_manifests(&zip, "1289").expect_err("bad encoding");
+        assert!(
+            error.to_string().contains("neither PatcherXML0 nor UTF-8"),
+            "{error}"
+        );
     }
 }

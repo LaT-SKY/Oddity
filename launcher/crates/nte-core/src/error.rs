@@ -30,3 +30,33 @@ impl From<std::io::Error> for Error {
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn display_prefixes_every_variant() {
+        assert_eq!(Error::Http("boom".into()).to_string(), "http: boom");
+        assert_eq!(Error::Parse("bad".into()).to_string(), "parse: bad");
+        assert_eq!(Error::Integrity("sum".into()).to_string(), "integrity: sum");
+        assert_eq!(
+            Error::Unsupported("nope".into()).to_string(),
+            "unsupported: nope"
+        );
+        let io = Error::from(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "missing file",
+        ));
+        assert_eq!(io.to_string(), "io: missing file");
+    }
+
+    #[test]
+    fn error_is_a_std_error_without_a_source() {
+        let err: Box<dyn std::error::Error> = Box::new(Error::Unsupported("x".into()));
+        assert!(err.source().is_none());
+        assert_eq!(err.to_string(), "unsupported: x");
+        let ok: Result<u32> = Ok(7);
+        assert_eq!(ok.ok(), Some(7));
+    }
+}

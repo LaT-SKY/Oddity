@@ -128,3 +128,110 @@ impl LauncherConfig {
         self.root.join("..").join("Client").join("WindowsNoEditor")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::TempDir;
+
+    #[test]
+    fn ini_handles_bom_comments_duplicates_and_bad_lines() {
+        let text = "\u{feff}top=1\r\n; 注释\r\n# 另一种注释\r\n[Main]\r\nKey = Value \r\nKey=Second\r\nempty=\r\nno_separator\r\n[Other]\r\nn=42\r\nnotnum=abc\r\n";
+        let ini = Ini::parse(text);
+        assert_eq!(ini.get("General", "top"), Some("1"));
+        // 重复键取最后一次出现的值
+        assert_eq!(ini.get("Main", "Key"), Some("Second"));
+        assert_eq!(ini.get("Main", "empty"), Some(""));
+        assert_eq!(ini.get("Main", "no_separator"), None);
+        assert_eq!(ini.get_int("Other", "n"), Some(42));
+        assert_eq!(ini.get_int("Other", "notnum"), None);
+        assert_eq!(ini.get_int("Other", "missing"), None);
+        assert_eq!(ini.get("Missing", "n"), None);
+        assert_eq!(ini.section("Other").map(|section| section.len()), Some(2));
+        assert!(ini.section("Nope").is_none());
+    }
+
+    #[test]
+    fn ini_load_reads_files_and_reports_missing_ones() {
+        let dir = TempDir::new("ini");
+        let path = dir.write("Config/Config.ini", "[VERSION]\nVersion=1.2.3\n");
+        let ini = Ini::load(&path).expect("load ini");
+        assert_eq!(ini.get("VERSION", "Version"), Some("1.2.3"));
+        assert!(Ini::load(&dir.join("nope.ini")).is_err());
+    }
+
+    #[test]
+    fn launcher_config_reads_the_ini_values() {
+        let dir = TempDir::new("cfg");
+        dir.write(
+            "Config/Config.ini",
+            r#"[General]
+Launcher=MyLauncher.exe
+Patcher=MyPatcher.exe
+Client=MyGame.exe
+GameID=1289
+LaunchType=3
+
+[VERSION]
+Version=1.4.16
+Build=20240101
+VersionInfoFileURL=https://cdn.test/Version.ini
+BackupVersionURL=https://cdn.test/Backup.ini
+Branch=publish_test
+MutexName=nte-mutex
+PATCHER_IGNORED_SECTION= A , ,B 
+"#,
+        );
+        let cfg = LauncherConfig::load(dir.path()).expect("load config");
+        assert_eq!(cfg.launcher, "MyLauncher.exe");
+        assert_eq!(cfg.patcher, "MyPatcher.exe");
+        assert_eq!(cfg.client, "MyGame.exe");
+        assert_eq!(cfg.game_id, 1289);
+        assert_eq!(cfg.launch_type, 3);
+        assert_eq!(cfg.version, "1.4.16");
+        assert_eq!(cfg.build, "20240101");
+        assert_eq!(cfg.version_url, "https://cdn.test/Version.ini");
+        assert_eq!(cfg.backup_version_url, "https://cdn.test/Backup.ini");
+        assert_eq!(cfg.branch, "publish_test");
+        assert_eq!(cfg.mutex_name, "nte-mutex");
+        // 空白项被丢掉，只留下真正的段名
+        assert_eq!(cfg.patcher_ignored_sections, vec!["A", "B"]);
+        assert_eq!(cfg.launcher_dir(), dir.path());
+        assert_eq!(
+            cfg.user_config(),
+            dir.path()
+                .join("UserData")
+                .join("Config")
+                .join("Config.ini")
+        );
+        assert_eq!(
+            cfg.game_dir(),
+            dir.path().join("..").join("Client").join("WindowsNoEditor")
+        );
+    }
+
+    #[test]
+    fn launcher_config_falls_back_to_defaults() {
+        let dir = TempDir::new("cfg-default");
+        dir.write("Config/Config.ini", "[General]\nGameID=not-a-number\n");
+        let cfg = LauncherConfig::load(dir.path()).expect("load config");
+        assert_eq!(cfg.launcher, "NTELauncher.exe");
+        assert_eq!(cfg.patcher, "NTEUpdate.exe");
+        assert_eq!(cfg.client, "NTEGame.exe");
+        assert_eq!(cfg.game_id, 0);
+        assert_eq!(cfg.launch_type, 0);
+        assert_eq!(cfg.version, "");
+        assert_eq!(cfg.build, "");
+        assert_eq!(cfg.version_url, crate::VERSION_URL);
+        assert_eq!(cfg.backup_version_url, crate::BACKUP_VERSION_URL);
+        assert_eq!(cfg.branch, "publish_ob");
+        assert_eq!(cfg.mutex_name, "");
+        assert!(cfg.patcher_ignored_sections.is_empty());
+    }
+
+    #[test]
+    fn launcher_config_requires_config_ini() {
+        let dir = TempDir::new("cfg-missing");
+        assert!(LauncherConfig::load(dir.path()).is_err());
+    }
+}

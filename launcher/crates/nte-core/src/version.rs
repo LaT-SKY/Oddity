@@ -72,3 +72,87 @@ pub fn compare(a: &str, b: &str) -> Ordering {
 pub fn is_newer(local: &str, remote: &str) -> bool {
     compare(local, remote) == Ordering::Less
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::HttpServer;
+
+    #[test]
+    fn compares_dotted_versions_numerically() {
+        assert_eq!(compare("1.10.0", "1.9.9"), Ordering::Greater);
+        assert_eq!(compare("1.0", "1.0.0"), Ordering::Equal);
+        assert_eq!(compare("1.0.0.1", "1.0"), Ordering::Greater);
+        assert_eq!(compare("0.9", "1"), Ordering::Less);
+        // 非数字段按 0 处理，和官方启动器的宽松解析保持一致
+        assert_eq!(compare("1.x", "1.0"), Ordering::Equal);
+        assert!(is_newer("1.0.0", "1.0.1"));
+        assert!(!is_newer("1.0.1", "1.0.0"));
+        assert!(!is_newer("1.0", "1.0"));
+    }
+
+    #[test]
+    fn fetch_reads_version_ini_and_appends_tick() {
+        let server = HttpServer::start();
+        server.route(
+            "/Version.ini",
+            "[VERSION]\nVersion=1.4.16\nBuild=20240101\nFileListURL=https://cdn.test/AllFiles.xml\n\
+             [UPDATEINFO]\nMode=full\nLevel=3\n",
+        );
+        let info = fetch(&server.url("/Version.ini")).expect("fetch version");
+        assert_eq!(info.version, "1.4.16");
+        assert_eq!(info.build, "20240101");
+        assert_eq!(
+            info.file_list_url.as_deref(),
+            Some("https://cdn.test/AllFiles.xml")
+        );
+        assert_eq!(
+            info.update_info,
+            vec![
+                ("Level".to_string(), "3".to_string()),
+                ("Mode".to_string(), "full".to_string()),
+            ]
+        );
+        let target = server
+            .targets()
+            .into_iter()
+            .next()
+            .expect("recorded request");
+        assert!(target.starts_with("/Version.ini?t="), "{target}");
+    }
+
+    #[test]
+    fn fetch_uses_ampersand_when_the_url_already_has_a_query() {
+        let server = HttpServer::start();
+        server.route("/Version.ini", "[VERSION]\nVersion=2.0\n");
+        let info =
+            fetch(&format!("{}?branch=ob", server.url("/Version.ini"))).expect("fetch version");
+        assert_eq!(info.version, "2.0");
+        assert_eq!(info.build, "");
+        assert!(info.file_list_url.is_none());
+        assert!(info.update_info.is_empty());
+        let target = server
+            .targets()
+            .into_iter()
+            .next()
+            .expect("recorded request");
+        assert!(target.starts_with("/Version.ini?branch=ob&t="), "{target}");
+    }
+
+    #[test]
+    fn fetch_rejects_a_response_without_version() {
+        let server = HttpServer::start();
+        server.route("/Version.ini", "[UPDATEINFO]\nMode=full\n");
+        let error = fetch(&server.url("/Version.ini")).expect_err("missing version");
+        assert!(matches!(error, Error::Parse(_)), "{error:?}");
+        assert!(error.to_string().contains("no [VERSION] Version"));
+    }
+
+    #[test]
+    fn fetch_reports_http_failures() {
+        let server = HttpServer::start();
+        let error = fetch(&server.url("/missing.ini")).expect_err("404");
+        assert!(matches!(error, Error::Http(_)), "{error:?}");
+        assert!(error.to_string().contains("missing.ini"));
+    }
+}

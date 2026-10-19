@@ -192,3 +192,156 @@ fn default_rules() -> Vec<CheckRule> {
         },
     ]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::TempDir;
+
+    const PATCHER_DIR: &str = "install/NTELauncher/ResFilesM/1289/PatcherConfig";
+
+    fn launcher_root(dir: &TempDir) -> PathBuf {
+        dir.join("install/NTELauncher")
+    }
+
+    #[test]
+    fn loads_the_full_patcher_configuration() {
+        let dir = TempDir::new("gamecfg");
+        dir.write(
+            format!("{PATCHER_DIR}/PatcherConfig.json"),
+            r#"{"gameResUrl":["https://a.test/cdn/","https://b.test/cdn"],"branchName":"publish_ob","updateBranchName":"publish_up","appId":"1289"}"#,
+        );
+        dir.write(
+            format!("{PATCHER_DIR}/PatcherPath.json"),
+            r#"{"check_dir_list":["Client/Content/Paks"],"ResRoot":"X","Patcher":"Y"}"#,
+        );
+        dir.write(
+            format!("{PATCHER_DIR}/PatcherCheckConfig.json"),
+            r#"[{"type":"sig","maxSize":100},{"type":".utoc","maxSize":200},{"type":"","maxSize":10},{"type":"bin","maxSize":0}]"#,
+        );
+        dir.write(
+            "install/NTELauncher/UserData/Config/Config.ini",
+            "[Game]\nVersion_=1.4.16\n",
+        );
+
+        let root = launcher_root(&dir);
+        let cfg = GameUpdateConfig::load(&root, 1289).expect("load config");
+        assert_eq!(cfg.config_dir, dir.join(PATCHER_DIR));
+        assert_eq!(cfg.install_root, dir.join("install"));
+        assert_eq!(
+            cfg.patcher_dir,
+            root.join("UserData").join("Patcher").join("PatcherSDK")
+        );
+        assert_eq!(cfg.cdns, vec!["https://a.test/cdn/", "https://b.test/cdn"]);
+        assert_eq!(cfg.branch, "publish_ob");
+        assert_eq!(cfg.update_branch, "publish_up");
+        assert_eq!(cfg.app_id, "1289");
+        assert_eq!(cfg.check_dirs, vec!["Client/Content/Paks"]);
+        assert_eq!(cfg.max_threads, 5);
+        // 空类型和 0 上限的规则被丢弃，缺少点号的扩展名补上点号
+        assert_eq!(cfg.rules.len(), 2);
+        assert_eq!(cfg.rules[0].extension, ".sig");
+        assert_eq!(cfg.rules[0].max_size, 100);
+        assert_eq!(cfg.rules[1].extension, ".utoc");
+        assert_eq!(cfg.game_dir(), dir.join("install/Client/WindowsNoEditor"));
+        assert_eq!(cfg.local_version().as_deref(), Some("1.4.16"));
+
+        assert!(cfg.force_hash("Client/Content/Paks/a.sig", 100));
+        assert!(cfg.force_hash("Client/Content/Paks/A.SIG", 100));
+        assert!(!cfg.force_hash("Client/Content/Paks/a.sig", 101));
+        assert!(!cfg.force_hash("Client/Content/Paks/a.pak", 10));
+    }
+
+    #[test]
+    fn falls_back_to_the_update_asset_url_and_default_cdn() {
+        let dir = TempDir::new("gamecfg-cdn");
+        dir.write(
+            format!("{PATCHER_DIR}/PatcherConfig.json"),
+            r#"{"gameUpdateAssetUrl":["https://assets.test/res"],"branchName":"publish_ob","appId":"1289"}"#,
+        );
+        let cfg = GameUpdateConfig::load(&launcher_root(&dir), 0).expect("load config");
+        assert_eq!(cfg.cdns, vec!["https://assets.test/res"]);
+        // 没有 PatcherPath.json 时 check_dir_list 为空
+        assert!(cfg.check_dirs.is_empty());
+        // 没有 PatcherCheckConfig.json 时使用默认规则
+        assert_eq!(cfg.rules.len(), 2);
+        assert_eq!(cfg.rules[0].extension, ".sig");
+        assert_eq!(cfg.rules[1].extension, ".utoc");
+        assert_eq!(cfg.update_branch, "publish_Updata");
+        assert!(cfg.local_version().is_none());
+
+        dir.write(
+            format!("{PATCHER_DIR}/PatcherConfig.json"),
+            r#"{"branchName":"publish_ob","appId":"1289"}"#,
+        );
+        let cfg = GameUpdateConfig::load(&launcher_root(&dir), 0).expect("load config");
+        assert_eq!(cfg.cdns, vec!["https://yhcdn1.wmupd.com/clientRes"]);
+    }
+
+    #[test]
+    fn rejects_incomplete_patcher_configs() {
+        let dir = TempDir::new("gamecfg-bad");
+        let root = launcher_root(&dir);
+
+        let error = GameUpdateConfig::load(&root, 0).expect_err("no ResFilesM");
+        assert!(matches!(error, Error::Io(_)), "{error:?}");
+
+        std::fs::create_dir_all(root.join("ResFilesM")).expect("create ResFilesM");
+        let error = GameUpdateConfig::load(&root, 0).expect_err("no config dir");
+        assert!(error.to_string().contains("no ResFilesM"), "{error}");
+
+        dir.write(format!("{PATCHER_DIR}/PatcherConfig.json"), "{ not json");
+        let error = GameUpdateConfig::load(&root, 1289).expect_err("bad json");
+        assert!(error.to_string().contains("PatcherConfig.json"), "{error}");
+
+        dir.write(
+            format!("{PATCHER_DIR}/PatcherConfig.json"),
+            r#"{"branchName":"","appId":"1289"}"#,
+        );
+        let error = GameUpdateConfig::load(&root, 1289).expect_err("no branch");
+        assert!(error.to_string().contains("no branchName"), "{error}");
+
+        dir.write(
+            format!("{PATCHER_DIR}/PatcherConfig.json"),
+            r#"{"branchName":"publish_ob"}"#,
+        );
+        let error = GameUpdateConfig::load(&root, 1289).expect_err("no app id");
+        assert!(error.to_string().contains("no appId"), "{error}");
+
+        dir.write(
+            format!("{PATCHER_DIR}/PatcherConfig.json"),
+            r#"{"branchName":"publish_ob","appId":"1289"}"#,
+        );
+        dir.write(format!("{PATCHER_DIR}/PatcherCheckConfig.json"), "[{}]");
+        let error = GameUpdateConfig::load(&root, 1289).expect_err("bad rules");
+        assert!(
+            error.to_string().contains("PatcherCheckConfig.json"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn finds_a_config_directory_below_any_game_id() {
+        let dir = TempDir::new("gamecfg-scan");
+        // game_id 指向的目录不存在时退回到扫描 ResFilesM
+        dir.write(
+            "install/NTELauncher/ResFilesM/4321/PatcherConfig/PatcherConfig.json",
+            r#"{"branchName":"publish_ob","appId":"4321"}"#,
+        );
+        let cfg = GameUpdateConfig::load(&launcher_root(&dir), 1289).expect("load config");
+        assert_eq!(cfg.app_id, "4321");
+        assert!(cfg.config_dir.ends_with("ResFilesM/4321/PatcherConfig"));
+    }
+
+    #[test]
+    fn patcher_path_json_is_ignored_when_broken() {
+        let dir = TempDir::new("gamecfg-path");
+        dir.write(
+            format!("{PATCHER_DIR}/PatcherConfig.json"),
+            r#"{"branchName":"publish_ob","appId":"1289"}"#,
+        );
+        dir.write(format!("{PATCHER_DIR}/PatcherPath.json"), "not json");
+        let cfg = GameUpdateConfig::load(&launcher_root(&dir), 1289).expect("load config");
+        assert!(cfg.check_dirs.is_empty());
+    }
+}

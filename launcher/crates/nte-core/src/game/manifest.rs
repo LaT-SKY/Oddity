@@ -454,4 +454,141 @@ mod tests {
         assert_eq!(m.res[0].blocks[0].md5, "def");
         assert_eq!(m.packages[0].paks[0].entries[0].offset, 2);
     }
+
+    #[test]
+    fn parses_base_versions_with_res_and_packages() {
+        let xml = r#"<ResList version="1.4" tag="root">
+  <Res filename="root.pak" md5="AA" filesize="10" timestamp="1700000000" check="1"><Block index="0" start="0" size="10" md5="BB"/></Res>
+  <BaseVersion version="1.0" tag="old">
+    <ResList version="999" tag="ignored">
+      <Res filename="old.pak" md5="CC" filesize="5"/>
+      <Package><Pak md5="DD" filesize="6"><Entry name="e1" start="1" offset="2" size="3" md5="EE"/></Pak></Package>
+      <Package/>
+    </ResList>
+  </BaseVersion>
+</ResList>"#;
+        let m = parse_res_list(xml).expect("parse");
+        // 内层 ResList 的 version/tag 不覆盖外层
+        assert_eq!(m.version, "1.4");
+        assert_eq!(m.tag, "root");
+        assert_eq!(m.res.len(), 1);
+        assert_eq!(m.res[0].timestamp, Some(1_700_000_000));
+        assert!(m.res[0].check);
+        assert_eq!(m.res[0].blocks.len(), 1);
+        assert!(m.packages.is_empty());
+        assert_eq!(m.base_versions.len(), 1);
+        let base = &m.base_versions[0];
+        assert_eq!(base.version, "1.0");
+        assert_eq!(base.tag, "old");
+        assert_eq!(base.res.len(), 1);
+        assert_eq!(base.res[0].filename, "old.pak");
+        assert_eq!(base.packages.len(), 2);
+        assert_eq!(base.packages[0].paks[0].entries[0].md5, "ee");
+        assert_eq!(base.packages[0].paks[0].filesize, 6);
+    }
+
+    #[test]
+    fn parses_start_end_element_forms() {
+        let xml = r#"<ResList version="9"><Res filename="a.bin" md5="AA" filesize="7"><Block index="1" start="2" size="3" md5="BB"></Block></Res><Package><Pak md5="CC" filesize="8"><Entry name="e" start="0" offset="0" size="8" md5="DD"></Entry></Pak></Package><Package/></ResList>"#;
+        let m = parse_res_list(xml).expect("parse");
+        assert_eq!(m.res[0].blocks[0].index, 1);
+        assert_eq!(m.packages[0].paks[0].entries[0].name, "e");
+        // <Package/> 自闭合条目也要计入
+        assert_eq!(m.packages.len(), 2);
+    }
+
+    #[test]
+    fn parses_base_version_start_end_res() {
+        let xml = r#"<ResList><BaseVersion version="2.0" tag="t"><Res filename="x.bin" md5="AA" filesize="1"><Block index="0" start="0" size="1" md5="BB"></Block></Res><Package><Pak md5="CC" filesize="2"><Entry name="y" start="0" offset="0" size="2" md5="DD"></Entry></Pak></Package></BaseVersion></ResList>"#;
+        let m = parse_res_list(xml).expect("parse");
+        let base = &m.base_versions[0];
+        assert_eq!(base.res.len(), 1);
+        assert_eq!(base.res[0].blocks.len(), 1);
+        assert_eq!(base.packages.len(), 1);
+        assert_eq!(base.packages[0].paks[0].entries[0].name, "y");
+    }
+
+    #[test]
+    fn res_entries_default_when_attributes_are_missing() {
+        let xml = r#"<ResList><Res filename="a" timestamp="not-a-number" check="0"/></ResList>"#;
+        let m = parse_res_list(xml).expect("parse");
+        assert_eq!(m.res[0].filesize, 0);
+        assert_eq!(m.res[0].md5, "");
+        assert!(m.res[0].timestamp.is_none());
+        assert!(!m.res[0].check);
+    }
+
+    #[test]
+    fn res_list_rejects_empty_and_malformed_documents() {
+        let error = parse_res_list(r#"<ResList version="1"></ResList>"#).expect_err("empty");
+        assert!(error.to_string().contains("no entries"), "{error}");
+        let error = parse_res_list(r#"<ResList><Res filename="a"></ResList>"#).expect_err("xml");
+        assert!(error.to_string().contains("ResList XML"), "{error}");
+    }
+
+    #[test]
+    fn parses_diff_list_patches_and_sections() {
+        let xml = r#"<LastDiff><Section resversion="1.4.16"/><Section resversion=""/><Section resversion="1.3.0"></Section><Patch oldfile="aa.10" newfile="bb.20" patch="cc.5" v="hash1"><Block index="0" start="0" size="5" md5="DD"/></Patch><Patch oldfile="ee.1" newfile="ff.2" patch="gg.3"></Patch></LastDiff>"#;
+        let d = parse_diff_list(xml).expect("parse");
+        assert_eq!(d.sections, vec!["1.4.16", "1.3.0"]);
+        assert_eq!(d.patches.len(), 2);
+        assert_eq!(d.patches[0].old_file, "aa.10");
+        assert_eq!(d.patches[0].new_file, "bb.20");
+        assert_eq!(d.patches[0].version, "hash1");
+        assert_eq!(d.patches[0].blocks.len(), 1);
+        assert_eq!(d.patches[1].patch, "gg.3");
+    }
+
+    #[test]
+    fn diff_list_accepts_an_empty_document_and_reports_errors() {
+        let d = parse_diff_list("<LastDiff/>").expect("parse");
+        assert!(d.patches.is_empty());
+        assert!(d.sections.is_empty());
+        let error = parse_diff_list("<LastDiff><Patch></LastDiff>").expect_err("xml");
+        assert!(error.to_string().contains("lastdiff XML"), "{error}");
+    }
+
+    #[test]
+    fn parses_remote_config_values() {
+        let xml = r#"<Config><ResVersion>1.4.16</ResVersion><Hash>ABCDEF</Hash><ResSize>12345</ResSize><Tag>baseTag</Tag><listHash>LH</listHash><diffHash>DH</diffHash><maxThreadCnt>8</maxThreadCnt><BaseVersion><Res section="publish_ob" version="1.0" Tag="t" ResSize="7"/></BaseVersion></Config>"#;
+        let c = parse_remote_config(xml).expect("parse");
+        assert_eq!(c.res_version, "1.4.16");
+        assert_eq!(c.hash, "ABCDEF");
+        assert_eq!(c.res_size, 12345);
+        assert_eq!(c.tag, "baseTag");
+        assert_eq!(c.list_hash, "LH");
+        assert_eq!(c.diff_hash, "DH");
+        assert_eq!(c.max_threads, 8);
+        assert_eq!(c.base_versions.len(), 1);
+        assert_eq!(c.base_versions[0].section, "publish_ob");
+        assert_eq!(c.base_versions[0].version, "1.0");
+        assert_eq!(c.base_versions[0].tag, "t");
+        assert_eq!(c.base_versions[0].res_size, 7);
+    }
+
+    #[test]
+    fn remote_config_clamps_and_defaults_threads() {
+        let xml = "<Config><ResVersion>1</ResVersion><maxThreadCnt>abc</maxThreadCnt></Config>";
+        assert_eq!(parse_remote_config(xml).expect("parse").max_threads, 5);
+        let xml = "<Config><ResVersion>1</ResVersion><maxThreadCnt>0</maxThreadCnt></Config>";
+        assert_eq!(parse_remote_config(xml).expect("parse").max_threads, 1);
+        let xml = "<Config><ResVersion>1</ResVersion></Config>";
+        assert_eq!(parse_remote_config(xml).expect("parse").max_threads, 5);
+    }
+
+    #[test]
+    fn remote_config_accepts_the_base_verson_typo() {
+        let xml = r#"<Config><ResVersion>2</ResVersion><BaseVerson><Res section="s" version="v" Tag="T" ResSize="9"></Res></BaseVerson></Config>"#;
+        let c = parse_remote_config(xml).expect("parse");
+        assert_eq!(c.base_versions.len(), 1);
+        assert_eq!(c.base_versions[0].section, "s");
+    }
+
+    #[test]
+    fn remote_config_requires_a_res_version() {
+        let error = parse_remote_config("<Config><Hash>x</Hash></Config>").expect_err("missing");
+        assert!(error.to_string().contains("no ResVersion"), "{error}");
+        let error = parse_remote_config("<Config><ResVersion>1</ResVersion").expect_err("xml");
+        assert!(error.to_string().contains("config.xml"), "{error}");
+    }
 }

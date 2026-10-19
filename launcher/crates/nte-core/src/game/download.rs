@@ -426,3 +426,586 @@ fn install_temp(temp: &Path, target: &Path) -> Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::check::{UpdatePlan, UpdateReason};
+    use crate::game::manifest::{PakEntry, ResEntry};
+    use crate::testing::{lock_env, write_script, HttpServer, TempDir};
+
+    const BRANCH: &str = "publish_ob";
+
+    fn config_for(dir: &TempDir) -> GameUpdateConfig {
+        GameUpdateConfig {
+            launcher_root: dir.join("install/NTELauncher"),
+            install_root: dir.join("install"),
+            config_dir: dir.join("install/NTELauncher/ResFilesM/1289/PatcherConfig"),
+            patcher_dir: dir.join("install/NTELauncher/UserData/Patcher/PatcherSDK"),
+            branch: BRANCH.to_string(),
+            update_branch: "publish_Updata".to_string(),
+            app_id: "1289".to_string(),
+            cdns: vec!["https://cdn.test/clientRes".to_string()],
+            rules: Vec::new(),
+            check_dirs: Vec::new(),
+            max_threads: 5,
+        }
+    }
+
+    fn res_item(path: &str, md5: &str, size: u64) -> UpdateItem {
+        UpdateItem {
+            path: path.to_string(),
+            size,
+            md5: md5.to_string(),
+            reason: UpdateReason::Missing,
+            kind: UpdateKind::Res {
+                res: ResEntry {
+                    filename: path.to_string(),
+                    filesize: size,
+                    md5: md5.to_string(),
+                    timestamp: None,
+                    check: false,
+                    blocks: Vec::new(),
+                },
+            },
+            patch: None,
+            download_size: size,
+        }
+    }
+
+    fn pak_item(path: &str, entry_md5: &str, offset: u64, size: u64, pak_size: u64) -> UpdateItem {
+        UpdateItem {
+            path: path.to_string(),
+            size,
+            md5: entry_md5.to_string(),
+            reason: UpdateReason::Missing,
+            kind: UpdateKind::PakEntry {
+                pak_md5: "aa".repeat(16),
+                pak_size,
+                entry: PakEntry {
+                    name: path.to_string(),
+                    start: 0,
+                    offset,
+                    size,
+                    md5: entry_md5.to_string(),
+                    check: false,
+                },
+            },
+            patch: None,
+            download_size: size,
+        }
+    }
+
+    fn plan_of(items: Vec<UpdateItem>) -> UpdatePlan {
+        UpdatePlan {
+            remote_version: "1.4.16".to_string(),
+            remote_tag: "baseTag".to_string(),
+            remote_hash: "HASH".to_string(),
+            items,
+            ..Default::default()
+        }
+    }
+
+    fn res_path(md5: &str, size: u64) -> String {
+        let md5 = md5.to_ascii_lowercase();
+        format!(
+            "/cdn/{BRANCH}/Res/{}/{md5}.{size}",
+            md5.chars().next().unwrap_or('0')
+        )
+    }
+
+    #[test]
+    fn res_url_uses_the_first_cdn_and_a_lowercase_md5() {
+        let dir = TempDir::new("dl-url");
+        let mut config = config_for(&dir);
+        config.cdns = vec![
+            "https://cdn.test/clientRes/".to_string(),
+            "https://backup.test/res".to_string(),
+        ];
+        assert_eq!(
+            res_url(&config, &"AB".repeat(16), 12),
+            format!(
+                "https://cdn.test/clientRes/{BRANCH}/Res/a/{}.12",
+                "ab".repeat(16)
+            )
+        );
+
+        config.cdns.clear();
+        assert_eq!(
+            res_url(&config, "", 0),
+            format!("https://yhcdn1.wmupd.com/clientRes/{BRANCH}/Res/0/.0")
+        );
+    }
+
+    #[test]
+    fn dry_run_reports_without_downloading() {
+        let dir = TempDir::new("dl-dry");
+        let config = config_for(&dir);
+        let plan = plan_of(vec![
+            res_item("data/a.bin", &"aa".repeat(16), 3),
+            res_item("data/b.bin", &"bb".repeat(16), 4),
+        ]);
+        let report = apply_plan(
+            &config,
+            &plan,
+            &ApplyOptions {
+                dry_run: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(report.results.len(), 2);
+        assert!(report
+            .results
+            .iter()
+            .all(|r| r.ok && r.skipped && r.bytes == 0));
+        assert_eq!(report.skipped, 2);
+        assert_eq!(report.downloaded_bytes, 0);
+        assert_eq!(report.failed, 0);
+        assert!(report.ledger_error.is_none());
+        assert!(!dir.is_file("install/data/a.bin"));
+
+        let report = apply_plan(
+            &config,
+            &plan,
+            &ApplyOptions {
+                dry_run: true,
+                only: Some("b.bin".to_string()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(report.results.len(), 1);
+        assert_eq!(report.results[0].path, "data/b.bin");
+    }
+
+    #[test]
+    fn apply_plan_downloads_res_files_and_updates_the_ledger() {
+        let dir = TempDir::new("dl-apply");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let content = b"payload bytes";
+        let md5 = crate::update::md5_bytes(content);
+        server.route(res_path(&md5, content.len() as u64), content);
+
+        let report = apply_plan(
+            &config,
+            &plan_of(vec![res_item("data/a.bin", &md5, content.len() as u64)]),
+            &ApplyOptions::default(),
+        );
+        assert_eq!(report.failed, 0);
+        assert!(report.results[0].ok);
+        assert!(!report.results[0].skipped);
+        assert_eq!(report.downloaded_bytes, content.len() as u64);
+        assert_eq!(dir.read("install/data/a.bin"), content);
+
+        // 账本写回后，下一次检查可以直接信任记录
+        let ledger = crate::game::check::load_local_ledger(&config)
+            .expect("load ledger")
+            .expect("ledger written");
+        assert_eq!(ledger.version, "1.4.16");
+        assert_eq!(ledger.tag, "baseTag");
+        assert_eq!(ledger.res[0].filename, "data/a.bin");
+        assert_eq!(ledger.res[0].md5, md5);
+    }
+
+    #[test]
+    fn apply_plan_skips_files_that_already_match() {
+        let dir = TempDir::new("dl-skip");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let content = b"payload bytes";
+        let md5 = crate::update::md5_bytes(content);
+        let path = res_path(&md5, content.len() as u64);
+        server.route(&path, content);
+        dir.write("install/data/a.bin", content);
+
+        let plan = plan_of(vec![res_item("data/a.bin", &md5, content.len() as u64)]);
+        let report = apply_plan(&config, &plan, &ApplyOptions::default());
+        assert_eq!(report.downloaded_bytes, 0);
+        assert_eq!(report.results[0].bytes, 0);
+        assert_eq!(server.hits(&path), 0);
+
+        // force 会绕过这个快速路径
+        let report = apply_plan(
+            &config,
+            &plan,
+            &ApplyOptions {
+                force: true,
+                ..Default::default()
+            },
+        );
+        assert_eq!(report.downloaded_bytes, content.len() as u64);
+        assert_eq!(server.hits(&path), 1);
+    }
+
+    #[test]
+    fn apply_plan_records_failures_without_touching_the_ledger() {
+        let dir = TempDir::new("dl-fail");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+
+        let report = apply_plan(
+            &config,
+            &plan_of(vec![res_item("data/a.bin", &"aa".repeat(16), 5)]),
+            &ApplyOptions {
+                update_ledger: false,
+                ..Default::default()
+            },
+        );
+        assert_eq!(report.failed, 1);
+        assert!(!report.results[0].ok);
+        assert!(report.results[0]
+            .error
+            .as_deref()
+            .expect("error text")
+            .contains("404"));
+        assert!(report.ledger_error.is_none());
+        assert!(!config.patcher_dir.join("ResList.xml").exists());
+    }
+
+    #[test]
+    fn apply_plan_reuses_a_verified_partial_download() {
+        let dir = TempDir::new("dl-reuse");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let content = b"payload bytes";
+        let md5 = crate::update::md5_bytes(content);
+        let path = res_path(&md5, content.len() as u64);
+        server.route(&path, content);
+
+        let part = config
+            .patcher_dir
+            .join("tmp/nte-native/Res")
+            .join(format!("{md5}.{}.part", content.len()));
+        fs::create_dir_all(part.parent().expect("parent")).expect("create staging");
+        fs::write(&part, content).expect("write part");
+
+        let report = apply_plan(
+            &config,
+            &plan_of(vec![res_item("data/a.bin", &md5, content.len() as u64)]),
+            &ApplyOptions::default(),
+        );
+        assert_eq!(report.downloaded_bytes, 0);
+        assert_eq!(server.hits(&path), 0);
+        assert_eq!(dir.read("install/data/a.bin"), content);
+    }
+
+    #[test]
+    fn apply_plan_resumes_an_incomplete_download() {
+        let dir = TempDir::new("dl-resume");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let content: Vec<u8> = (0..=255u8).collect();
+        let md5 = crate::update::md5_bytes(&content);
+        let path = res_path(&md5, content.len() as u64);
+        server.route(&path, &content);
+
+        let part = config
+            .patcher_dir
+            .join("tmp/nte-native/Res")
+            .join(format!("{md5}.{}.part", content.len()));
+        fs::create_dir_all(part.parent().expect("parent")).expect("create staging");
+        fs::write(&part, &content[..100]).expect("write partial");
+
+        let report = apply_plan(
+            &config,
+            &plan_of(vec![res_item("data/a.bin", &md5, content.len() as u64)]),
+            &ApplyOptions::default(),
+        );
+        assert!(report.results[0].ok, "{:?}", report.results[0].error);
+        // 只补齐了缺少的部分
+        assert_eq!(report.downloaded_bytes, content.len() as u64 - 100);
+        assert_eq!(dir.read("install/data/a.bin"), content);
+        assert!(!part.exists());
+    }
+
+    #[test]
+    fn apply_plan_discards_unusable_partial_downloads() {
+        let dir = TempDir::new("dl-discard");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let content = b"payload bytes";
+        let md5 = crate::update::md5_bytes(content);
+        let path = res_path(&md5, content.len() as u64);
+        server.route(&path, content);
+
+        let part = config
+            .patcher_dir
+            .join("tmp/nte-native/Res")
+            .join(format!("{md5}.{}.part", content.len()));
+        fs::create_dir_all(part.parent().expect("parent")).expect("create staging");
+
+        // 同尺寸但内容损坏：必须先校验再丢弃
+        fs::write(&part, b"wrong content").expect("write broken part");
+        let report = apply_plan(
+            &config,
+            &plan_of(vec![res_item("data/a.bin", &md5, content.len() as u64)]),
+            &ApplyOptions::default(),
+        );
+        assert!(report.results[0].ok, "{:?}", report.results[0].error);
+        assert_eq!(report.downloaded_bytes, content.len() as u64);
+        assert_eq!(dir.read("install/data/a.bin"), content);
+
+        // 超出预期大小的残留文件直接删除重下
+        fs::create_dir_all(part.parent().expect("parent")).expect("create staging");
+        fs::write(&part, vec![0u8; content.len() + 5]).expect("write oversized part");
+        let report = apply_plan(
+            &config,
+            &plan_of(vec![res_item("data/b.bin", &md5, content.len() as u64)]),
+            &ApplyOptions::default(),
+        );
+        assert_eq!(report.downloaded_bytes, content.len() as u64);
+        assert_eq!(dir.read("install/data/b.bin"), content);
+    }
+
+    #[test]
+    fn apply_plan_reports_a_partial_download_that_cannot_be_resumed() {
+        let dir = TempDir::new("dl-416");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let md5 = "ab".repeat(16);
+        // 服务端内容比已存在的分片还短：Range 请求会得到 416
+        server.route(res_path(&md5, 100), b"short");
+
+        let part = config
+            .patcher_dir
+            .join("tmp/nte-native/Res")
+            .join(format!("{md5}.100.part"));
+        fs::create_dir_all(part.parent().expect("parent")).expect("create staging");
+        fs::write(&part, vec![0u8; 50]).expect("write partial");
+
+        let report = apply_plan(
+            &config,
+            &plan_of(vec![res_item("data/a.bin", &md5, 100)]),
+            &ApplyOptions::default(),
+        );
+        assert_eq!(report.failed, 1);
+        assert!(report.results[0]
+            .error
+            .as_deref()
+            .expect("error text")
+            .contains("download md5 mismatch"));
+    }
+
+    #[test]
+    fn download_falls_back_to_the_next_cdn() {
+        let dir = TempDir::new("dl-cdn");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/bad"), server.url("/good")];
+        let content = b"payload bytes";
+        let md5 = crate::update::md5_bytes(content);
+        let suffix = format!(
+            "{BRANCH}/Res/{}/{md5}.{}",
+            md5.chars().next().unwrap_or('0'),
+            content.len()
+        );
+        server.route(format!("/good/{suffix}"), content);
+
+        let report = apply_plan(
+            &config,
+            &plan_of(vec![res_item("data/a.bin", &md5, content.len() as u64)]),
+            &ApplyOptions::default(),
+        );
+        assert!(report.results[0].ok, "{:?}", report.results[0].error);
+        assert_eq!(dir.read("install/data/a.bin"), content);
+        assert_eq!(server.hits(&format!("/bad/{suffix}")), 1);
+        assert_eq!(server.hits(&format!("/good/{suffix}")), 1);
+    }
+
+    #[test]
+    fn download_verifies_the_content_md5() {
+        let dir = TempDir::new("dl-md5");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let content = b"payload bytes";
+        let md5 = "ff".repeat(16);
+        let path = res_path(&md5, content.len() as u64);
+        server.route(&path, content);
+
+        let report = apply_plan(
+            &config,
+            &plan_of(vec![res_item("data/a.bin", &md5, content.len() as u64)]),
+            &ApplyOptions::default(),
+        );
+        assert_eq!(report.failed, 1);
+        assert!(report.results[0]
+            .error
+            .as_deref()
+            .expect("error text")
+            .contains("download md5 mismatch"));
+        assert!(!dir.is_file("install/data/a.bin"));
+    }
+
+    #[test]
+    fn pak_entries_are_downloaded_with_a_range_request() {
+        let dir = TempDir::new("dl-pak");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let pak: Vec<u8> = (0..=255u8).collect();
+        let entry_bytes = pak[10..40].to_vec();
+        let entry_md5 = crate::update::md5_bytes(&entry_bytes);
+        let pak_md5 = "aa".repeat(16);
+        server.route(res_path(&pak_md5, pak.len() as u64), &pak);
+
+        let report = apply_plan(
+            &config,
+            &plan_of(vec![pak_item(
+                "Client/Content/Paks/pakchunk0.pak",
+                &entry_md5,
+                10,
+                entry_bytes.len() as u64,
+                pak.len() as u64,
+            )]),
+            &ApplyOptions::default(),
+        );
+        assert!(report.results[0].ok, "{:?}", report.results[0].error);
+        assert_eq!(report.downloaded_bytes, entry_bytes.len() as u64);
+        assert_eq!(
+            dir.read("install/Client/Content/Paks/pakchunk0.pak"),
+            entry_bytes
+        );
+    }
+
+    #[test]
+    fn pak_entries_with_bad_ids_are_rejected_before_downloading() {
+        let dir = TempDir::new("dl-pak-bad");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+
+        // md5 长度不足
+        let report = apply_plan(
+            &config,
+            &plan_of(vec![pak_item("data/a.pak", "short", 0, 4, 100)]),
+            &ApplyOptions::default(),
+        );
+        assert!(report.results[0]
+            .error
+            .as_deref()
+            .expect("error text")
+            .contains("bad PatcherPak entry"));
+
+        // offset + size 溢出
+        let report = apply_plan(
+            &config,
+            &plan_of(vec![pak_item(
+                "data/b.pak",
+                &"bb".repeat(16),
+                u64::MAX,
+                1,
+                100,
+            )]),
+            &ApplyOptions::default(),
+        );
+        assert!(report.results[0]
+            .error
+            .as_deref()
+            .expect("error text")
+            .contains("bad PatcherPak entry"));
+        assert!(server.targets().is_empty(), "{:?}", server.targets());
+    }
+
+    #[test]
+    fn patches_are_applied_when_hpatchz_is_available() {
+        let _guard = lock_env();
+        let dir = TempDir::new("dl-patch");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let old_content = vec![b'o'; 100];
+        let new_content = vec![b'n'; 200];
+        let new_md5 = crate::update::md5_bytes(&new_content);
+        dir.write("install/data/a.bin", &old_content);
+
+        // 假 hpatchz：把补丁文件当成新内容复制到输出路径
+        let script = write_script(dir.path(), "hpatchz", "#!/bin/sh\ncp \"$3\" \"$4\"\n");
+        std::env::set_var("NTE_HPATCHZ", &script);
+
+        let patch_md5 = new_md5.clone();
+        server.route(res_path(&patch_md5, new_content.len() as u64), &new_content);
+        let mut item = res_item("data/a.bin", &new_md5, new_content.len() as u64);
+        item.reason = UpdateReason::Md5;
+        item.patch = Some(PatchRef {
+            md5: patch_md5,
+            size: new_content.len() as u64,
+            new_md5: new_md5.clone(),
+            new_size: new_content.len() as u64,
+        });
+        item.download_size = new_content.len() as u64;
+
+        let report = apply_plan(&config, &plan_of(vec![item]), &ApplyOptions::default());
+        std::env::remove_var("NTE_HPATCHZ");
+        assert!(report.results[0].ok, "{:?}", report.results[0].error);
+        assert_eq!(dir.read("install/data/a.bin"), new_content);
+        assert_eq!(report.downloaded_bytes, new_content.len() as u64);
+    }
+
+    #[test]
+    fn patch_failures_fall_back_to_the_full_file() {
+        let dir = TempDir::new("dl-patch-fallback");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let new_content = b"full content";
+        let new_md5 = crate::update::md5_bytes(new_content);
+        dir.write("install/data/a.bin", b"old");
+        // 补丁本身取不到：下载失败后必须回到整包下载
+        server.route(res_path(&new_md5, new_content.len() as u64), new_content);
+
+        let mut item = res_item("data/a.bin", &new_md5, new_content.len() as u64);
+        item.reason = UpdateReason::Md5;
+        item.patch = Some(PatchRef {
+            md5: "ee".repeat(16),
+            size: 4,
+            new_md5: new_md5.clone(),
+            new_size: new_content.len() as u64,
+        });
+
+        let report = apply_plan(&config, &plan_of(vec![item]), &ApplyOptions::default());
+        assert!(report.results[0].ok, "{:?}", report.results[0].error);
+        assert_eq!(dir.read("install/data/a.bin"), new_content);
+    }
+
+    #[test]
+    fn a_bad_patch_output_is_rejected() {
+        let _guard = lock_env();
+        let dir = TempDir::new("dl-patch-bad");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let new_content = b"full content";
+        let new_md5 = crate::update::md5_bytes(new_content);
+        dir.write("install/data/a.bin", b"old");
+
+        // 假 hpatchz 输出错误内容：校验失败后仍然回退到整包
+        let script = write_script(dir.path(), "hpatchz", "#!/bin/sh\nprintf broken > \"$4\"\n");
+        std::env::set_var("NTE_HPATCHZ", &script);
+
+        let patch_bytes = b"diff";
+        let patch_md5 = crate::update::md5_bytes(patch_bytes);
+        server.route(res_path(&patch_md5, patch_bytes.len() as u64), patch_bytes);
+        server.route(res_path(&new_md5, new_content.len() as u64), new_content);
+        let mut item = res_item("data/a.bin", &new_md5, new_content.len() as u64);
+        item.reason = UpdateReason::Md5;
+        item.patch = Some(PatchRef {
+            md5: patch_md5,
+            size: patch_bytes.len() as u64,
+            new_md5: new_md5.clone(),
+            new_size: new_content.len() as u64,
+        });
+
+        let report = apply_plan(&config, &plan_of(vec![item]), &ApplyOptions::default());
+        std::env::remove_var("NTE_HPATCHZ");
+        assert!(report.results[0].ok, "{:?}", report.results[0].error);
+        assert_eq!(dir.read("install/data/a.bin"), new_content);
+    }
+}

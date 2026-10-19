@@ -161,3 +161,228 @@ fn esc(s: &str) -> String {
         .replace('"', "&quot;")
         .replace('\'', "&apos;")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::game::check::{UpdateItem, UpdateReason};
+    use crate::game::manifest::{Block, PakEntry};
+    use crate::testing::TempDir;
+
+    fn config_for(dir: &TempDir) -> GameUpdateConfig {
+        GameUpdateConfig {
+            launcher_root: dir.join("install/NTELauncher"),
+            install_root: dir.join("install"),
+            config_dir: dir.join("install/NTELauncher/ResFilesM/1289/PatcherConfig"),
+            patcher_dir: dir.join("install/NTELauncher/UserData/Patcher/PatcherSDK"),
+            branch: "publish_ob".to_string(),
+            update_branch: "publish_Updata".to_string(),
+            app_id: "1289".to_string(),
+            cdns: vec!["https://cdn.test/clientRes".to_string()],
+            rules: Vec::new(),
+            check_dirs: Vec::new(),
+            max_threads: 5,
+        }
+    }
+
+    fn res_item(path: &str, md5: &str, size: u64, check: bool, blocks: Vec<Block>) -> UpdateItem {
+        UpdateItem {
+            path: path.to_string(),
+            size,
+            md5: md5.to_string(),
+            reason: UpdateReason::Md5,
+            kind: UpdateKind::Res {
+                res: ResEntry {
+                    filename: path.to_string(),
+                    filesize: size,
+                    md5: md5.to_string(),
+                    timestamp: None,
+                    check,
+                    blocks,
+                },
+            },
+            patch: None,
+            download_size: size,
+        }
+    }
+
+    fn plan_with(items: Vec<UpdateItem>) -> UpdatePlan {
+        UpdatePlan {
+            remote_version: "1.4.16".to_string(),
+            remote_tag: "baseTag".to_string(),
+            remote_hash: "HASH".to_string(),
+            items,
+            ..Default::default()
+        }
+    }
+
+    fn write_ledger(config: &GameUpdateConfig, xml: &str) {
+        let encoded = pxml::encode(xml.as_bytes(), &config.app_id).expect("encode ledger");
+        fs::create_dir_all(&config.patcher_dir).expect("create patcher dir");
+        fs::write(config.patcher_dir.join("ResList.xml"), encoded).expect("write ledger");
+    }
+
+    fn read_ledger(config: &GameUpdateConfig) -> GameManifest {
+        crate::game::check::load_local_ledger(config)
+            .expect("load ledger")
+            .expect("ledger written")
+    }
+
+    #[test]
+    fn empty_results_leave_the_ledger_alone() {
+        let dir = TempDir::new("ledger-empty");
+        let config = config_for(&dir);
+        update_after_apply(
+            &config,
+            &plan_with(vec![res_item("data/a.bin", "aa", 1, false, Vec::new())]),
+            &[],
+        )
+        .expect("update");
+        assert!(!config.patcher_dir.join("ResList.xml").exists());
+    }
+
+    #[test]
+    fn updates_existing_entries_and_appends_new_ones() {
+        let dir = TempDir::new("ledger-update");
+        let config = config_for(&dir);
+        dir.write("install/data/known.bin", b"known");
+        dir.write("install/data/new.bin", b"new");
+        write_ledger(
+            &config,
+            "<ResList version=\"1.0\" tag=\"old\"><Res filename=\"data/known.bin\" md5=\"00\" filesize=\"5\" timestamp=\"1\"/></ResList>",
+        );
+
+        let known_md5 = crate::update::md5_bytes(b"known");
+        let block = Block {
+            index: 0,
+            start: 0,
+            size: 5,
+            md5: "bb".repeat(16),
+        };
+        let plan = plan_with(vec![
+            res_item("data/known.bin", &known_md5, 5, true, vec![block]),
+            res_item(
+                "data/new.bin",
+                &crate::update::md5_bytes(b"new"),
+                3,
+                false,
+                Vec::new(),
+            ),
+        ]);
+        update_after_apply(
+            &config,
+            &plan,
+            &[
+                "data/known.bin".to_string(),
+                "data/new.bin".to_string(),
+                // 计划里没有的路径会被忽略
+                "data/unknown.bin".to_string(),
+            ],
+        )
+        .expect("update");
+
+        let manifest = read_ledger(&config);
+        assert_eq!(manifest.version, "1.4.16");
+        assert_eq!(manifest.tag, "baseTag");
+        assert_eq!(manifest.res.len(), 2);
+
+        let known = manifest
+            .res
+            .iter()
+            .find(|r| r.filename == "data/known.bin")
+            .expect("known entry");
+        assert_eq!(known.md5, known_md5);
+        assert_eq!(known.filesize, 5);
+        assert!(known.timestamp.is_some());
+        assert!(known.check);
+        assert_eq!(known.blocks.len(), 1);
+        assert_eq!(known.blocks[0].md5, "bb".repeat(16));
+
+        let fresh = manifest
+            .res
+            .iter()
+            .find(|r| r.filename == "data/new.bin")
+            .expect("new entry");
+        assert_eq!(fresh.filesize, 3);
+        assert!(!fresh.check);
+        assert!(fresh.blocks.is_empty());
+    }
+
+    #[test]
+    fn updates_entries_inside_base_versions() {
+        let dir = TempDir::new("ledger-base");
+        let config = config_for(&dir);
+        dir.write("install/data/base.bin", b"base");
+        write_ledger(
+            &config,
+            "<ResList version=\"1.0\" tag=\"old\"><BaseVersion version=\"1.0\" tag=\"t\"><ResList><Res filename=\"data/base.bin\" md5=\"00\" filesize=\"4\"/></ResList></BaseVersion></ResList>",
+        );
+
+        let md5 = crate::update::md5_bytes(b"base");
+        update_after_apply(
+            &config,
+            &plan_with(vec![res_item("data/base.bin", &md5, 4, false, Vec::new())]),
+            &["data/base.bin".to_string()],
+        )
+        .expect("update");
+
+        let manifest = read_ledger(&config);
+        assert!(manifest.res.is_empty());
+        assert_eq!(manifest.base_versions.len(), 1);
+        assert_eq!(manifest.base_versions[0].res[0].filename, "data/base.bin");
+        assert_eq!(manifest.base_versions[0].res[0].md5, md5);
+    }
+
+    #[test]
+    fn pak_entries_are_recorded_without_blocks() {
+        let dir = TempDir::new("ledger-pak");
+        let config = config_for(&dir);
+        let path = "Client/Content/Paks/pakchunk0.pak";
+        let md5 = crate::update::md5_bytes(b"chunk");
+        let item = UpdateItem {
+            path: path.to_string(),
+            size: 5,
+            md5: md5.clone(),
+            reason: UpdateReason::Missing,
+            kind: UpdateKind::PakEntry {
+                pak_md5: "aa".repeat(16),
+                pak_size: 9,
+                entry: PakEntry {
+                    name: path.to_string(),
+                    start: 0,
+                    offset: 0,
+                    size: 5,
+                    md5: md5.clone(),
+                    check: true,
+                },
+            },
+            patch: None,
+            download_size: 5,
+        };
+
+        update_after_apply(&config, &plan_with(vec![item]), &[path.to_string()]).expect("update");
+        let manifest = read_ledger(&config);
+        assert_eq!(manifest.res.len(), 1);
+        assert_eq!(manifest.res[0].filename, path);
+        assert_eq!(manifest.res[0].md5, md5);
+        assert!(manifest.res[0].check);
+        assert!(manifest.res[0].blocks.is_empty());
+        // 文件不存在，时间戳留空
+        assert!(manifest.res[0].timestamp.is_none());
+    }
+
+    #[test]
+    fn escapes_special_characters_in_names() {
+        let dir = TempDir::new("ledger-escape");
+        let config = config_for(&dir);
+        let name = "data/a&b<c>\"d'.bin";
+        update_after_apply(
+            &config,
+            &plan_with(vec![res_item(name, "aa", 1, false, Vec::new())]),
+            &[name.to_string()],
+        )
+        .expect("update");
+        let manifest = read_ledger(&config);
+        assert_eq!(manifest.res[0].filename, name);
+    }
+}

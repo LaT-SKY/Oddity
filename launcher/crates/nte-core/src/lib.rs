@@ -12,6 +12,9 @@ pub mod manifest;
 pub mod update;
 pub mod version;
 
+#[cfg(test)]
+pub(crate) mod testing;
+
 pub use error::{Error, Result};
 
 /// Canonical CDN used by the launcher (publish_ob branch).

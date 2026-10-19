@@ -84,3 +84,74 @@ impl Manifest {
         Ok(m)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::HttpServer;
+
+    #[test]
+    fn parses_manifest_attributes() {
+        let xml = r#"<AllFiles><Url BaseUrl="https://cdn.test/base/"/><ProductVersion Version="1.4.16"/><BuildInfo Time="2024-01-01T00:00:00"/><File Path="/a/b.dat" Checksum="ABC" Size="12" ZipChecksum="DEF" ZipSize="34"/><File Path="/c.dat" Size="bad"/><File Checksum="none"/></AllFiles>"#;
+        let m = Manifest::parse(xml);
+        assert_eq!(m.base_url.as_deref(), Some("https://cdn.test/base/"));
+        assert_eq!(m.product_version.as_deref(), Some("1.4.16"));
+        assert_eq!(m.build_time.as_deref(), Some("2024-01-01T00:00:00"));
+        assert_eq!(m.files.len(), 2);
+        assert_eq!(m.files[0].path, "/a/b.dat");
+        assert_eq!(m.files[0].checksum, "ABC");
+        assert_eq!(m.files[0].size, 12);
+        assert_eq!(m.files[0].zip_checksum.as_deref(), Some("DEF"));
+        assert_eq!(m.files[0].zip_size, Some(34));
+        // 没有 Path 的条目被忽略，非法 Size 退化为 0
+        assert_eq!(m.files[1].path, "/c.dat");
+        assert_eq!(m.files[1].size, 0);
+        assert_eq!(m.files[1].checksum, "");
+        assert!(m.files[1].zip_checksum.is_none());
+        assert!(m.files[1].zip_size.is_none());
+    }
+
+    #[test]
+    fn parses_an_empty_manifest() {
+        let m = Manifest::parse("");
+        assert!(m.base_url.is_none());
+        assert!(m.product_version.is_none());
+        assert!(m.build_time.is_none());
+        assert!(m.files.is_empty());
+    }
+
+    #[test]
+    fn parse_stops_at_an_unterminated_file_tag() {
+        let m = Manifest::parse("<File Path=\"/a\" Size=\"1\"/><File Path=\"/b\"");
+        assert_eq!(m.files.len(), 1);
+        assert_eq!(m.files[0].path, "/a");
+    }
+
+    #[test]
+    fn from_url_downloads_and_parses_a_manifest() {
+        let server = HttpServer::start();
+        server.route(
+            "/AllFiles.xml",
+            "<AllFiles><File Path=\"/a.dat\" Checksum=\"X\" Size=\"2\"/></AllFiles>",
+        );
+        let m = Manifest::from_url(&server.url("/AllFiles.xml")).expect("manifest");
+        assert_eq!(m.files.len(), 1);
+        assert_eq!(m.files[0].path, "/a.dat");
+    }
+
+    #[test]
+    fn from_url_rejects_a_manifest_without_files() {
+        let server = HttpServer::start();
+        server.route("/AllFiles.xml", "<AllFiles/>");
+        let error = Manifest::from_url(&server.url("/AllFiles.xml")).expect_err("no files");
+        assert!(error.to_string().contains("no <File> entries"), "{error}");
+    }
+
+    #[test]
+    fn from_url_reports_http_failures() {
+        let server = HttpServer::start();
+        let error = Manifest::from_url(&server.url("/nope.xml")).expect_err("404");
+        assert!(matches!(error, Error::Http(_)), "{error:?}");
+        assert!(error.to_string().contains("nope.xml"), "{error}");
+    }
+}
