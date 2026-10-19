@@ -1,0 +1,10 @@
+[package]
+name = "nte-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Headless CLI for Oddity launcher (check/apply/doctor)"
+
+[dependencies]
+nte-core = { path = "../nte-core" }
+anyhow.workspace = true
