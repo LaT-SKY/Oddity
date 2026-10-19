@@ -45,7 +45,9 @@ pub fn md5_file(path: &Path) -> Result<String> {
     let mut buf = vec![0u8; 1024 * 1024];
     loop {
         let n = file.read(&mut buf)?;
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         h.update(&buf[..n]);
     }
     Ok(hex(&h.finalize()))
@@ -55,11 +57,17 @@ pub fn check(root: &Path, manifest: &Manifest, quick: bool) -> Result<CheckRepor
     let mut report = CheckReport::default();
     for f in &manifest.files {
         report.checked += 1;
-        let rel = f.path.trim_start_matches('/').replace('/', std::path::MAIN_SEPARATOR_STR);
+        let rel = f
+            .path
+            .trim_start_matches('/')
+            .replace('/', std::path::MAIN_SEPARATOR_STR);
         let local = root.join(rel);
         let meta = match fs::metadata(&local) {
             Ok(m) => m,
-            Err(_) => { report.missing.push(f.clone()); continue; }
+            Err(_) => {
+                report.missing.push(f.clone());
+                continue;
+            }
         };
         if meta.len() != f.size {
             report.changed.push(f.clone());
@@ -99,31 +107,58 @@ pub fn apply_file(root: &Path, zip_base: &str, f: &ManifestFile) -> Result<usize
     if let Some(expect) = &f.zip_checksum {
         let got = md5_bytes(&zip_bytes);
         if !got.eq_ignore_ascii_case(expect) {
-            return Err(Error::Integrity(format!("zip md5 mismatch for {}: {got} != {expect}", f.path)));
+            return Err(Error::Integrity(format!(
+                "zip md5 mismatch for {}: {got} != {expect}",
+                f.path
+            )));
         }
     }
     if let Some(expect) = f.zip_size {
         if zip_bytes.len() as u64 != expect {
-            return Err(Error::Integrity(format!("zip size mismatch for {}: {} != {expect}", f.path, zip_bytes.len())));
+            return Err(Error::Integrity(format!(
+                "zip size mismatch for {}: {} != {expect}",
+                f.path,
+                zip_bytes.len()
+            )));
         }
     }
     let cursor = std::io::Cursor::new(&zip_bytes);
-    let mut archive = zip::ZipArchive::new(cursor).map_err(|e| Error::Parse(format!("zip {}: {e}", f.path)))?;
+    let mut archive =
+        zip::ZipArchive::new(cursor).map_err(|e| Error::Parse(format!("zip {}: {e}", f.path)))?;
     if archive.len() != 1 {
-        return Err(Error::Parse(format!("expected one entry in {}, got {}", f.path, archive.len())));
+        return Err(Error::Parse(format!(
+            "expected one entry in {}, got {}",
+            f.path,
+            archive.len()
+        )));
     }
-    let mut entry = archive.by_index(0).map_err(|e| Error::Parse(format!("zip entry {}: {e}", f.path)))?;
+    let mut entry = archive
+        .by_index(0)
+        .map_err(|e| Error::Parse(format!("zip entry {}: {e}", f.path)))?;
     let mut content = Vec::with_capacity(f.size as usize);
-    entry.read_to_end(&mut content).map_err(|e| Error::Parse(format!("inflate {}: {e}", f.path)))?;
+    entry
+        .read_to_end(&mut content)
+        .map_err(|e| Error::Parse(format!("inflate {}: {e}", f.path)))?;
     drop(entry);
     if content.len() as u64 != f.size {
-        return Err(Error::Integrity(format!("content size mismatch for {}: {} != {}", f.path, content.len(), f.size)));
+        return Err(Error::Integrity(format!(
+            "content size mismatch for {}: {} != {}",
+            f.path,
+            content.len(),
+            f.size
+        )));
     }
     let got = md5_bytes(&content);
     if !got.eq_ignore_ascii_case(&f.checksum) {
-        return Err(Error::Integrity(format!("content md5 mismatch for {}: {got} != {}", f.path, f.checksum)));
+        return Err(Error::Integrity(format!(
+            "content md5 mismatch for {}: {got} != {}",
+            f.path, f.checksum
+        )));
     }
-    let rel = f.path.trim_start_matches('/').replace('/', std::path::MAIN_SEPARATOR_STR);
+    let rel = f
+        .path
+        .trim_start_matches('/')
+        .replace('/', std::path::MAIN_SEPARATOR_STR);
     let dest: PathBuf = root.join(rel);
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)?;

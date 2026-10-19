@@ -11,6 +11,13 @@ dist/
 launcher/crates/nte-app/gen/
 
 # ============================================================
+# Test and coverage output
+# ============================================================
+lcov.info
+coverage-summary.txt
+*.profraw
+
+# ============================================================
 # Private notes / research artifacts (never publish)
 # ============================================================
 # Internal reverse-engineering notes, probes, dossiers, caches and
