@@ -1,0 +1,52 @@
+# ============================================================
+# Build output
+# ============================================================
+target/
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# Tauri generates these schemas at build time
+launcher/crates/nte-app/gen/
+
+# ============================================================
+# Private notes / research artifacts (never publish)
+# ============================================================
+# Internal reverse-engineering notes, probes, dossiers, caches and
+# generated artifacts live here. Only user-facing docs belong in docs/.
+internal/
+research/
+*.snap.json
+
+# ============================================================
+# Captured logs (may contain account ids / machine paths)
+# ============================================================
+docs/evidence/
+*.log
+
+# ============================================================
+# Secrets / local config
+# ============================================================
+.env
+.env.*
+!.env.example
+*.local
+
+# ============================================================
+# Python
+# ============================================================
+__pycache__/
+*.py[cod]
+.venv/
+
+# ============================================================
+# Editor / OS
+# ============================================================
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Install the local development build's desktop entry + icon theme assets.
+#
+# KDE/GNOME resolve a Wayland window's task icon through the matching
+# `oddity.desktop` entry, not through the icon embedded in the binary.
+# Without this step the compositor falls back to the generic Wayland logo.
+set -euo pipefail
+
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+bin=${1:-"$root/target/debug/oddity"}
+data=${XDG_DATA_HOME:-"$HOME/.local/share"}
+icons="$data/icons/hicolor"
+apps="$data/applications"
+
+if [[ ! -x "$bin" ]]; then
+  echo "error: executable not found: $bin" >&2
+  echo "usage: $0 [path/to/oddity]" >&2
+  exit 1
+fi
+bin=$(realpath "$bin")
+
+# Drop the pre-rename desktop entry/icons so the app does not show up twice
+# under the old name after the rebrand.
+rm -f "$apps/thebetternte.desktop"
+rm -f "$icons/scalable/apps/thebetternte.svg"
+for size in 16 22 24 32 48 64 128 256 512; do
+  rm -f "$icons/${size}x${size}/apps/thebetternte.png"
+done
+
+install -Dm644 "$root/ui/assets/app-icon.svg" "$icons/scalable/apps/oddity.svg"
+for size in 16 22 24 32 48 64 128 256 512; do
+  install -Dm644 "$root/crates/nte-app/icons/${size}x${size}.png" \
+    "$icons/${size}x${size}/apps/oddity.png"
+done
+
+tmp=$(mktemp)
+trap 'rm -f "$tmp"' EXIT
+sed -e "s|^Exec=.*|Exec=$bin|" -e "s|^TryExec=.*|TryExec=$bin|" \
+  "$root/packaging/oddity.desktop" >"$tmp"
+install -Dm644 "$tmp" "$apps/oddity.desktop"
+
+command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$apps" >/dev/null 2>&1 || true
+if [[ -f "$icons/index.theme" ]]; then
+  command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t "$icons" >/dev/null 2>&1 || true
+fi
+command -v kbuildsycoca6 >/dev/null 2>&1 && kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+
+echo "installed: $apps/oddity.desktop"
+echo "installed: $icons/*/apps/oddity.png"
+echo "launch:    $bin"

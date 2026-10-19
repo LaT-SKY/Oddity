@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Oddity
+GenericName=Game Launcher
+GenericName[zh_CN]=游戏启动器
+Comment=Native Linux launcher for Neverness To Everness
+Comment[zh_CN]=《异环》Linux 原生启动器
+Exec=oddity
+TryExec=oddity
+Icon=oddity
+Terminal=false
+Categories=Game;Utility;
+Keywords=game;launcher;NTE;异环;
+StartupNotify=true
+StartupWMClass=oddity
+X-KDE-StartupWMClass=oddity
