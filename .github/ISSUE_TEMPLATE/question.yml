@@ -1,0 +1,43 @@
+name: 使用问题
+description: 询问安装、配置或使用方式
+title: "[QUESTION] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请先查看 [README](https://github.com/LaT-SKY/Oddity/blob/main/README.md)、
+        [安装指南](https://github.com/LaT-SKY/Oddity/blob/main/docs/install.md) 和
+        [排障指南](https://github.com/LaT-SKY/Oddity/blob/main/docs/troubleshooting.md)。
+
+        如果问题涉及安全漏洞，请不要发在这里，按[安全政策](https://github.com/LaT-SKY/Oddity/blob/main/SECURITY.md)私下报告。
+
+  - type: textarea
+    id: question
+    attributes:
+      label: 你想问什么
+      description: 请描述具体问题，不要只写“怎么用”或“报错了”。
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      description: Oddity 版本、发行版、桌面环境，以及已经尝试过的配置。
+      placeholder: |
+        Oddity: 0.1.0-rc1
+        发行版: ...
+        桌面环境: Wayland / X11
+        启动方式: 官方后台桥接 / 官方启动器桥接 / 研究直启
+        Proton: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: 已经尝试过什么
+      description: 可选。贴出相关命令、配置或日志片段，并先脱敏。
+    validations:
+      required: false
