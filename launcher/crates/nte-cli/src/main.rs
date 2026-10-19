@@ -268,3 +268,6 @@ fn usage() -> Result<()> {
     println!("nte-cli <check|apply|doctor|game-check|game-apply> --root <launcher install dir> [--quick] [--full] [--include-optional] [--only <substr>] [--dry-run] [--force]");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;
