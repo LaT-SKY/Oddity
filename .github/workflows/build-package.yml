@@ -1,0 +1,134 @@
+name: 构建并打包
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-package-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: 检测变更
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      code: ${{ github.event_name != 'pull_request' || steps.filter.outputs.code == 'true' }}
+    steps:
+      - name: 筛选变更路径
+        if: github.event_name == 'pull_request'
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            code:
+              - 'launcher/**'
+              - 'scripts/check-packaging.mjs'
+              - '.github/workflows/build-package.yml'
+              - '.github/actions/install-linux-deps/**'
+              - '.github/actions/verify-checks/**'
+
+  build:
+    name: 构建二进制文件和 Debian 打包
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+
+      - name: 安装 Linux 依赖
+        uses: ./.github/actions/install-linux-deps
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 Rust 构建
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: 检查打包元数据
+        run: node scripts/check-packaging.mjs
+
+      - name: 构建 Release 二进制文件
+        working-directory: launcher
+        run: cargo build --release --locked -p nte-app -p nte-cli
+
+      - name: 校验二进制文件类型
+        run: |
+          file launcher/target/release/oddity
+          file launcher/target/release/nte-cli
+
+      - name: 校验桌面入口安装
+        run: |
+          tmp="$(mktemp -d)"
+          HOME="$tmp" XDG_DATA_HOME="$tmp/share" \
+            ./launcher/scripts/install-desktop.sh "$PWD/launcher/target/release/oddity"
+          test -f "$tmp/share/applications/oddity.desktop"
+          desktop-file-validate "$tmp/share/applications/oddity.desktop"
+          for size in 16 22 24 32 48 64 128 256 512; do
+            test -f "$tmp/share/icons/hicolor/${size}x${size}/apps/oddity.png"
+          done
+          test -f "$tmp/share/icons/hicolor/scalable/apps/oddity.svg"
+
+      - name: 安装 Tauri CLI
+        run: npm install --global @tauri-apps/cli@2
+
+      - name: 构建 Debian 包
+        working-directory: launcher/crates/nte-app
+        run: tauri build --bundles deb --ci
+
+      - name: 校验 Debian 包
+        run: |
+          deb="$(find launcher/target/release/bundle/deb -name '*.deb' -print -quit)"
+          test -n "$deb"
+          dpkg-deb --info "$deb"
+          dpkg-deb --contents "$deb"
+          dpkg-deb --contents "$deb" | grep -q 'usr/bin/oddity'
+          dpkg-deb --contents "$deb" | grep -Eqi 'usr/share/applications/.*oddity.*\.desktop'
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v7
+        with:
+          name: oddity-linux-x86_64
+          path: |
+            launcher/target/release/oddity
+            launcher/target/release/nte-cli
+            launcher/target/release/bundle/deb/*.deb
+          if-no-files-found: error
+
+  build-package:
+    name: 构建打包检查通过
+    if: always()
+    needs:
+      - changes
+      - build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+
+      - name: 校验必要任务
+        uses: ./.github/actions/verify-checks
+        with:
+          needs: ${{ toJSON(needs) }}
+          checks: |
+            {
+              "build": "code"
+            }

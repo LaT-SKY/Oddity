@@ -38,7 +38,7 @@ pub fn decode(bytes: &[u8], app_id: &str) -> Result<Vec<u8>> {
     }
     let expected = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
     let ciphertext = &bytes[16..];
-    if ciphertext.len() % 16 != 0 {
+    if !ciphertext.len().is_multiple_of(16) {
         return Err(Error::Parse(
             "PatcherXML0 ciphertext is not block aligned".into(),
         ));

@@ -39,11 +39,15 @@ sed -e "s|^Exec=.*|Exec=$bin|" -e "s|^TryExec=.*|TryExec=$bin|" \
   "$root/packaging/oddity.desktop" >"$tmp"
 install -Dm644 "$tmp" "$apps/oddity.desktop"
 
-command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$apps" >/dev/null 2>&1 || true
-if [[ -f "$icons/index.theme" ]]; then
-  command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t "$icons" >/dev/null 2>&1 || true
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database "$apps" >/dev/null 2>&1 || true
 fi
-command -v kbuildsycoca6 >/dev/null 2>&1 && kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+if [[ -f "$icons/index.theme" ]] && command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -f -t "$icons" >/dev/null 2>&1 || true
+fi
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+  kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+fi
 
 echo "installed: $apps/oddity.desktop"
 echo "installed: $icons/*/apps/oddity.png"
