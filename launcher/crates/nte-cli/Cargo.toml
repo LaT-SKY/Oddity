@@ -8,3 +8,6 @@ description = "Headless CLI for Oddity launcher (check/apply/doctor)"
 [dependencies]
 nte-core = { path = "../nte-core" }
 anyhow.workspace = true
+
+[dev-dependencies]
+zip.workspace = true

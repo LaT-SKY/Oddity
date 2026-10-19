@@ -168,3 +168,192 @@ pub fn apply_file(root: &Path, zip_base: &str, f: &ManifestFile) -> Result<usize
     fs::rename(&tmp, &dest)?;
     Ok(zip_bytes.len())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::{HttpServer, TempDir};
+    use std::io::Write as _;
+
+    fn manifest_file(path: &str, checksum: &str, size: u64) -> ManifestFile {
+        ManifestFile {
+            path: path.to_string(),
+            checksum: checksum.to_string(),
+            size,
+            zip_checksum: None,
+            zip_size: None,
+        }
+    }
+
+    fn manifest(files: Vec<ManifestFile>) -> Manifest {
+        Manifest {
+            files,
+            ..Default::default()
+        }
+    }
+
+    /// 打包成单条目 zip，模拟 CDN 上的 {path}.zip。
+    fn zip_one(name: &str, contents: &[u8]) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        writer
+            .start_file(name, zip::write::SimpleFileOptions::default())
+            .expect("start zip entry");
+        writer.write_all(contents).expect("write zip entry");
+        writer.finish().expect("finish zip").into_inner()
+    }
+
+    fn zip_many(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, contents) in entries {
+            writer
+                .start_file(*name, zip::write::SimpleFileOptions::default())
+                .expect("start zip entry");
+            writer.write_all(contents).expect("write zip entry");
+        }
+        writer.finish().expect("finish zip").into_inner()
+    }
+
+    #[test]
+    fn md5_matches_known_vectors() {
+        assert_eq!(md5_bytes(b""), "d41d8cd98f00b204e9800998ecf8427e");
+        assert_eq!(md5_bytes(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
+    }
+
+    #[test]
+    fn md5_file_streams_in_chunks() {
+        let dir = TempDir::new("md5");
+        // 超过 1 MiB 读缓冲，确认分块读取和一次性计算一致
+        let big = vec![b'x'; 1024 * 1024 + 7];
+        let path = dir.write("big.bin", &big);
+        assert_eq!(md5_file(&path).expect("hash file"), md5_bytes(&big));
+        assert!(md5_file(&dir.join("missing.bin")).is_err());
+    }
+
+    #[test]
+    fn check_reports_missing_changed_and_ok() {
+        let dir = TempDir::new("check");
+        dir.write("present.txt", b"hello");
+        dir.write("samesize.txt", b"world");
+        dir.write("short.txt", b"hi");
+        let manifest = manifest(vec![
+            manifest_file("/present.txt", &md5_bytes(b"hello"), 5),
+            manifest_file("/samesize.txt", &md5_bytes(b"other"), 5),
+            manifest_file("/short.txt", &md5_bytes(b"hi"), 9),
+            manifest_file("/gone.txt", &md5_bytes(b"x"), 1),
+        ]);
+        let report = check(dir.path(), &manifest, false).expect("check");
+        assert_eq!(report.checked, 4);
+        assert_eq!(report.ok, 1);
+        let missing: Vec<&str> = report.missing.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(missing, vec!["/gone.txt"]);
+        let changed: Vec<&str> = report.changed.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(changed, vec!["/samesize.txt", "/short.txt"]);
+        assert_eq!(report.total_missing_bytes(), 15);
+    }
+
+    #[test]
+    fn quick_check_trusts_a_matching_size() {
+        let dir = TempDir::new("check-quick");
+        dir.write("a.txt", b"hello");
+        let manifest = manifest(vec![manifest_file("/a.txt", "deadbeef", 5)]);
+        let report = check(dir.path(), &manifest, true).expect("quick check");
+        assert_eq!(report.checked, 1);
+        assert_eq!(report.ok, 1);
+        assert!(report.changed.is_empty());
+        assert_eq!(report.total_missing_bytes(), 0);
+    }
+
+    #[test]
+    fn apply_file_downloads_and_installs_content() {
+        let dir = TempDir::new("apply");
+        let content = b"new content";
+        let zip = zip_one("nested/file.txt", content);
+        let server = HttpServer::start();
+        server.route("/files/nested/file.txt.zip", &zip);
+        let file = ManifestFile {
+            path: "/nested/file.txt".into(),
+            checksum: md5_bytes(content),
+            size: content.len() as u64,
+            zip_checksum: Some(md5_bytes(&zip)),
+            zip_size: Some(zip.len() as u64),
+        };
+        let written =
+            apply_file(dir.path(), &format!("{}/files/", server.base()), &file).expect("apply");
+        assert_eq!(written, zip.len());
+        assert_eq!(dir.read("nested/file.txt"), content);
+    }
+
+    #[test]
+    fn apply_file_rejects_bad_zip_metadata() {
+        let dir = TempDir::new("apply-zip-meta");
+        let content = b"payload";
+        let zip = zip_one("p.bin", content);
+        let server = HttpServer::start();
+        server.route("/p.bin.zip", &zip);
+
+        let mut bad_zip_md5 = manifest_file("/p.bin", &md5_bytes(content), content.len() as u64);
+        bad_zip_md5.zip_checksum = Some(md5_bytes(b"other"));
+        let error = apply_file(dir.path(), &server.base(), &bad_zip_md5).expect_err("zip md5");
+        assert!(error.to_string().contains("zip md5 mismatch"), "{error}");
+
+        let mut bad_zip_size = manifest_file("/p.bin", &md5_bytes(content), content.len() as u64);
+        bad_zip_size.zip_size = Some(zip.len() as u64 + 1);
+        let error = apply_file(dir.path(), &server.base(), &bad_zip_size).expect_err("zip size");
+        assert!(error.to_string().contains("zip size mismatch"), "{error}");
+    }
+
+    #[test]
+    fn apply_file_rejects_bad_content() {
+        let dir = TempDir::new("apply-content");
+        let content = b"payload";
+        let zip = zip_one("p.bin", content);
+        let server = HttpServer::start();
+        server.route("/p.bin.zip", &zip);
+
+        let wrong_size = manifest_file("/p.bin", &md5_bytes(content), content.len() as u64 + 1);
+        let error = apply_file(dir.path(), &server.base(), &wrong_size).expect_err("size mismatch");
+        assert!(
+            error.to_string().contains("content size mismatch"),
+            "{error}"
+        );
+
+        let wrong_md5 = manifest_file("/p.bin", "0000", content.len() as u64);
+        let error = apply_file(dir.path(), &server.base(), &wrong_md5).expect_err("md5 mismatch");
+        assert!(
+            error.to_string().contains("content md5 mismatch"),
+            "{error}"
+        );
+        assert!(!dir.is_file("p.bin"));
+    }
+
+    #[test]
+    fn apply_file_requires_exactly_one_zip_entry() {
+        let dir = TempDir::new("apply-multi");
+        let content = b"payload";
+        let zip = zip_many(&[("a.bin", content), ("b.bin", content)]);
+        let server = HttpServer::start();
+        server.route("/p.bin.zip", &zip);
+        let file = manifest_file("/p.bin", &md5_bytes(content), content.len() as u64);
+        let error = apply_file(dir.path(), &server.base(), &file).expect_err("two entries");
+        assert!(error.to_string().contains("expected one entry"), "{error}");
+    }
+
+    #[test]
+    fn apply_file_reports_a_broken_zip() {
+        let dir = TempDir::new("apply-broken");
+        let server = HttpServer::start();
+        server.route("/p.bin.zip", b"not a zip at all");
+        let file = manifest_file("/p.bin", "0000", 4);
+        let error = apply_file(dir.path(), &server.base(), &file).expect_err("broken zip");
+        assert!(error.to_string().contains("zip /p.bin"), "{error}");
+    }
+
+    #[test]
+    fn apply_file_reports_download_failures() {
+        let dir = TempDir::new("apply-404");
+        let server = HttpServer::start();
+        let file = manifest_file("/p.bin", "0000", 4);
+        let error = apply_file(dir.path(), &server.base(), &file).expect_err("404");
+        assert!(error.to_string().contains("p.bin.zip"), "{error}");
+    }
+}
