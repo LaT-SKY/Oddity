@@ -1,0 +1,67 @@
+name: Bug 报告
+description: 报告可复现的功能异常或错误行为
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。提交前请先搜索现有 Issue，并确认问题可以复现。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已经搜索过现有 Issue 和文档，确认这不是重复问题。
+          required: true
+        - label: 我使用的是最新版本，或已说明无法升级的原因。
+          required: true
+        - label: 我提交的日志和截图已经脱敏。
+          required: true
+        - label: 这不是安全漏洞。
+          required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: 环境信息
+      description: 请提供 Oddity 版本、发行版、桌面环境、显卡驱动，以及 Proton / umu-launcher 版本。
+      placeholder: |
+        Oddity: v0.1.0-rc1
+        发行版: ...
+        桌面环境: Wayland / Plasma / Hyprland
+        显卡与驱动: ...
+        Proton: ...
+        umu-launcher: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 实际发生了什么，你期望发生什么。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 请给出尽量最小、稳定的复现步骤。
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志
+      description: 可选。可附上 `~/.local/share/oddity/logs/nte-app-launch.log` 的相关片段。请先移除账号、UID、token、手机号等个人信息。
+      render: text
+    validations:
+      required: false

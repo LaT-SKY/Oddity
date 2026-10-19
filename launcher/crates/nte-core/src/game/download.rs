@@ -267,7 +267,7 @@ fn download_to_temp(
         let url = if i == 0 {
             url.to_string()
         } else {
-            let suffix = url.splitn(2, "/Res/").nth(1).unwrap_or("");
+            let suffix = url.split_once("/Res/").map(|x| x.1).unwrap_or("");
             format!(
                 "{}/{}/Res/{}",
                 cdn.trim_end_matches('/'),
@@ -328,7 +328,7 @@ fn download_range_to_temp(
         let attempt_url = if i == 0 {
             url.to_string()
         } else {
-            let suffix = url.splitn(2, "/Res/").nth(1).unwrap_or("");
+            let suffix = url.split_once("/Res/").map(|x| x.1).unwrap_or("");
             format!(
                 "{}/{}/Res/{}",
                 cdn.trim_end_matches('/'),

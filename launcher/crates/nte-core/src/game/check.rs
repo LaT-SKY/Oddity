@@ -15,19 +15,10 @@ use crate::{Error, Result, USER_AGENT};
 
 const SMALL_HASH_LIMIT: u64 = 20 * 1024 * 1024;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct CheckOptions {
     pub full: bool,
     pub include_optional: bool,
-}
-
-impl Default for CheckOptions {
-    fn default() -> Self {
-        Self {
-            full: false,
-            include_optional: false,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

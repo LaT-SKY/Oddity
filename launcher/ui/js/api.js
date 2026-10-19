@@ -119,7 +119,7 @@ const mock = {
     theme: "light",
     heroMedia: "video",
   },
-  appVersion: "0.1.0",
+  appVersion: "0.1.0-rc1",
   os: previewOs(),
 };
 

@@ -1,0 +1,157 @@
+name: 检查 Issue 标题
+
+on:
+  issues:
+    types:
+      - opened
+      - edited
+      - reopened
+      - labeled
+      - unlabeled
+
+permissions:
+  issues: write
+
+concurrency:
+  group: check-issue-title-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  check-issue-title:
+    name: 校验 Issue 标题
+    if: github.event.action != 'edited' || github.event.changes.title != null
+    runs-on: ubuntu-latest
+    steps:
+      - name: 校验并规范化标题
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const marker = "<!-- oddity-issue-title-check -->";
+            const prefixPattern = /^\[([^\]]+)\]\s*(.*)$/;
+            const mappings = [
+              { label: "crash", prefix: "CRASH" },
+              { label: "bug", prefix: "BUG" },
+              { label: "feature", prefix: "FEATURE" },
+              { label: "enhancement", prefix: "FEATURE" },
+              { label: "question", prefix: "QUESTION" },
+            ];
+            const validPrefixes = new Set(mappings.map((mapping) => mapping.prefix));
+            const prefixList = [...validPrefixes].map((prefix) => `\`[${prefix}]\``).join("、");
+            const issueNumber = context.issue.number;
+            const issueParams = { ...context.repo, issue_number: issueNumber };
+
+            async function findWarnings() {
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                ...issueParams,
+                per_page: 100,
+              });
+              return comments.filter(
+                (comment) =>
+                  comment.user?.login === "github-actions[bot]" &&
+                  comment.body?.includes(marker),
+              );
+            }
+
+            async function clearWarnings() {
+              try {
+                for (const comment of await findWarnings()) {
+                  await github.rest.issues.deleteComment({
+                    ...issueParams,
+                    comment_id: comment.id,
+                  });
+                }
+              } catch (error) {
+                core.warning(`清理旧提示失败：${error.message}`);
+              }
+            }
+
+            async function writeWarning(message) {
+              try {
+                const body = `${marker}\n\n${message}`;
+                const previous = await findWarnings();
+                if (previous.length === 0) {
+                  await github.rest.issues.createComment({ ...issueParams, body });
+                  return;
+                }
+                await github.rest.issues.updateComment({
+                  ...issueParams,
+                  comment_id: previous[0].id,
+                  body,
+                });
+                for (const comment of previous.slice(1)) {
+                  await github.rest.issues.deleteComment({
+                    ...issueParams,
+                    comment_id: comment.id,
+                  });
+                }
+              } catch (error) {
+                core.warning(`写入提示失败：${error.message}`);
+              }
+            }
+
+            async function fail(message) {
+              await writeWarning(message);
+              core.setFailed(message);
+            }
+
+            const { data: issue } = await github.rest.issues.get(issueParams);
+            const labels = new Set(
+              issue.labels.map((label) => (label?.name ?? label).toLowerCase()),
+            );
+            const title = issue.title.trim();
+            const match = prefixPattern.exec(title);
+            const labelPrefixes = [
+              ...new Set(
+                mappings
+                  .filter((mapping) => labels.has(mapping.label))
+                  .map((mapping) => mapping.prefix),
+              ),
+            ];
+
+            let prefix;
+            let description;
+
+            if (match) {
+              prefix = match[1].toUpperCase();
+              description = match[2].trim();
+
+              if (!validPrefixes.has(prefix)) {
+                await fail(`Issue 标题使用了未知前缀。请使用以下前缀之一：${prefixList}`);
+                return;
+              }
+            } else {
+              if (labelPrefixes.length === 0) {
+                await fail(
+                  `Issue 标题没有类型前缀，也没有可识别的类型标签。请使用以下前缀之一：${prefixList}，或添加 bug、crash、feature、enhancement、question 标签。`,
+                );
+                return;
+              }
+              if (labelPrefixes.length > 1) {
+                await fail(
+                  `Issue 同时带有多个类型标签（${labelPrefixes.map((item) => `[${item}]`).join("、")}），请只保留一个。`,
+                );
+                return;
+              }
+              prefix = labelPrefixes[0];
+              description = title;
+            }
+
+            if (!description) {
+              await fail(`Issue 标题在 \`[${prefix}]\` 之后还需要一段描述。`);
+              return;
+            }
+
+            const normalized = `[${prefix}] ${description}`;
+            if (normalized !== issue.title) {
+              await github.rest.issues.update({
+                ...issueParams,
+                title: normalized,
+              });
+              core.notice(`已将 Issue 标题规范化为：${normalized}`);
+            }
+
+            await clearWarnings();
+            await core.summary
+              .addHeading("Issue 标题检查通过")
+              .addRaw(`\`${normalized}\``)
+              .write();
