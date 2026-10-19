@@ -99,6 +99,10 @@ Neverness To Everness/
 - 提交代码前请阅读 [贡献指南](CONTRIBUTING.md)。
 - 安全漏洞请按 [安全政策](SECURITY.md) 私下报告，不要在公开 Issue 中披露细节。
 
+## 许可证
+
+Oddity 以 [GPL-3.0-or-later](LICENSE) 发布，Copyright (C) 2026 LaT-SKY。字体与图标等第三方组件见[第三方组件](THIRD_PARTY.md)。
+
 ## 合规
 
 - 仅替代启动器；游戏本体、账号与资源仍来自官方渠道。
@@ -107,5 +111,5 @@ Neverness To Everness/
 - 使用前请自行确认所在地法律与服务条款。
 
 <div align="center">
-<sub>Oddity 与《异环》开发/发行方无隶属关系。游戏名称与相关素材归其权利人所有。</sub>
+<sub>Oddity 与《异环》开发/发行方无隶属关系。游戏名称与商标归其权利人所有。</sub>
 </div>
