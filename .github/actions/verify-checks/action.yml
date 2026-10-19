@@ -1,0 +1,57 @@
+name: 验证校验和
+description: 验证所有必需的任务都已成功完成，且被跳过的任务都是有意跳过的
+
+inputs:
+  needs:
+    description: 调用方工作流传入的 JSON 格式依赖结果和输出
+    required: true
+  checks:
+    description: 任务ID到变更检测输出名称的 JSON 映射.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: 校验结果
+      shell: bash
+      env:
+        NEEDS_JSON: ${{ inputs.needs }}
+        CHECKS_JSON: ${{ inputs.checks }}
+      run: |
+        python3 - <<'PY'
+        import json
+        import os
+        import sys
+
+        needs = json.loads(os.environ["NEEDS_JSON"])
+        checks = json.loads(os.environ["CHECKS_JSON"])
+
+        def fail(message):
+            sys.exit(f"::error::{message}")
+
+        changes = needs.get("changes", {})
+        if changes.get("result") != "success":
+            fail("Change detection did not succeed.")
+
+        if not isinstance(checks, dict) or not checks:
+            fail("Checks must be a non-empty mapping.")
+
+        if set(checks) != set(needs) - {"changes"}:
+            fail("Check mapping must cover every dependency except changes.")
+
+        outputs = changes.get("outputs", {})
+        failed = False
+
+        for job, output in checks.items():
+            required = outputs.get(output)
+            result = needs[job].get("result")
+            valid = (required, result) in (
+                ("true", "success"),
+                ("false", "skipped"),
+            )
+            failed |= not valid
+            prefix = "" if valid else "::error::"
+            print(f"{prefix}{job}: required={required}, result={result}")
+
+        sys.exit(int(failed))
+        PY

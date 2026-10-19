@@ -73,19 +73,25 @@ pub struct LauncherConfig {
 impl LauncherConfig {
     pub fn load(root: &Path) -> Result<Self> {
         let ini = Ini::load(&root.join("Config").join("Config.ini"))?;
-        let version = ini
-            .section("VERSION")
-            .cloned()
-            .unwrap_or_default();
+        let version = ini.section("VERSION").cloned().unwrap_or_default();
         let ignored = version
             .get("PATCHER_IGNORED_SECTION")
             .cloned()
             .unwrap_or_default();
         Ok(Self {
             root: root.to_path_buf(),
-            launcher: ini.get("General", "Launcher").unwrap_or("NTELauncher.exe").to_string(),
-            patcher: ini.get("General", "Patcher").unwrap_or("NTEUpdate.exe").to_string(),
-            client: ini.get("General", "Client").unwrap_or("NTEGame.exe").to_string(),
+            launcher: ini
+                .get("General", "Launcher")
+                .unwrap_or("NTELauncher.exe")
+                .to_string(),
+            patcher: ini
+                .get("General", "Patcher")
+                .unwrap_or("NTEUpdate.exe")
+                .to_string(),
+            client: ini
+                .get("General", "Client")
+                .unwrap_or("NTEGame.exe")
+                .to_string(),
             game_id: ini.get_int("General", "GameID").unwrap_or(0),
             launch_type: ini.get_int("General", "LaunchType").unwrap_or(0),
             version: version.get("Version").cloned().unwrap_or_default(),
@@ -107,15 +113,18 @@ impl LauncherConfig {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
-            mutex_name: version
-                .get("MutexName")
-                .cloned()
-                .unwrap_or_default(),
+            mutex_name: version.get("MutexName").cloned().unwrap_or_default(),
         })
     }
 
     /// Path layout of the installed launcher.
-    pub fn launcher_dir(&self) -> &Path { &self.root }
-    pub fn user_config(&self) -> PathBuf { self.root.join("UserData").join("Config").join("Config.ini") }
-    pub fn game_dir(&self) -> PathBuf { self.root.join("..").join("Client").join("WindowsNoEditor") }
+    pub fn launcher_dir(&self) -> &Path {
+        &self.root
+    }
+    pub fn user_config(&self) -> PathBuf {
+        self.root.join("UserData").join("Config").join("Config.ini")
+    }
+    pub fn game_dir(&self) -> PathBuf {
+        self.root.join("..").join("Client").join("WindowsNoEditor")
+    }
 }

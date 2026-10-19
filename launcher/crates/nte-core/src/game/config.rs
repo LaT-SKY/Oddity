@@ -61,7 +61,7 @@ impl GameUpdateConfig {
     pub fn load(launcher_root: &Path, game_id: i64) -> Result<Self> {
         let config_dir = find_config_dir(launcher_root, game_id)?;
         let patcher_json =
-            fs::read_to_string(config_dir.join("PatcherConfig.json")).map_err(|e| Error::Io(e))?;
+            fs::read_to_string(config_dir.join("PatcherConfig.json")).map_err(Error::Io)?;
         let pc: PatcherConfigJson = serde_json::from_str(&patcher_json)
             .map_err(|e| Error::Parse(format!("PatcherConfig.json: {e}")))?;
         let mut cdns = pc.game_res_url;
@@ -159,7 +159,7 @@ fn find_config_dir(launcher_root: &Path, game_id: i64) -> Result<PathBuf> {
         }
     }
     let root = launcher_root.join("ResFilesM");
-    let entries = fs::read_dir(&root).map_err(|e| Error::Io(e))?;
+    let entries = fs::read_dir(&root).map_err(Error::Io)?;
     for entry in entries.flatten() {
         let p = entry.path().join("PatcherConfig");
         if p.join("PatcherConfig.json").is_file() {

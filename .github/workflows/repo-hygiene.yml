@@ -1,0 +1,50 @@
+name: 仓库规范检查
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repository-hygiene-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  repo-hygiene:
+    name: 文档、脚本、仓库检查
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: 检查版本号、链接、纳入版本管理的路径
+        run: node scripts/check-repo.mjs
+
+      - name: 检查 UI JavaScript 语法
+        run: |
+          for file in launcher/ui/js/*.js; do
+            node --check "$file"
+          done
+
+      - name: 安装 shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck
+
+      - name: 检查 shell 脚本
+        run: |
+          mapfile -t files < <(git ls-files '*.sh')
+          shellcheck --format=gcc "${files[@]}"
+
+      - name: 检查 GitHub Actions 工作流
+        uses: raven-actions/actionlint@v2.2.0

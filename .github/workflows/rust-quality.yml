@@ -1,0 +1,178 @@
+name: Rust 质量检查
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: 检测变更
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      code: ${{ github.event_name != 'pull_request' || steps.filter.outputs.code == 'true' }}
+    steps:
+      - name: 筛选变更路径
+        if: github.event_name == 'pull_request'
+        id: filter
+        uses: dorny/paths-filter@v4
+        with:
+          filters: |
+            code:
+              - 'launcher/**'
+              - 'scripts/check-repo.mjs'
+              - '.github/workflows/rust-quality.yml'
+              - '.github/actions/install-linux-deps/**'
+              - '.github/actions/verify-checks/**'
+
+  checks:
+    name: 格式、Clippy、测试、构建
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+
+      - name: 安装 Linux 依赖
+        uses: ./.github/actions/install-linux-deps
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: 缓存 Rust 构建
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+
+      - name: 检查代码格式
+        working-directory: launcher
+        run: cargo fmt --all -- --check
+
+      - name: 运行 Clippy
+        working-directory: launcher
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: 运行测试
+        working-directory: launcher
+        run: cargo test --workspace --locked
+
+      - name: 构建工作区
+        working-directory: launcher
+        run: cargo build --workspace --locked
+
+  coverage:
+    name: 检查代码覆盖率
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+
+      - name: 安装 Linux 依赖
+        uses: ./.github/actions/install-linux-deps
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: 缓存 Rust 构建
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+
+      - name: 安装 cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
+
+      - name: 生成覆盖率
+        working-directory: launcher
+        run: cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
+
+      - name: 写入覆盖率摘要
+        working-directory: launcher
+        run: |
+          cargo llvm-cov report --summary-only | tee coverage-summary.txt
+          {
+            echo "### Rust 代码覆盖率"
+            echo "下限：总行覆盖率 ≥ 80%"
+            echo '```'
+            cat coverage-summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 上传覆盖率报告
+        uses: actions/upload-artifact@v7
+        with:
+          name: rust-coverage
+          path: |
+            launcher/lcov.info
+            launcher/coverage-summary.txt
+          if-no-files-found: error
+
+      - name: 校验覆盖率下限
+        working-directory: launcher
+        run: cargo llvm-cov report --fail-under-lines 80
+
+  deny:
+    name: 依赖检查策略
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 安装 cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: 安全漏洞、许可证、依赖版本、供应链来源
+        working-directory: launcher
+        run: cargo deny check
+
+  rust-quality:
+    name: Rust 质量检查通过
+    if: always()
+    needs:
+      - changes
+      - checks
+      - coverage
+      - deny
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+
+      - name: 校验必要任务
+        uses: ./.github/actions/verify-checks
+        with:
+          needs: ${{ toJSON(needs) }}
+          checks: |
+            {
+              "checks": "code",
+              "coverage": "code",
+              "deny": "code"
+            }

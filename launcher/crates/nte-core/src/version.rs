@@ -38,7 +38,9 @@ pub fn fetch(version_url: &str) -> Result<VersionInfo> {
     let v = ini.section("VERSION").cloned().unwrap_or_default();
     let version = v.get("Version").cloned().unwrap_or_default();
     if version.is_empty() {
-        return Err(Error::Parse(format!("Version.ini at {url} has no [VERSION] Version")));
+        return Err(Error::Parse(format!(
+            "Version.ini at {url} has no [VERSION] Version"
+        )));
     }
     let update_info = ini
         .section("UPDATEINFO")

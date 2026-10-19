@@ -73,7 +73,7 @@ pub fn update_after_apply(
     }
     let tmp = path.with_extension("xml.nte-new");
     fs::write(&tmp, encoded)?;
-    fs::rename(&tmp, &path).map_err(|e| Error::Io(e))?;
+    fs::rename(&tmp, &path).map_err(Error::Io)?;
     Ok(())
 }
 
