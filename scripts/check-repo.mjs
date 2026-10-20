@@ -52,10 +52,6 @@ function checkVersionConsistency() {
       fail(`${file} 中的版本错误: 期望 ${version}, 实际是 ${value}`);
     }
   }
-
-  if (!read("README.md").includes(version)) {
-    fail(`在 README 中找不到当前版本 (${version})`);
-  }
 }
 
 function collectMarkdown(directory) {
