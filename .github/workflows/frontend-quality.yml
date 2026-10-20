@@ -1,0 +1,106 @@
+name: 前端质量检查
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      ui: ${{ github.event_name != 'pull_request' || steps.filter.outputs.ui == 'true' }}
+      deps: ${{ github.event_name != 'pull_request' || steps.filter.outputs.deps == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@v4
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            ui:
+              - 'launcher/ui/**'
+              - 'scripts/check-frontend-coverage.mjs'
+              - '.github/workflows/frontend-quality.yml'
+            deps:
+              - 'launcher/ui/package.json'
+              - 'launcher/ui/pnpm-lock.yaml'
+              - '.github/workflows/frontend-quality.yml'
+
+  frontend:
+    needs: changes
+    if: needs.changes.outputs.ui == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: launcher/ui/package.json
+          run_install: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: launcher/ui/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: launcher/ui
+      - run: pnpm run format:check
+        working-directory: launcher/ui
+      - name: 检查 TS 和 Vue 覆盖率
+        id: coverage
+        run: pnpm run test:coverage
+        working-directory: launcher/ui
+      - name: 上传前端覆盖率报告
+        if: ${{ !cancelled() && steps.coverage.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-coverage
+          path: launcher/ui/coverage/
+          if-no-files-found: error
+      - run: pnpm run build
+        working-directory: launcher/ui
+      - run: pnpm exec playwright install --with-deps chromium
+        working-directory: launcher/ui
+      - run: pnpm run test:e2e
+        working-directory: launcher/ui
+
+  audit:
+    needs: changes
+    if: needs.changes.outputs.deps == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: launcher/ui/package.json
+          run_install: false
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: pnpm audit
+        working-directory: launcher/ui
+
+  frontend-quality:
+    if: always()
+    needs: [changes, frontend, audit]
+    runs-on: ubuntu-latest
+    steps:
+      - name: 校验检查结果
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          node -e 'const jobs = JSON.parse(process.env.RESULTS); if (Object.values(jobs).some(j => !["success", "skipped"].includes(j.result))) process.exit(1)'
