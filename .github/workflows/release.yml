@@ -176,6 +176,7 @@ jobs:
             "repos/$GITHUB_REPOSITORY/releases/generate-notes"
             -f "tag_name=$TAG"
             -f "target_commitish=$COMMIT"
+            -f "configuration_file_path=.github/release.yml"
           )
           if [[ -n "$NOTES_START" ]]; then
             args+=(-f "previous_tag_name=$NOTES_START")

@@ -11,27 +11,18 @@ changelog:
     - title: 不兼容变更
       labels:
         - breaking
-    - title: 新功能与改进
+    - title: 新增功能
       labels:
         - feature
-        - enhancement
     - title: 问题修复
       labels:
         - bug
         - crash
-    - title: 性能与安全
-      labels:
-        - performance
         - security
-    - title: 依赖与供应链
+    - title: 体验优化
       labels:
-        - dependencies
-    - title: 维护与文档
-      labels:
-        - chore
-        - ci
-        - docs
-        - refactor
+        - enhancement
+        - performance
     - title: 其他变更
       labels:
         - "*"
