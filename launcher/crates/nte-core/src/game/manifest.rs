@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use quick_xml::events::{BytesStart, Event};
-use quick_xml::Reader;
+use quick_xml::{Reader, XmlVersion};
 
 use crate::{Error, Result};
 
@@ -102,11 +102,10 @@ pub struct RemoteConfig {
 fn attrs(e: &BytesStart<'_>) -> BTreeMap<String, String> {
     let mut map = BTreeMap::new();
     for a in e.attributes().with_checks(false).flatten() {
-        let key = String::from_utf8_lossy(a.key.as_ref()).to_string();
-        let value = a
-            .unescape_value()
+        let key = a.key.as_ref().to_string();
+        let value = quick_xml::escape::unescape(&a.value)
             .map(|v| v.into_owned())
-            .unwrap_or_else(|_| String::from_utf8_lossy(&a.value).to_string());
+            .unwrap_or_else(|_| a.value.to_string());
         map.insert(key, value);
     }
     map
@@ -189,7 +188,7 @@ pub fn parse_res_list(xml: &str) -> Result<GameManifest> {
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => match e.name().as_ref() {
-                b"ResList" => {
+                "ResList" => {
                     let a = attrs(&e);
                     if m.version.is_empty() {
                         m.version = get(&a, "version");
@@ -198,7 +197,7 @@ pub fn parse_res_list(xml: &str) -> Result<GameManifest> {
                         m.tag = get(&a, "tag");
                     }
                 }
-                b"BaseVersion" => {
+                "BaseVersion" => {
                     let a = attrs(&e);
                     cur_base = Some(BaseVersion {
                         version: get(&a, "version"),
@@ -207,16 +206,16 @@ pub fn parse_res_list(xml: &str) -> Result<GameManifest> {
                         packages: Vec::new(),
                     });
                 }
-                b"Res" => cur_res = Some(ResEntry::from_attrs(&attrs(&e))),
-                b"Block" => {
+                "Res" => cur_res = Some(ResEntry::from_attrs(&attrs(&e))),
+                "Block" => {
                     let b = block_from_attrs(&attrs(&e));
                     if let Some(r) = cur_res.as_mut() {
                         r.blocks.push(b);
                     }
                 }
-                b"Package" => cur_pkg = Some(Package::default()),
-                b"Pak" => cur_pak = Some(Pak::from_attrs(&attrs(&e))),
-                b"Entry" => {
+                "Package" => cur_pkg = Some(Package::default()),
+                "Pak" => cur_pak = Some(Pak::from_attrs(&attrs(&e))),
+                "Entry" => {
                     if let Some(p) = cur_pak.as_mut() {
                         p.entries.push(PakEntry::from_attrs(&attrs(&e)));
                     }
@@ -224,7 +223,7 @@ pub fn parse_res_list(xml: &str) -> Result<GameManifest> {
                 _ => {}
             },
             Ok(Event::Empty(e)) => match e.name().as_ref() {
-                b"Res" => {
+                "Res" => {
                     let r = ResEntry::from_attrs(&attrs(&e));
                     if let Some(base) = cur_base.as_mut() {
                         base.res.push(r);
@@ -232,23 +231,23 @@ pub fn parse_res_list(xml: &str) -> Result<GameManifest> {
                         m.res.push(r);
                     }
                 }
-                b"Block" => {
+                "Block" => {
                     let b = block_from_attrs(&attrs(&e));
                     if let Some(r) = cur_res.as_mut() {
                         r.blocks.push(b);
                     }
                 }
-                b"Entry" => {
+                "Entry" => {
                     if let Some(p) = cur_pak.as_mut() {
                         p.entries.push(PakEntry::from_attrs(&attrs(&e)));
                     }
                 }
-                b"Pak" => {
+                "Pak" => {
                     if let Some(pkg) = cur_pkg.as_mut() {
                         pkg.paks.push(Pak::from_attrs(&attrs(&e)));
                     }
                 }
-                b"Package" => {
+                "Package" => {
                     if let Some(base) = cur_base.as_mut() {
                         base.packages.push(Package::default());
                     } else {
@@ -258,7 +257,7 @@ pub fn parse_res_list(xml: &str) -> Result<GameManifest> {
                 _ => {}
             },
             Ok(Event::End(e)) => match e.name().as_ref() {
-                b"Res" => {
+                "Res" => {
                     if let Some(r) = cur_res.take() {
                         if let Some(base) = cur_base.as_mut() {
                             base.res.push(r);
@@ -267,14 +266,14 @@ pub fn parse_res_list(xml: &str) -> Result<GameManifest> {
                         }
                     }
                 }
-                b"Pak" => {
+                "Pak" => {
                     if let Some(p) = cur_pak.take() {
                         if let Some(pkg) = cur_pkg.as_mut() {
                             pkg.paks.push(p);
                         }
                     }
                 }
-                b"Package" => {
+                "Package" => {
                     if let Some(pkg) = cur_pkg.take() {
                         if let Some(base) = cur_base.as_mut() {
                             base.packages.push(pkg);
@@ -283,7 +282,7 @@ pub fn parse_res_list(xml: &str) -> Result<GameManifest> {
                         }
                     }
                 }
-                b"BaseVersion" => {
+                "BaseVersion" => {
                     if let Some(base) = cur_base.take() {
                         m.base_versions.push(base);
                     }
@@ -311,13 +310,13 @@ pub fn parse_diff_list(xml: &str) -> Result<DiffManifest> {
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => match e.name().as_ref() {
-                b"Patch" => cur = Some(PatchEntry::from_attrs(&attrs(&e))),
-                b"Block" => {
+                "Patch" => cur = Some(PatchEntry::from_attrs(&attrs(&e))),
+                "Block" => {
                     if let Some(p) = cur.as_mut() {
                         p.blocks.push(block_from_attrs(&attrs(&e)));
                     }
                 }
-                b"Section" => {
+                "Section" => {
                     let a = attrs(&e);
                     let v = get(&a, "resversion");
                     if !v.is_empty() {
@@ -327,13 +326,13 @@ pub fn parse_diff_list(xml: &str) -> Result<DiffManifest> {
                 _ => {}
             },
             Ok(Event::Empty(e)) => match e.name().as_ref() {
-                b"Patch" => out.patches.push(PatchEntry::from_attrs(&attrs(&e))),
-                b"Block" => {
+                "Patch" => out.patches.push(PatchEntry::from_attrs(&attrs(&e))),
+                "Block" => {
                     if let Some(p) = cur.as_mut() {
                         p.blocks.push(block_from_attrs(&attrs(&e)));
                     }
                 }
-                b"Section" => {
+                "Section" => {
                     let v = get(&attrs(&e), "resversion");
                     if !v.is_empty() {
                         out.sections.push(v);
@@ -342,7 +341,7 @@ pub fn parse_diff_list(xml: &str) -> Result<DiffManifest> {
                 _ => {}
             },
             Ok(Event::End(e)) => {
-                if e.name().as_ref() == b"Patch" {
+                if e.name().as_ref() == "Patch" {
                     if let Some(p) = cur.take() {
                         out.patches.push(p);
                     }
@@ -363,17 +362,17 @@ pub fn parse_remote_config(xml: &str) -> Result<RemoteConfig> {
         max_threads: 5,
         ..Default::default()
     };
-    let mut text_tag: Option<Vec<u8>> = None;
+    let mut text_tag: Option<String> = None;
     let mut text = String::new();
     let mut in_base = false;
 
     loop {
         match reader.read_event() {
             Ok(Event::Start(e)) => {
-                let name = e.name().as_ref().to_vec();
-                match name.as_slice() {
-                    b"BaseVerson" | b"BaseVersion" => in_base = true,
-                    b"Res" if in_base => {
+                let name = e.name().as_ref().to_string();
+                match name.as_str() {
+                    "BaseVerson" | "BaseVersion" => in_base = true,
+                    "Res" if in_base => {
                         let a = attrs(&e);
                         out.base_versions.push(BaseVersionInfo {
                             section: get(&a, "section"),
@@ -382,16 +381,16 @@ pub fn parse_remote_config(xml: &str) -> Result<RemoteConfig> {
                             res_size: num(&a, "ResSize"),
                         });
                     }
-                    b"ResVersion" | b"Hash" | b"ResSize" | b"Tag" | b"listHash" | b"diffHash"
-                    | b"maxThreadCnt" => {
-                        text_tag = Some(name);
+                    "ResVersion" | "Hash" | "ResSize" | "Tag" | "listHash" | "diffHash"
+                    | "maxThreadCnt" => {
+                        text_tag = Some(name.clone());
                         text.clear();
                     }
                     _ => {}
                 }
             }
             Ok(Event::Empty(e)) => {
-                if in_base && e.name().as_ref() == b"Res" {
+                if in_base && e.name().as_ref() == "Res" {
                     let a = attrs(&e);
                     out.base_versions.push(BaseVersionInfo {
                         section: get(&a, "section"),
@@ -403,25 +402,34 @@ pub fn parse_remote_config(xml: &str) -> Result<RemoteConfig> {
             }
             Ok(Event::Text(e)) => {
                 if text_tag.is_some() {
-                    text.push_str(&e.unescape().unwrap_or_default());
+                    text.push_str(&e.xml_content(XmlVersion::Implicit1_0));
+                }
+            }
+            Ok(Event::GeneralRef(e)) => {
+                if text_tag.is_some() {
+                    let raw = format!("&{};", e.into_inner());
+                    match quick_xml::escape::unescape(&raw) {
+                        Ok(value) => text.push_str(&value),
+                        Err(_) => text.push_str(&raw),
+                    }
                 }
             }
             Ok(Event::End(e)) => {
-                let name = e.name().as_ref().to_vec();
-                if name == b"BaseVerson" || name == b"BaseVersion" {
+                let name = e.name().into_inner();
+                if name == "BaseVerson" || name == "BaseVersion" {
                     in_base = false;
                 }
                 if let Some(tag) = text_tag.as_ref() {
-                    if tag.as_slice() == name.as_slice() {
+                    if tag.as_str() == name {
                         let value = text.trim().to_string();
-                        match name.as_slice() {
-                            b"ResVersion" => out.res_version = value,
-                            b"Hash" => out.hash = value,
-                            b"ResSize" => out.res_size = value.parse().unwrap_or(0),
-                            b"Tag" => out.tag = value,
-                            b"listHash" => out.list_hash = value,
-                            b"diffHash" => out.diff_hash = value,
-                            b"maxThreadCnt" => out.max_threads = value.parse().unwrap_or(5).max(1),
+                        match name {
+                            "ResVersion" => out.res_version = value,
+                            "Hash" => out.hash = value,
+                            "ResSize" => out.res_size = value.parse().unwrap_or(0),
+                            "Tag" => out.tag = value,
+                            "listHash" => out.list_hash = value,
+                            "diffHash" => out.diff_hash = value,
+                            "maxThreadCnt" => out.max_threads = value.parse().unwrap_or(5).max(1),
                             _ => {}
                         }
                         text_tag = None;
@@ -516,6 +524,17 @@ mod tests {
         assert_eq!(m.res[0].md5, "");
         assert!(m.res[0].timestamp.is_none());
         assert!(!m.res[0].check);
+    }
+
+    #[test]
+    fn unescapes_entities_in_attributes_and_text() {
+        let xml = r#"<ResList version="1.0"><Res filename="a&amp;b.bin" md5="AA" filesize="1"/></ResList>"#;
+        let m = parse_res_list(xml).expect("parse");
+        assert_eq!(m.res[0].filename, "a&b.bin");
+
+        let xml = "<Config><ResVersion>1&amp;2</ResVersion></Config>";
+        let c = parse_remote_config(xml).expect("parse");
+        assert_eq!(c.res_version, "1&2");
     }
 
     #[test]

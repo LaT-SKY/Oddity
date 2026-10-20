@@ -13,13 +13,13 @@ license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
 anyhow = "1"
-md-5 = "0.10"
-ureq = { version = "2.10", default-features = true }
-zip = "2"
+md-5 = "0.11.0"
+ureq = { version = "3.4.2", default-features = true }
+zip = "9.0.5"
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-quick-xml = "0.37"
-aes = "0.8"
-cbc = "0.1"
-cipher = { version = "0.4", features = ["block-padding", "alloc"] }
+serde_json = { version = "1" }
+quick-xml = "0.42.0"
+aes = "0.9.3"
+cbc = "0.2.1"
+cipher = { version = "0.5.2", features = ["block-padding", "alloc"] }
 flate2 = "1"
