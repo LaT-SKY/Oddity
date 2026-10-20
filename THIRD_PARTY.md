@@ -6,8 +6,8 @@ Oddity 的源代码以 [GPL-3.0-or-later](LICENSE) 授权。下列组件保留�
 
 | 组件 | 位置 | 许可证 |
 |---|---|---|
-| Space Grotesk | `launcher/ui/assets/fonts/SpaceGrotesk.ttf` | [SIL Open Font License 1.1](launcher/ui/assets/fonts/OFL.txt) |
-| Noto Serif CJK 子集（重命名为 NTE Display） | `launcher/ui/assets/fonts/NTESerifSC-Black-subset.woff2` | [SIL Open Font License 1.1](launcher/ui/assets/fonts/OFL-NotoSerifCJK.txt) |
+| Space Grotesk | `launcher/ui/public/assets/fonts/SpaceGrotesk.ttf` | [SIL Open Font License 1.1](launcher/ui/public/assets/fonts/OFL.txt) |
+| Noto Serif CJK 子集（重命名为 NTE Display） | `launcher/ui/public/assets/fonts/NTESerifSC-Black-subset.woff2` | [SIL Open Font License 1.1](launcher/ui/public/assets/fonts/OFL-NotoSerifCJK.txt) |
 
 字体子集已按 OFL 要求重命名。
 
@@ -15,7 +15,11 @@ Oddity 的源代码以 [GPL-3.0-or-later](LICENSE) 授权。下列组件保留�
 
 | 组件 | 位置 | 许可证 |
 |---|---|---|
-| Phosphor Icons | `launcher/ui/assets/icons.svg` | [MIT](launcher/ui/assets/icons/LICENSE) |
+| Phosphor Icons | `launcher/ui/src/components/icons/IconSprite.vue` | [MIT](launcher/ui/public/assets/icons/LICENSE) |
+
+## 前端依赖
+
+运行时使用 Vue 3 (MIT) 与 `@tauri-apps/api` (Apache-2.0 OR MIT)。直接依赖和开发工具见 [`launcher/ui/package.json`](launcher/ui/package.json), 完整版本与来源由 [`launcher/ui/pnpm-lock.yaml`](launcher/ui/pnpm-lock.yaml) 锁定。各组件保留自身许可证, pnpm 漏洞审计在 CI 中执行。
 
 ## Rust 依赖
 
@@ -23,5 +27,5 @@ Oddity 的源代码以 [GPL-3.0-or-later](LICENSE) 授权。下列组件保留�
 
 ## 美术与商标
 
-- 主页主视觉（`launcher/ui/assets/hero-scene.svg` 及其导出的 jpg、mp4、webm）、应用图标、托盘图标与标志由本项目创作，随源代码以 GPL-3.0-or-later 授权。
+- 主页主视觉（`launcher/ui/public/assets/hero-scene.svg` 及其导出的 jpg、mp4、webm）、应用图标、托盘图标与标志由本项目创作，随源代码以 GPL-3.0-or-later 授权。
 - 《异环》/ Neverness To Everness 的名称、商标与游戏资源归其权利人所有。本仓库不包含游戏的美术、音频或视频素材。

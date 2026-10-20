@@ -66,6 +66,12 @@ toolmanifest.vdf
 - 检查 `nte-app-launch.log` 与 `helper-window.log` 的最后几十行。
 - 如果使用“研究直启”，请切回 **官方后台桥接**。
 
+### 桌面启动时提示无法连接 127.0.0.1
+
+桌面入口应指向内嵌前端资源的独立构建, 无需运行 Vite。请按[安装指南](install.md#更新-oddity)重新构建 Release 程序并更新桌面入口。
+
+前端热更新开发使用 `tauri dev`, 它会自动启动 Vite。不要将开发模式生成的可执行文件安装为桌面入口。
+
 ### NVIDIA + Wayland 下界面黑屏、花屏或闪退
 
 Oddity 默认开启硬件加速，并会自动为 NVIDIA Wayland 应用兼容设置。如果仍有问题，在 Oddity 所在目录用软件渲染启动：

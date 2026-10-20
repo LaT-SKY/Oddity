@@ -38,11 +38,7 @@ try {
   process.exit(1);
 }
 
-const html = read("launcher/ui/index.html").match(/id="app-version">v([^<]+)</);
-versions["launcher/ui/index.html"] = html?.[1];
-
-const api = read("launcher/ui/js/api.js").match(/appVersion:\s*"([^"]+)"/);
-versions["launcher/ui/js/api.js"] = api?.[1];
+versions["launcher/ui/package.json"] = JSON.parse(read("launcher/ui/package.json")).version;
 
 let failed = false;
 for (const [file, value] of Object.entries(versions)) {

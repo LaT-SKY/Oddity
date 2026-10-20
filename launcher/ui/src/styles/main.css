@@ -4,7 +4,7 @@
 
 @font-face {
   font-family: "Space Grotesk";
-  src: url("assets/fonts/SpaceGrotesk.ttf") format("truetype");
+  src: url("/assets/fonts/SpaceGrotesk.ttf") format("truetype");
   font-weight: 300 700;
   font-style: normal;
   font-display: swap;
@@ -12,7 +12,7 @@
 
 @font-face {
   font-family: "NTE Display";
-  src: url("assets/fonts/NTESerifSC-Black-subset.woff2") format("woff2");
+  src: url("/assets/fonts/NTESerifSC-Black-subset.woff2") format("woff2");
   font-weight: 900;
   font-style: normal;
   font-display: swap;
@@ -30,16 +30,42 @@
   --titlebar-bg: rgba(242, 239, 230, 0.84);
   --rail-bg: rgba(242, 239, 230, 0.6);
   --app-bg:
-    radial-gradient(1100px 520px at 16% -12%, rgba(128, 154, 26, 0.1), transparent 62%),
-    radial-gradient(900px 600px at 100% 0%, rgba(72, 124, 134, 0.06), transparent 60%),
+    radial-gradient(
+      1100px 520px at 16% -12%,
+      rgba(128, 154, 26, 0.1),
+      transparent 62%
+    ),
+    radial-gradient(
+      900px 600px at 100% 0%,
+      rgba(72, 124, 134, 0.06),
+      transparent 60%
+    ),
     var(--bg);
   --hero-bg: #e5dfd0;
   --hero-shell-bg: rgba(255, 253, 247, 0.36);
   --hero-text-shadow: none;
   --hero-fade:
-    radial-gradient(78% 95% at 0% 100%, #f2efe6 0%, rgba(242, 239, 230, 0.99) 25%, rgba(242, 239, 230, 0.95) 42%, rgba(242, 239, 230, 0.68) 60%, rgba(242, 239, 230, 0.18) 80%, rgba(242, 239, 230, 0) 92%),
-    linear-gradient(0deg, rgba(242, 239, 230, 0.94) 0%, rgba(242, 239, 230, 0.5) 20%, transparent 45%),
-    linear-gradient(90deg, rgba(242, 239, 230, 0.55) 0%, rgba(242, 239, 230, 0.1) 26%, transparent 48%);
+    radial-gradient(
+      78% 95% at 0% 100%,
+      #f2efe6 0%,
+      rgba(242, 239, 230, 0.99) 25%,
+      rgba(242, 239, 230, 0.95) 42%,
+      rgba(242, 239, 230, 0.68) 60%,
+      rgba(242, 239, 230, 0.18) 80%,
+      rgba(242, 239, 230, 0) 92%
+    ),
+    linear-gradient(
+      0deg,
+      rgba(242, 239, 230, 0.94) 0%,
+      rgba(242, 239, 230, 0.5) 20%,
+      transparent 45%
+    ),
+    linear-gradient(
+      90deg,
+      rgba(242, 239, 230, 0.55) 0%,
+      rgba(242, 239, 230, 0.1) 26%,
+      transparent 48%
+    );
 
   /* AAA text colors on #f2efe6: text 15.6:1, soft 11.9:1,
      muted 10.0:1, faint 8.4:1; hover worst 7.6:1. */
@@ -112,12 +138,23 @@
   --pill: 999px;
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --font-display: "NTE Display", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC", serif;
-  --font: "Space Grotesk", "MiSans", "Noto Sans CJK SC", "Noto Sans SC", "Source Han Sans SC", sans-serif;
-  --mono: "Maple Mono NF CN", "JetBrains Mono", "Noto Sans Mono", "SFMono-Regular", ui-monospace, monospace;
+  --font-display:
+    "NTE Display", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC",
+    serif;
+  --font:
+    "Space Grotesk", "MiSans", "Noto Sans CJK SC", "Noto Sans SC",
+    "Source Han Sans SC", sans-serif;
+  --mono:
+    "Maple Mono NF CN", "JetBrains Mono", "Noto Sans Mono", "SFMono-Regular",
+    ui-monospace, monospace;
 }
 
-html[data-theme="dark"] {
+:root:has(.app[data-theme="dark"]) {
+  color-scheme: dark;
+}
+
+.app[data-theme="dark"],
+.toast[data-theme="dark"] {
   color-scheme: dark;
 
   --bg: #070807;
@@ -129,16 +166,42 @@ html[data-theme="dark"] {
   --titlebar-bg: rgba(7, 8, 7, 0.72);
   --rail-bg: rgba(7, 8, 7, 0.35);
   --app-bg:
-    radial-gradient(1100px 520px at 16% -12%, rgba(200, 240, 75, 0.06), transparent 62%),
-    radial-gradient(900px 600px at 100% 0%, rgba(120, 190, 220, 0.035), transparent 60%),
+    radial-gradient(
+      1100px 520px at 16% -12%,
+      rgba(200, 240, 75, 0.06),
+      transparent 62%
+    ),
+    radial-gradient(
+      900px 600px at 100% 0%,
+      rgba(120, 190, 220, 0.035),
+      transparent 60%
+    ),
     var(--bg);
   --hero-bg: #0c0e0c;
   --hero-shell-bg: rgba(237, 232, 220, 0.035);
   --hero-text-shadow: 0 10px 48px rgba(0, 0, 0, 0.38);
   --hero-fade:
-    radial-gradient(78% 95% at 0% 100%, #070807 0%, rgba(7, 8, 7, 0.99) 25%, rgba(7, 8, 7, 0.94) 42%, rgba(7, 8, 7, 0.66) 60%, rgba(7, 8, 7, 0.16) 80%, rgba(7, 8, 7, 0) 92%),
-    linear-gradient(0deg, rgba(7, 8, 7, 0.92) 0%, rgba(7, 8, 7, 0.4) 20%, transparent 45%),
-    linear-gradient(90deg, rgba(7, 8, 7, 0.62) 0%, rgba(7, 8, 7, 0.12) 26%, transparent 48%);
+    radial-gradient(
+      78% 95% at 0% 100%,
+      #070807 0%,
+      rgba(7, 8, 7, 0.99) 25%,
+      rgba(7, 8, 7, 0.94) 42%,
+      rgba(7, 8, 7, 0.66) 60%,
+      rgba(7, 8, 7, 0.16) 80%,
+      rgba(7, 8, 7, 0) 92%
+    ),
+    linear-gradient(
+      0deg,
+      rgba(7, 8, 7, 0.92) 0%,
+      rgba(7, 8, 7, 0.4) 20%,
+      transparent 45%
+    ),
+    linear-gradient(
+      90deg,
+      rgba(7, 8, 7, 0.62) 0%,
+      rgba(7, 8, 7, 0.12) 26%,
+      transparent 48%
+    );
 
   --bone: #ede8dc;
   --text-soft: #d8d4c9;
@@ -325,6 +388,7 @@ button:disabled {
 }
 
 .app {
+  color: var(--bone);
   position: relative;
   isolation: isolate;
   height: 100vh;
@@ -337,12 +401,12 @@ button:disabled {
   background: var(--app-bg);
 }
 
-body.is-maximized .app {
+.app.is-maximized {
   border-radius: 0;
   border-color: transparent;
 }
 
-body.is-maximized .grain {
+.app.is-maximized .grain {
   border-radius: 0;
 }
 
@@ -399,7 +463,9 @@ body.is-maximized .grain {
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
-  transition: background 160ms var(--ease), color 160ms var(--ease);
+  transition:
+    background 160ms var(--ease),
+    color 160ms var(--ease);
 }
 
 .setup-chip:hover {
@@ -443,7 +509,9 @@ body.is-maximized .grain {
   place-items: center;
   border-radius: 8px;
   color: var(--muted);
-  transition: color 160ms var(--ease), background 160ms var(--ease);
+  transition:
+    color 160ms var(--ease),
+    background 160ms var(--ease);
 }
 
 .win-btn .icon {
@@ -503,7 +571,9 @@ body.is-maximized .grain {
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.06em;
-  transition: color 180ms var(--ease), background 180ms var(--ease);
+  transition:
+    color 180ms var(--ease),
+    background 180ms var(--ease);
 }
 
 .rail-item .icon {
@@ -592,7 +662,7 @@ body.is-maximized .grain {
 .hero__art {
   position: absolute;
   inset: 0;
-  background-image: url("assets/hero-keyart.jpg");
+  background-image: url("/assets/hero-keyart.jpg");
   background-size: cover;
   background-position: 54% 38%;
   filter: saturate(1.02) contrast(1.01);
@@ -835,7 +905,6 @@ body.is-maximized .grain {
 .btn.is-busy .icon {
   animation: pulse 1.1s ease-in-out infinite;
 }
-
 
 /* ---------------- shared page structure ---------------- */
 
@@ -1244,7 +1313,9 @@ body.is-maximized .grain {
   font-family: var(--mono);
   font-size: 12px;
   outline: none;
-  transition: border-color 180ms var(--ease), background 180ms var(--ease);
+  transition:
+    border-color 180ms var(--ease),
+    background 180ms var(--ease);
 }
 
 .field input::placeholder {
@@ -1317,7 +1388,9 @@ body.is-maximized .grain {
   border: 0;
   border-radius: var(--pill);
   background: var(--switch-bg);
-  transition: background 200ms var(--ease), border-color 200ms var(--ease);
+  transition:
+    background 200ms var(--ease),
+    border-color 200ms var(--ease);
 }
 
 .switch::after {
@@ -1330,7 +1403,9 @@ body.is-maximized .grain {
   border-radius: 50%;
   background: var(--switch-knob);
   box-shadow: 0 1px 2px rgba(20, 24, 20, 0.18);
-  transition: transform 200ms var(--ease), background 200ms var(--ease);
+  transition:
+    transform 200ms var(--ease),
+    background 200ms var(--ease);
 }
 
 .switch-row input:checked + .switch {
@@ -1479,25 +1554,32 @@ body.is-maximized .grain {
   transition: opacity 320ms var(--ease);
 }
 
-html.intro .hero__content {
+.app.is-intro .hero__content {
   opacity: 0;
 }
 
-body.is-intro-done .hero__content {
+.app.is-intro-done .hero__content {
   opacity: 1;
   transition: none;
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
-html.reduce-motion .hero__content {
+.app.reduce-motion .hero__content {
   opacity: 1 !important;
   transition: none !important;
 }
@@ -1510,7 +1592,7 @@ html.reduce-motion .hero__content {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
-  html.intro .hero__content {
+  .app.is-intro .hero__content {
     opacity: 1 !important;
   }
 }
