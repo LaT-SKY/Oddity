@@ -95,3 +95,22 @@ fn open_url_spawns_the_desktop_opener() {
     let error = open_url("https://example.test/".to_string()).expect_err("no opener");
     assert!(error.contains("打开链接失败"), "{error}");
 }
+
+#[test]
+fn standalone_build_embeds_frontend_assets() {
+    assert!(!tauri::is_dev(), "独立构建必须使用内嵌资源");
+    let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+    for path in [
+        "index.html",
+        "assets/app-icon.svg",
+        "assets/hero-poster.jpg",
+    ] {
+        assert!(
+            context.assets().get(&path.into()).is_some(),
+            "内嵌资源缺失: {path}"
+        );
+    }
+    let assets: Vec<_> = context.assets().iter().map(|(path, _)| path).collect();
+    assert!(assets.iter().any(|path| path.ends_with(".js")));
+    assert!(assets.iter().any(|path| path.ends_with(".css")));
+}
