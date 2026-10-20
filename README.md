@@ -16,7 +16,6 @@
 
 ![Oddity 主界面](docs/assets/launcher-home.png)
 
-> **当前版本：`0.1.0-rc1`（预览版）**
 > 功能与界面仍可能调整。遇到问题时请附上系统信息与日志，见[排障指南](docs/troubleshooting.md)。
 
 Oddity 是《异环》的 Linux 启动器：用轻量的原生窗口完成更新检查和游戏启动，游戏本体通过 Proton 运行。Oddity 只替代启动器，不包含游戏本体，不修改游戏文件，也不绕过任何反作弊或登录校验。
