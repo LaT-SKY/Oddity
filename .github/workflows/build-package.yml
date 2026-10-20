@@ -2,6 +2,18 @@ name: 构建并打包
 
 on:
   pull_request:
+    paths:
+      - 'launcher/Cargo.toml'
+      - 'launcher/Cargo.lock'
+      - 'launcher/crates/*/Cargo.toml'
+      - 'launcher/crates/nte-app/**'
+      - 'launcher/packaging/**'
+      - 'launcher/scripts/install-desktop.sh'
+      - 'launcher/ui/**'
+      - 'scripts/check-packaging.mjs'
+      - '.github/workflows/build-package.yml'
+      - '.github/actions/install-linux-deps/**'
+      - '.github/actions/verify-checks/**'
   push:
     branches:
       - main
