@@ -27,7 +27,7 @@ for size in 16 22 24 32 48 64 128 256 512; do
   rm -f "$icons/${size}x${size}/apps/thebetternte.png"
 done
 
-install -Dm644 "$root/ui/assets/app-icon.svg" "$icons/scalable/apps/oddity.svg"
+install -Dm644 "$root/ui/public/assets/app-icon.svg" "$icons/scalable/apps/oddity.svg"
 for size in 16 22 24 32 48 64 128 256 512; do
   install -Dm644 "$root/crates/nte-app/icons/${size}x${size}.png" \
     "$icons/${size}x${size}/apps/oddity.png"

@@ -11,7 +11,7 @@
 | 依赖 | WebKitGTK 4.1、GTK 3、`umu-launcher`（`umu-run`） |
 | 兼容层 | Proton；推荐 **GE-Proton 11-5** 或更新版本 |
 | 游戏 | 已通过官方 Windows 客户端安装好的《异环》 |
-| 构建 | Rust 稳定版工具链（edition 2021） |
+| 构建 | Rust 稳定版工具链 (edition 2021), Node.js 24 LTS 与 pnpm 12.14.0 |
 
 Oddity 不负责下载或安装游戏本体。请先使用官方安装包，在 Proton / Wine 环境中完成安装。安装完成后，目录中应当存在：
 
@@ -69,7 +69,9 @@ Oddity 会自动查找 Steam 的兼容工具目录。如果 Proton 放在其他�
 git clone https://github.com/LaT-SKY/Oddity.git
 cd Oddity/launcher
 
-cargo build --release -p nte-app
+pnpm --dir ui install --frozen-lockfile
+pnpm --dir ui run build
+cargo build --release --locked -p nte-app
 ./scripts/install-desktop.sh ./target/release/oddity
 ./target/release/oddity
 ```
@@ -118,7 +120,9 @@ cargo build --release -p nte-app
 cd Oddity
 git pull
 cd launcher
-cargo build --release -p nte-app
+pnpm --dir ui install --frozen-lockfile
+pnpm --dir ui run build
+cargo build --release --locked -p nte-app
 ./scripts/install-desktop.sh ./target/release/oddity
 ```
 

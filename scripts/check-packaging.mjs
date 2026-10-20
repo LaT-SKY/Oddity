@@ -65,8 +65,8 @@ for (const icon of [
   "launcher/crates/nte-app/icons/icon.png",
   "launcher/crates/nte-app/icons/tray-32.png",
   "launcher/crates/nte-app/icons/tray-64.png",
-  "launcher/ui/assets/app-icon.svg",
-  "launcher/ui/assets/tray-icon.svg",
+  "launcher/ui/public/assets/app-icon.svg",
+  "launcher/ui/public/assets/tray-icon.svg",
 ]) {
   requireFile(icon);
 }

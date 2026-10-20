@@ -33,16 +33,10 @@ function checkVersionConsistency() {
 
   const version = cargo[1];
   const tauri = JSON.parse(read("launcher/crates/nte-app/tauri.conf.json")).version;
-  const html = read("launcher/ui/index.html").match(
-    /id="app-version">v([^<]+)</,
-  );
-  const api = read("launcher/ui/js/api.js").match(/appVersion:\s*"([^"]+)"/);
-
   const versions = {
     "launcher/Cargo.toml": version,
     "launcher/crates/nte-app/tauri.conf.json": tauri,
-    "launcher/ui/index.html": html?.[1],
-    "launcher/ui/js/api.js": api?.[1],
+    "launcher/ui/package.json": JSON.parse(read("launcher/ui/package.json")).version,
   };
 
   for (const [file, value] of Object.entries(versions)) {
@@ -143,7 +137,7 @@ requireFile("launcher/Cargo.lock");
 requireFile("launcher/crates/nte-app/tauri.conf.json");
 requireFile("docs/install.md");
 requireFile("docs/troubleshooting.md");
-requireFile("launcher/ui/assets/app-icon.svg");
+requireFile("launcher/ui/public/assets/app-icon.svg");
 
 const ignore = read(".gitignore");
 for (const required of ["internal/", "research/"]) {

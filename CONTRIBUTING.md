@@ -19,51 +19,59 @@
 
 ### Rust / 脚本 / 前端
 
-- Rust 使用 `rustfmt` 默认配置：
-
-  ```bash
-  cargo fmt --all
-  ```
-
-- Rust 代码必须通过 Clippy：
-
-  ```bash
-  cargo clippy --workspace --all-targets --locked -- -D warnings
-  ```
-
+- Rust 使用 `rustfmt` 默认配置进行代码格式化。
+- Rust 代码必须通过 Clippy 检查
 - Shell 脚本必须通过 ShellCheck。
-- 前端目前是原生 HTML/CSS/ES modules，不做额外打包；改动后至少确认浏览器预览和 Tauri 窗口都能正常加载。
+- 前端使用 Vite + TypeScript + Vue 3, TS 开启了严格模式。
+- Prettier 统一格式。
 - 不要顺手格式化无关文件，也不要把重构和新功能混在同一个 PR 里。
+
+## 前端目录
+
+`launcher/ui` 根目录保留工具配置和 HTML 入口。源码在 `src/` 下按职责组织:
+
+- `main.ts`, `App.vue`: 应用入口和整体布局组装。
+- `components/layout/`: 标题栏、导航栏等布局组件。
+- `pages/`: 启动、更新、公告和设置页面。
+- `core/`: 命令桥接、状态与交互控制。
+- `styles/`, `types/`: 全局样式和类型定义。
+
+静态资源放在 `public/assets/`, 单元与组件测试放在 `tests/unit/`, 浏览器测试放在 `tests/e2e/`。
+
+界面文字、类名、显示状态和按钮状态通过 Vue 响应式绑定更新。DOM 引用用于视频播放等原生 API, 全局事件和订阅随组件卸载释放。应用版本由 `package.json` 注入构建, 后台提供的游戏和启动器版本通过快照显示, 不在 Vue 模板中固定版本号。
 
 ## 测试与覆盖率
 
-- 新增功能必须带测试；修 bug 时先补一个能复现问题的测试，再修代码。
+- 新增功能必须带测试。
 - 测试要断言实际行为，不要只把代码跑一遍。
-- 只有你的**总行覆盖率必须达到 80% 及以上。** CI 才会执行：
-
-  ```bash
-  cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
-  cargo llvm-cov report --fail-under-lines 80
-  ```
-
+- TS 文件的行覆盖率至少为 80%, 分支覆盖率至少为 70%。
+- UI 组件的行覆盖率参考目标为 60%, 未达到时不阻断检查。
 - 不要通过排除文件、空测试、只调用不断言、修改门槛等方式绕过覆盖率要求。确实无法测试的代码，请在 PR 中说明原因，由维护者判断。
 
-## 提交 PR 前先本地构建
+## 提交 PR 前
 
-请在 Open PR 之前，在自己的机器上完整构建一遍，不要只依赖 CI。
+请在 Open PR 之前，在自己的机器上完整检查/构建一遍，不要只依赖 CI。
 
 基础检查：
 
 ```bash
 cd launcher
-
+pnpm --dir ui install --frozen-lockfile
+pnpm --dir ui run format:check
+pnpm --dir ui run test:coverage
+pnpm --dir ui run build
+pnpm --dir ui run test:e2e
+pnpm --dir ui audit
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
+cargo llvm-cov report --fail-under-lines 80
 cargo build --release --locked -p nte-app -p nte-cli
+cd ..
 ```
 
-仓库与打包检查：
+在仓库根目录执行仓库与打包检查:
 
 ```bash
 node scripts/check-repo.mjs
@@ -73,9 +81,8 @@ node scripts/check-packaging.mjs
 如果改动涉及 UI、桌面入口或打包，再构建一次 Debian 包：
 
 ```bash
-npm install --global @tauri-apps/cli@2
 cd launcher/crates/nte-app
-tauri build --bundles deb --ci
+../../ui/node_modules/.bin/tauri build --bundles deb --ci
 ```
 
 至少运行与改动相关的检查，如果你不确定，那就把全部检查跑完。
@@ -99,10 +106,10 @@ docs: 补充首次启动说明
 
 说明：
 
-- 冒号使用半角 `:`，与现有提交历史和工具链保持一致。
+- 冒号使用半角 `:`。
 - 如果一次提交包含多个变更，标题写影响最大的那个，其余变更放在提交描述里。
 - 一次提交尽量只做一件相关的事，不要把格式化、重构和功能混在一起。
-- 描述里写清楚改了什么、为什么改、有什么影响，不要只写 `fix bug` 或 `update`。
+- 描述里写清楚改了什么、为什么改、有什么影响。
 
 ## Issue 与 PR 标题
 
@@ -117,26 +124,28 @@ Issue 标题必须带类型前缀：
 [QUESTION] Proton 版本应该怎么选
 ```
 
-如果标题没有前缀，CI 会根据 `bug`、`crash`、`feature`、`enhancement`、`question` 标签自动补全。一个 Issue 同时带多个类型标签时会检查失败，请只保留一个。
+如果标题没有前缀，CI 会根据标签自动补全。
+
+一个 Issue 同时带多个类型标签时会检查失败，请只保留一个。
 
 ### PR 标题
 
-PR 标题会经过 CI 检查，支持两种写法：
+PR 标题会经过 CI 检查，你可以使用以下两种写法：
 
 ```text
 ui: 调整设置页的间距
+docs: 补充首次启动说明
 feat(ui): 增加启动器托盘菜单
 fix(updater): 修复断点续传进度计算
-docs: 补充首次启动说明
 ```
 
-- 模块式写法使用 `module: change`，例如 `ui: ...`、`core: ...`、`docs: ...`。
+- 模块式写法使用 `module: change`。
 - 语义化写法使用 `type(scope): change`，type 和 scope 必须是仓库允许的值。
 - 冒号使用半角 `:`。
 - 标题描述不要以大写字母开头。
-- 破坏性变更在冒号前加 `!`，例如 `refactor(config)!: 调整设置文件结构`，CI 会自动添加 `breaking` 标签。
+- 破坏性变更在冒号前加 `!`，例如 `refactor(config)!: 调整设置文件结构`。
 
-## AI 使用
+## AI
 
 可以使用 AI 写代码和文档，但必须自己先看一遍、跑一遍再提交。
 

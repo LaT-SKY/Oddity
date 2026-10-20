@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="launcher/ui/assets/app-icon.svg" width="88" alt="Oddity">
+<img src="launcher/ui/public/assets/app-icon.svg" width="88" alt="Oddity">
 
 # Oddity
 
@@ -38,7 +38,9 @@ Oddity 是《异环》的 Linux 启动器：用轻量的原生窗口完成更新
 ```bash
 git clone https://github.com/LaT-SKY/Oddity.git
 cd Oddity/launcher
-cargo build --release -p nte-app
+pnpm --dir ui install --frozen-lockfile
+pnpm --dir ui run build
+cargo build --release --locked -p nte-app
 ./scripts/install-desktop.sh ./target/release/oddity
 ./target/release/oddity
 ```

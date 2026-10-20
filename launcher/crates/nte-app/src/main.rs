@@ -1,6 +1,6 @@
 //! Oddity native Linux launcher shell.
 //!
-//! Tauri 2 host for the static UI in `launcher/ui`. The launcher deliberately keeps
+//! Tauri 2 host for the Vue UI built into `launcher/ui/dist`. The launcher deliberately keeps
 //! the official Windows launcher + game on the verified Proton bridge for v1:
 //! our UI owns update/check/diagnostics/experience, the official components own
 //! login and resource patching.

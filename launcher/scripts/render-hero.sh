@@ -1,7 +1,7 @@
 #!/bin/sh
 # 由 hero-scene.svg 导出主页素材。依赖 rsvg-convert、ImageMagick 与 ffmpeg。
 set -eu
-cd "$(dirname "$0")/../ui/assets"
+cd "$(dirname "$0")/../ui/public/assets"
 
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT

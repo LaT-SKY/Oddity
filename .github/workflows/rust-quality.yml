@@ -31,7 +31,9 @@ jobs:
         with:
           filters: |
             code:
-              - 'launcher/**'
+              - 'launcher/Cargo.*'
+              - 'launcher/crates/**'
+              - 'launcher/deny.toml'
               - 'scripts/check-repo.mjs'
               - '.github/workflows/rust-quality.yml'
               - '.github/actions/install-linux-deps/**'
@@ -47,16 +49,10 @@ jobs:
       - name: 安装 Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: 24
 
       - name: 检查版本号、链接、纳入版本管理的路径
         run: node scripts/check-repo.mjs
-
-      - name: 检查 UI JavaScript 语法
-        run: |
-          for file in launcher/ui/js/*.js; do
-            node --check "$file"
-          done
 
       - name: 安装 shellcheck
         run: |
@@ -79,6 +75,25 @@ jobs:
     steps:
       - name: 检出源码
         uses: actions/checkout@v7
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: launcher/ui/package.json
+          run_install: false
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: launcher/ui/pnpm-lock.yaml
+
+      - name: 安装并构建前端
+        working-directory: launcher/ui
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       - name: 安装 Linux 依赖
         uses: ./.github/actions/install-linux-deps
@@ -117,6 +132,25 @@ jobs:
     steps:
       - name: 检出源码
         uses: actions/checkout@v7
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: launcher/ui/package.json
+          run_install: false
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: launcher/ui/pnpm-lock.yaml
+
+      - name: 安装并构建前端
+        working-directory: launcher/ui
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       - name: 安装 Linux 依赖
         uses: ./.github/actions/install-linux-deps

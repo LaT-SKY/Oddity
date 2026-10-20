@@ -57,3 +57,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Frontend browser checks
+launcher/ui/test-results/
+launcher/ui/playwright-report/
+
+launcher/ui/coverage/

@@ -58,6 +58,25 @@ jobs:
       - name: 检出源码
         uses: actions/checkout@v7
 
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: launcher/ui/package.json
+          run_install: false
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: launcher/ui/pnpm-lock.yaml
+
+      - name: 安装并构建前端
+        working-directory: launcher/ui
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
       - name: 安装 Linux 依赖
         uses: ./.github/actions/install-linux-deps
 
@@ -68,11 +87,6 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: launcher
-
-      - name: 安装 Node.js
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
 
       - name: 检查打包元数据
         run: node scripts/check-packaging.mjs
@@ -98,12 +112,9 @@ jobs:
           done
           test -f "$tmp/share/icons/hicolor/scalable/apps/oddity.svg"
 
-      - name: 安装 Tauri CLI
-        run: npm install --global @tauri-apps/cli@2
-
       - name: 构建 Debian 包
         working-directory: launcher/crates/nte-app
-        run: tauri build --bundles deb --ci
+        run: ../../ui/node_modules/.bin/tauri build --bundles deb --ci
 
       - name: 校验 Debian 包
         run: |
