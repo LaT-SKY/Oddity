@@ -1,0 +1,37 @@
+changelog:
+  exclude:
+    labels:
+      - duplicate
+      - invalid
+      - question
+      - wontfix
+      - "status: needs-info"
+      - "status: blocked"
+  categories:
+    - title: 不兼容变更
+      labels:
+        - breaking
+    - title: 新功能与改进
+      labels:
+        - feature
+        - enhancement
+    - title: 问题修复
+      labels:
+        - bug
+        - crash
+    - title: 性能与安全
+      labels:
+        - performance
+        - security
+    - title: 依赖与供应链
+      labels:
+        - dependencies
+    - title: 维护与文档
+      labels:
+        - chore
+        - ci
+        - docs
+        - refactor
+    - title: 其他变更
+      labels:
+        - "*"

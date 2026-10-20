@@ -28,7 +28,7 @@ body:
       label: 环境信息
       description: 请提供 Oddity 版本、发行版、桌面环境、显卡驱动，以及 Proton / umu-launcher 版本。
       placeholder: |
-        Oddity: v0.1.0-rc1
+        Oddity: v0.1.0-alpha.1
         发行版: ...
         桌面环境: Wayland / Plasma / Hyprland
         显卡与驱动: ...
