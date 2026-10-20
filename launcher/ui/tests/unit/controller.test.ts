@@ -46,6 +46,9 @@ let listeners: [
 ][];
 
 beforeEach(() => {
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+    drawImage: vi.fn(),
+  } as unknown as CanvasRenderingContext2D);
   backend.native = true;
   backend.unlisten.mockClear();
   backend.stopResize.mockClear();
@@ -502,47 +505,119 @@ describe("导航和窗口交互", () => {
 });
 
 describe("主视觉和资源", () => {
-  it("入场后加载视频, 双层循环、暂停和缓存恢复", async () => {
+  it("保持循环间隙的画面, 离页后回到首帧再绘制", async () => {
     backend.data.settings = {
       ...settings,
       reduceMotion: false,
       heroMedia: "video",
     };
     const c = await boot();
-    const a = document.getElementById("hero-video-a") as HTMLVideoElement;
-    const b = document.getElementById("hero-video-b") as HTMLVideoElement;
-    expect(c.ui.introDone).toBe(true);
-    expect(a.classList.contains("is-front")).toBe(true);
-    expect(a.src).toContain("blob:");
-    b.dispatchEvent(new Event("ended"));
+    const video = document.getElementById("hero-video") as HTMLVideoElement;
+    const canvas = document.getElementById("hero-canvas") as HTMLCanvasElement;
+    const draw = vi.mocked(canvas.getContext("2d")!.drawImage);
+    expect(video.src).toContain("blob:");
+    expect(backend.invoke).toHaveBeenCalledWith("play_hero_video");
+    expect(canvas.classList.contains("is-visible")).toBe(false);
+    Object.defineProperties(video, {
+      readyState: { value: 2, writable: true },
+      paused: { value: false, writable: true },
+      seeking: { value: false, writable: true },
+      duration: { value: 13 },
+      videoWidth: { value: 1920 },
+      videoHeight: { value: 1080 },
+    });
+    Object.defineProperties(canvas, {
+      clientWidth: { value: 800 },
+      clientHeight: { value: 600 },
+    });
+    await vi.advanceTimersByTimeAsync(40);
+    expect(canvas.classList.contains("is-visible")).toBe(true);
+    expect(draw).toHaveBeenLastCalledWith(
+      video,
+      expect.closeTo(259.2),
+      0,
+      1440,
+      1080,
+      0,
+      0,
+      800,
+      600,
+    );
+    vi.stubGlobal("devicePixelRatio", 4);
+    await vi.advanceTimersByTimeAsync(40);
+    expect(canvas.width).toBe(1440);
+    expect(canvas.height).toBe(1080);
+    vi.stubGlobal("devicePixelRatio", 1);
+    await vi.advanceTimersByTimeAsync(40);
+    video.currentTime = 12;
+    backend.invoke.mockClear();
+    await vi.advanceTimersByTimeAsync(40);
+    expect(video.currentTime).toBe(0);
+    expect(backend.invoke).toHaveBeenCalledWith("play_hero_video");
+    expect(canvas.classList.contains("is-visible")).toBe(true);
+    Object.defineProperty(video, "seeking", { value: true });
+    draw.mockClear();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(draw).not.toHaveBeenCalled();
+    expect(canvas.classList.contains("is-visible")).toBe(true);
+    Object.defineProperty(video, "seeking", { value: false });
+    Object.defineProperty(video, "readyState", { value: 1 });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(draw).not.toHaveBeenCalled();
+    expect(canvas.classList.contains("is-visible")).toBe(true);
+    Object.defineProperty(video, "readyState", { value: 2 });
+    video.currentTime = 6;
+    c.showPage("settings");
     await nextTick();
-    expect(a.classList.contains("is-front")).toBe(true);
-    a.dispatchEvent(new Event("ended"));
-    await nextTick();
-    expect(b.classList.contains("is-front")).toBe(true);
-    document.dispatchEvent(new Event("pointerdown"));
-    expect(HTMLMediaElement.prototype.play).toHaveBeenCalled();
+    expect(c.media.looping).toBe(false);
+    expect(video.currentTime).toBe(0);
+    expect(canvas.classList.contains("is-visible")).toBe(false);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(draw).not.toHaveBeenCalled();
+    Object.defineProperty(video, "seeking", { value: true });
+    c.showPage("home");
+    await flushPromises();
+    await vi.advanceTimersByTimeAsync(40);
+    expect(canvas.classList.contains("is-visible")).toBe(false);
+    Object.defineProperty(video, "seeking", { value: false });
+    await vi.advanceTimersByTimeAsync(40);
+    expect(video.currentTime).toBe(0);
+    expect(canvas.classList.contains("is-visible")).toBe(true);
     c.applyHeroMedia("photo");
     await nextTick();
-    expect(b.classList.contains("is-visible")).toBe(false);
-    b.dispatchEvent(new Event("ended"));
-    await nextTick();
-    expect(b.classList.contains("is-visible")).toBe(false);
-    c.applyHeroMedia("invalid");
-    await flushPromises();
-    expect(c.form.heroMedia).toBe("video");
-    expect(a.classList.contains("is-front")).toBe(true);
+    expect(canvas.classList.contains("is-visible")).toBe(false);
     c.applyHeroMedia("video");
     await flushPromises();
     c.applyReduceMotion(true);
     c.applyHeroMedia("video");
     await nextTick();
-    expect(a.classList.contains("is-visible")).toBe(false);
+    expect(canvas.classList.contains("is-visible")).toBe(false);
     expect(
       vi
         .mocked(fetch)
         .mock.calls.filter(([url]) => String(url).includes("hero-loop")),
     ).toHaveLength(1);
+  });
+
+  it("窗口隐藏时停止解码, 恢复可见后从头播放", async () => {
+    backend.data.settings = {
+      ...settings,
+      reduceMotion: false,
+      heroMedia: "video",
+    };
+    const c = await boot();
+    const video = document.getElementById("hero-video") as HTMLVideoElement;
+    video.currentTime = 6;
+    const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    document.dispatchEvent(new Event("visibilitychange"));
+    await nextTick();
+    expect(c.media.looping).toBe(false);
+    expect(video.currentTime).toBe(0);
+    hidden.mockReturnValue(false);
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flushPromises();
+    expect(c.media.looping).toBe(true);
+    expect(video.currentTime).toBe(0);
   });
 
   it("资源或原生窗口接口失败时仍显示主页", async () => {
@@ -556,7 +631,7 @@ describe("主视觉和资源", () => {
     const c = await boot();
     expect(c.state.bootstrap?.ok).toBe(true);
     expect(button("app").classList.contains("is-intro-done")).toBe(true);
-    expect(button("hero-video-a").classList.contains("is-visible")).toBe(false);
+    expect(button("hero-canvas").classList.contains("is-visible")).toBe(false);
   });
 
   it("不支持视频编码时保留照片", async () => {
@@ -567,7 +642,7 @@ describe("主视觉和资源", () => {
       heroMedia: "video",
     };
     await boot();
-    expect(button("hero-video-a").classList.contains("is-visible")).toBe(false);
+    expect(button("hero-canvas").classList.contains("is-visible")).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
   });
 });

@@ -78,11 +78,11 @@ export const ui = reactive({
   introDone: false,
   toast: { message: "", kind: "ok", visible: false },
 });
-export const media = reactive({ url: "", active: 0, looping: false });
+export const media = reactive({ url: "", looping: false });
 let toastTimer = 0;
-let videoElements: HTMLVideoElement[] = [];
-export function setHeroVideos(videos: HTMLVideoElement[]) {
-  videoElements = videos;
+let videoElement: HTMLVideoElement | null = null;
+export function setHeroVideo(video: HTMLVideoElement | null) {
+  videoElement = video;
 }
 export const displayVersion = computed(
   () => state.bootstrap?.appVersion || APP_VERSION,
@@ -244,13 +244,8 @@ function startIntro() {
   schedule(finishIntro, motionReduced() ? 0 : INTRO_DURATION);
 }
 
-function heroVideos() {
-  return videoElements;
-}
-
-async function loadHeroVideo(videos: HTMLVideoElement[]) {
+async function loadHeroVideo(video: HTMLVideoElement) {
   const epoch = generation;
-  if (!videos.length) return false;
   if (media.url) return true;
   if (heroVideoRequest) return heroVideoRequest;
 
@@ -259,21 +254,19 @@ async function loadHeroVideo(videos: HTMLVideoElement[]) {
     { url: "assets/hero-loop.webm", type: 'video/webm; codecs="vp9"' },
   ];
   const chosen = candidates.find((candidate) =>
-    videos[0].canPlayType(candidate.type),
+    video.canPlayType(candidate.type),
   );
   if (!chosen) return false;
 
   heroVideoRequest = (async () => {
-    const response = await fetch(chosen.url, { cache: "force-cache" });
+    const response = await fetch(chosen.url, { cache: "no-store" });
     if (!response.ok) return false;
     const blob = await response.blob();
     if (epoch !== generation) return false;
     media.url = URL.createObjectURL(blob);
     await nextTick();
     if (epoch !== generation) return false;
-    videos.forEach((video) => {
-      video.load();
-    });
+    video.load();
     return true;
   })().catch(() => false);
 
@@ -283,47 +276,38 @@ async function loadHeroVideo(videos: HTMLVideoElement[]) {
 }
 
 function canPlayHeroVideo() {
-  if (state.heroMedia !== "video") return false;
+  if (state.heroMedia !== "video" || state.page !== "home" || document.hidden)
+    return false;
   return !motionReduced();
 }
 
-export function heroEnded(index: number) {
-  if (!media.looping || media.active !== index) return;
-  const current = videoElements[index];
-  const next = videoElements[1 - index];
-  // 两层视频在相同的首尾帧切换, 避免循环时出现黑帧。
-  media.active = 1 - index;
-  try {
-    next.currentTime = 0;
-  } catch {}
-  void next.play().catch(() => {});
-  try {
-    current.currentTime = 0;
-  } catch {}
-}
-
-function startHeroVideo(videos: HTMLVideoElement[]) {
-  if (!videos.length) return;
-  media.active = 0;
-  media.looping = true;
-  videos.forEach((video) => {
-    video.pause();
-    try {
-      video.currentTime = 0;
-    } catch {}
-  });
-  const attempt = videos[media.active].play();
+function requestHeroPlayback(video: HTMLVideoElement) {
+  if (isTauri()) {
+    void invoke("play_hero_video").catch(() => {});
+    return;
+  }
+  const attempt = video.play();
   if (attempt && typeof attempt.catch === "function") attempt.catch(() => {});
 }
 
-function stopHeroVideo(videos: HTMLVideoElement[]) {
+export function heroEnded() {
+  if (!media.looping || !canPlayHeroVideo() || !videoElement) return;
+  videoElement.currentTime = 0;
+  requestHeroPlayback(videoElement);
+}
+
+function startHeroVideo(video: HTMLVideoElement) {
+  media.looping = true;
+  requestHeroPlayback(video);
+}
+
+function stopHeroVideo(video: HTMLVideoElement | null) {
   media.looping = false;
-  videos.forEach((video) => {
-    video.pause();
-    try {
-      video.currentTime = 0;
-    } catch {}
-  });
+  if (!video) return;
+  video.pause();
+  try {
+    video.currentTime = 0;
+  } catch {}
 }
 
 export function applyHeroMedia(input: string) {
@@ -337,31 +321,29 @@ export function applyHeroMedia(input: string) {
     return value;
   }
 
-  const videos = heroVideos();
-  if (!videos.length) return value;
+  const video = videoElement;
+  if (!video) return value;
 
   if (!canPlayHeroVideo()) {
-    stopHeroVideo(videos);
+    stopHeroVideo(video);
     return value;
   }
 
   const epoch = generation;
-  loadHeroVideo(videos).then((loaded) => {
+  loadHeroVideo(video).then((loaded) => {
     if (epoch !== generation) return;
     if (!loaded) {
-      stopHeroVideo(videos);
+      stopHeroVideo(video);
       return;
     }
     if (!canPlayHeroVideo()) {
-      stopHeroVideo(videos);
+      stopHeroVideo(video);
       return;
     }
     if (!media.looping) {
-      startHeroVideo(videos);
+      startHeroVideo(video);
     } else {
-      const attempt = videos[media.active].play();
-      if (attempt && typeof attempt.catch === "function")
-        attempt.catch(() => {});
+      requestHeroPlayback(video);
     }
   });
   return value;
@@ -609,7 +591,10 @@ function hashPage() {
 export function showPage(name: string | undefined, syncHash = true) {
   if (!name || !["home", "update", "bulletin", "settings"].includes(name))
     return;
+  const changed = state.page !== name;
   state.page = name;
+  // 封面与播放起点一致, 返回主页时不恢复到缩放动画的中途。
+  if (changed) applyHeroMedia(state.heroMedia);
   if (syncHash && window.location.hash !== "#" + name) {
     try {
       history.replaceState(null, "", "#" + name);
@@ -645,6 +630,7 @@ export function dragWindow(event: MouseEvent) {
 }
 
 function bindInteractions() {
+  onDocument("visibilitychange", () => applyHeroMedia(state.heroMedia));
   const blockDrag = (event: Event) => event.preventDefault();
   onDocument("dragstart", blockDrag);
   onDocument("dragover", blockDrag);
@@ -673,12 +659,9 @@ function bindInteractions() {
     "pointerdown",
     () => {
       if (!canPlayHeroVideo()) return;
-      const videos = heroVideos();
-      const video = videos[media.active];
+      const video = videoElement;
       if (video && video.src) {
-        const attempt = video.play();
-        if (attempt && typeof attempt.catch === "function")
-          attempt.catch(() => {});
+        requestHeroPlayback(video);
       }
     },
     { once: true },
@@ -778,8 +761,8 @@ export function dispose() {
   timers.clear();
   pendingWaits.forEach((resolve) => resolve());
   pendingWaits.clear();
-  stopHeroVideo(videoElements);
-  videoElements = [];
+  stopHeroVideo(videoElement);
+  videoElement = null;
   if (media.url) URL.revokeObjectURL(media.url);
   media.url = "";
   heroVideoRequest = null;

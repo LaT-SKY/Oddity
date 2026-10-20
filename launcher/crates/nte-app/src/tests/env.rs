@@ -5,6 +5,7 @@ use std::time::Instant;
 #[test]
 fn detects_wayland_sessions() {
     let mut env = EnvGuard::new();
+    env.remove("GDK_BACKEND");
     env.set("XDG_SESSION_TYPE", "wayland");
     env.remove("WAYLAND_DISPLAY");
     assert!(is_wayland_session());
@@ -24,8 +25,41 @@ fn detects_wayland_sessions() {
 }
 
 #[test]
+fn explicit_gtk_backend_takes_precedence_over_the_desktop_session() {
+    let mut env = EnvGuard::new();
+    env.set("XDG_SESSION_TYPE", "wayland");
+    env.set("WAYLAND_DISPLAY", "wayland-0");
+    env.set("GDK_BACKEND", "x11");
+    assert!(!is_wayland_session());
+
+    env.set("XDG_SESSION_TYPE", "x11");
+    env.remove("WAYLAND_DISPLAY");
+    env.set("GDK_BACKEND", "wayland");
+    assert!(is_wayland_session());
+}
+
+#[test]
+fn nvidia_xwayland_uses_the_x11_renderer_configuration() {
+    let mut env = EnvGuard::new();
+    env.remove("WEBKIT_DMABUF_RENDERER_FORCE_SHM");
+    env.remove("WEBKIT_GST_DISABLE_GL_SINK");
+    env.remove("WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS");
+    env.remove("NTE_SOFTWARE_RENDER");
+    env.set("GDK_BACKEND", "x11");
+    env.set("XDG_SESSION_TYPE", "wayland");
+    configure_graphics();
+    assert_eq!(
+        std::env::var_os("WEBKIT_DMABUF_RENDERER_FORCE_SHM").is_some(),
+        nvidia_driver_loaded()
+    );
+}
+
+#[test]
 fn configure_graphics_honours_the_software_render_switch() {
     let mut env = EnvGuard::new();
+    env.remove("WEBKIT_DMABUF_RENDERER_FORCE_SHM");
+    env.remove("WEBKIT_GST_DISABLE_GL_SINK");
+    env.remove("WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS");
     env.remove("WEBKIT_DISABLE_DMABUF_RENDERER");
     env.remove("WEBKIT_DISABLE_COMPOSITING_MODE");
     env.remove("LIBGL_ALWAYS_SOFTWARE");
@@ -41,11 +75,15 @@ fn configure_graphics_honours_the_software_render_switch() {
 #[test]
 fn configure_graphics_keeps_hardware_acceleration_by_default() {
     let mut env = EnvGuard::new();
+    env.remove("WEBKIT_DMABUF_RENDERER_FORCE_SHM");
+    env.remove("WEBKIT_GST_DISABLE_GL_SINK");
+    env.remove("WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS");
     env.remove("NTE_SOFTWARE_RENDER");
     env.set("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
     env.set("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
     env.set("LIBGL_ALWAYS_SOFTWARE", "1");
     env.set("XDG_SESSION_TYPE", "wayland");
+    env.set("GDK_BACKEND", "wayland");
     env.remove("WAYLAND_DISPLAY");
 
     configure_graphics();
