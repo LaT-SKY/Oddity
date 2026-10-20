@@ -1,0 +1,30 @@
+# 只维护 area 标签
+"area: ui":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "launcher/ui/**"
+"area: cli":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "launcher/crates/nte-cli/**"
+"area: launcher":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "launcher/crates/nte-app/**"
+"area: packaging":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "launcher/packaging/**"
+          - "launcher/scripts/install-desktop.sh"
+          - "launcher/crates/nte-app/tauri.conf.json"
+"area: updater":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "launcher/crates/nte-core/src/game/**"
+          - "launcher/crates/nte-core/src/update.rs"
+          - "launcher/crates/nte-core/src/manifest.rs"
+"area: proton":
+  - changed-files:
+      - any-glob-to-any-file:
+          - "launcher/crates/nte-core/src/launch.rs"
+          - "launcher/crates/nte-core/src/config.rs"
