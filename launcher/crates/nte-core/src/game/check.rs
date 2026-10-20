@@ -564,13 +564,16 @@ fn fetch_config(config: &GameUpdateConfig) -> Result<RemoteConfig> {
 }
 
 fn fetch_bytes(url: &str, limit: u64) -> Result<Vec<u8>> {
-    let resp = ureq::get(url)
-        .set("User-Agent", USER_AGENT)
-        .timeout(std::time::Duration::from_secs(30))
+    let mut resp = ureq::get(url)
+        .header("User-Agent", USER_AGENT)
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(30)))
+        .build()
         .call()
         .map_err(|e| Error::Http(format!("GET {url}: {e}")))?;
     let mut bytes = Vec::new();
-    resp.into_reader()
+    resp.body_mut()
+        .as_reader()
         .take(limit)
         .read_to_end(&mut bytes)
         .map_err(|e| Error::Http(format!("read {url}: {e}")))?;

@@ -1,7 +1,7 @@
 use std::io::{Cursor, Read, Write};
 
 use cipher::block_padding::Pkcs7;
-use cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+use cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 
 use crate::{Error, Result};
 
@@ -46,7 +46,7 @@ pub fn decode(bytes: &[u8], app_id: &str) -> Result<Vec<u8>> {
     let (key, iv) = key_material(app_id);
     let mut buf = ciphertext.to_vec();
     let plain = Aes128CbcDec::new(&key.into(), &iv.into())
-        .decrypt_padded_mut::<Pkcs7>(&mut buf)
+        .decrypt_padded::<Pkcs7>(&mut buf)
         .map_err(|e| Error::Parse(format!("PatcherXML0 AES: {e}")))?;
 
     let mut decoder = flate2::read::ZlibDecoder::new(plain);
@@ -80,7 +80,7 @@ pub fn encode(plain: &[u8], app_id: &str) -> Result<Vec<u8>> {
         .finish()
         .map_err(|e| Error::Parse(format!("PatcherXML0 zlib encode: {e}")))?;
     let ciphertext =
-        Aes128CbcEnc::new(&key.into(), &iv.into()).encrypt_padded_vec_mut::<Pkcs7>(&compressed);
+        Aes128CbcEnc::new(&key.into(), &iv.into()).encrypt_padded_vec::<Pkcs7>(&compressed);
     let mut out = Vec::with_capacity(16 + ciphertext.len());
     out.extend_from_slice(MAGIC);
     out.push(0);
@@ -99,7 +99,11 @@ pub fn read_zip_manifests(zip_bytes: &[u8], app_id: &str) -> Result<ZipManifests
         let mut entry = archive
             .by_index(i)
             .map_err(|e| Error::Parse(format!("zip entry {i}: {e}")))?;
-        let name = entry.name().to_ascii_lowercase();
+        let entry_name = entry
+            .name()
+            .map_err(|e| Error::Parse(format!("zip entry {i}: {e}")))?
+            .into_owned();
+        let name = entry_name.to_ascii_lowercase();
         let is_res = name.ends_with("reslist.bin") || name.ends_with("reslist.xml");
         let is_diff = name.ends_with("lastdiff.bin") || name.ends_with("lastdiff.xml");
         if !is_res && !is_diff {
@@ -108,14 +112,13 @@ pub fn read_zip_manifests(zip_bytes: &[u8], app_id: &str) -> Result<ZipManifests
         let mut bytes = Vec::new();
         entry
             .read_to_end(&mut bytes)
-            .map_err(|e| Error::Parse(format!("read zip entry {}: {e}", entry.name())))?;
+            .map_err(|e| Error::Parse(format!("read zip entry {entry_name}: {e}")))?;
         let text = if bytes.starts_with(MAGIC) {
             decode_to_string(&bytes, app_id)?
         } else {
             String::from_utf8(bytes).map_err(|e| {
                 Error::Parse(format!(
-                    "manifest {} is neither PatcherXML0 nor UTF-8: {e}",
-                    entry.name()
+                    "manifest {entry_name} is neither PatcherXML0 nor UTF-8: {e}"
                 ))
             })?
         };
@@ -166,7 +169,7 @@ mod tests {
     /// 用正确的 AES 密钥加密任意字节，用来构造 zlib 层失败的样本。
     fn encrypt_raw(plain: &[u8], app_id: &str) -> Vec<u8> {
         let (key, iv) = key_material(app_id);
-        Aes128CbcEnc::new(&key.into(), &iv.into()).encrypt_padded_vec_mut::<Pkcs7>(plain)
+        Aes128CbcEnc::new(&key.into(), &iv.into()).encrypt_padded_vec::<Pkcs7>(plain)
     }
 
     fn with_header(expected: u32, ciphertext: &[u8]) -> Vec<u8> {

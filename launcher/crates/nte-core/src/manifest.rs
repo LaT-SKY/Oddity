@@ -66,14 +66,17 @@ impl Manifest {
     }
 
     pub fn from_url(url: &str) -> Result<Self> {
-        let resp = ureq::get(url)
-            .set("User-Agent", USER_AGENT)
-            .timeout(std::time::Duration::from_secs(30))
+        let mut resp = ureq::get(url)
+            .header("User-Agent", USER_AGENT)
+            .config()
+            .timeout_global(Some(std::time::Duration::from_secs(30)))
+            .build()
             .call()
             .map_err(|e| Error::Http(format!("GET {url}: {e}")))?;
         let mut body = String::new();
         use std::io::Read;
-        resp.into_reader()
+        resp.body_mut()
+            .as_reader()
             .take(16 * 1024 * 1024)
             .read_to_string(&mut body)
             .map_err(|e| Error::Http(format!("read {url}: {e}")))?;

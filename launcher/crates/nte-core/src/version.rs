@@ -24,13 +24,16 @@ fn now_tick() -> u128 {
 pub fn fetch(version_url: &str) -> Result<VersionInfo> {
     let sep = if version_url.contains('?') { '&' } else { '?' };
     let url = format!("{version_url}{sep}t={}", now_tick());
-    let resp = ureq::get(&url)
-        .set("User-Agent", USER_AGENT)
-        .timeout(std::time::Duration::from_secs(20))
+    let mut resp = ureq::get(&url)
+        .header("User-Agent", USER_AGENT)
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(20)))
+        .build()
         .call()
         .map_err(|e| Error::Http(format!("GET {url}: {e}")))?;
     let mut body = String::new();
-    resp.into_reader()
+    resp.body_mut()
+        .as_reader()
         .take(512 * 1024)
         .read_to_string(&mut body)
         .map_err(|e| Error::Http(format!("read {url}: {e}")))?;

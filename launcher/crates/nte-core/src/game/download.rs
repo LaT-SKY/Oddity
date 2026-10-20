@@ -365,26 +365,28 @@ fn download_range_to_temp(
 
 fn fetch_to_file(url: &str, temp: &Path, existing: u64, range: Option<&str>) -> Result<u64> {
     let mut req = ureq::get(url)
-        .set("User-Agent", USER_AGENT)
-        .timeout(std::time::Duration::from_secs(120));
+        .header("User-Agent", USER_AGENT)
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(120)))
+        .build();
     if let Some(range) = range {
-        req = req.set("Range", range);
+        req = req.header("Range", range);
     } else if existing > 0 {
-        req = req.set("Range", &format!("bytes={existing}-"));
+        req = req.header("Range", format!("bytes={existing}-"));
     }
-    let resp = match req.call() {
+    let mut resp = match req.call() {
         Ok(r) => r,
-        Err(ureq::Error::Status(416, _)) if existing > 0 => return Ok(0),
+        Err(ureq::Error::StatusCode(416)) if existing > 0 => return Ok(0),
         Err(e) => return Err(Error::Http(format!("GET {url}: {e}"))),
     };
-    let status = resp.status();
+    let status = resp.status().as_u16();
     let append = status == 206 && existing > 0;
     let mut out = if append {
         OpenOptions::new().append(true).open(temp)?
     } else {
         File::create(temp)?
     };
-    let mut reader = resp.into_reader();
+    let mut reader = resp.body_mut().as_reader();
     let mut buf = vec![0u8; 1024 * 1024];
     let mut total = 0u64;
     loop {

@@ -88,13 +88,16 @@ pub fn check(root: &Path, manifest: &Manifest, quick: bool) -> Result<CheckRepor
 }
 
 fn download(url: &str) -> Result<Vec<u8>> {
-    let resp = ureq::get(url)
-        .set("User-Agent", USER_AGENT)
-        .timeout(std::time::Duration::from_secs(60))
+    let mut resp = ureq::get(url)
+        .header("User-Agent", USER_AGENT)
+        .config()
+        .timeout_global(Some(std::time::Duration::from_secs(60)))
+        .build()
         .call()
         .map_err(|e| Error::Http(format!("GET {url}: {e}")))?;
     let mut buf = Vec::new();
-    resp.into_reader()
+    resp.body_mut()
+        .as_reader()
         .take(512 * 1024 * 1024)
         .read_to_end(&mut buf)
         .map_err(|e| Error::Http(format!("read {url}: {e}")))?;

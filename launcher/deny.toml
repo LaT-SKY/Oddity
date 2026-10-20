@@ -10,13 +10,6 @@ no-default-features = false
 ignore = [
   # 构建期宏 crate，由 gtk3-macros 0.18 引入，不进入运行时
   { id = "RUSTSEC-2024-0370", reason = "gtk3-macros 的构建期依赖，不进入运行时；2027-06 前随 gtk-rs 升级移除" },
-  # quick-xml 只解析官方 CDN 下发的 Version.ini 与文件清单，读取有上限；解析层重写时升级
-  { id = "RUSTSEC-2026-0194", reason = "输入来自官方 CDN，Version.ini 上限 512 KiB、清单上限 16 MiB；2027-01 前随解析层重写升级到 0.41" },
-  { id = "RUSTSEC-2026-0195", reason = "输入来自官方 CDN，Version.ini 上限 512 KiB、清单上限 16 MiB；2027-01 前随解析层重写升级到 0.41" },
-  # zip 只读取条目，不使用 extract 系列接口
-  { id = "RUSTSEC-2026-0367", reason = "只用 ZipArchive::new 与 by_index 读取条目，未调用 extract 系列接口；2027-06 前随 zip 升级处理" },
-  { id = "RUSTSEC-2026-0368", reason = "只用 ZipArchive::new 与 by_index 读取条目，未调用 extract 系列接口；2027-06 前随 zip 升级处理" },
-  { id = "RUSTSEC-2026-0369", reason = "只用 ZipArchive::new 与 by_index 读取条目，未调用 extract 系列接口；2027-06 前随 zip 升级处理" },
   # zbus 5 的子 crate，等 tauri-plugin-single-instance 升级到 zbus 6
   { id = "RUSTSEC-2026-0370", reason = "由 tauri-plugin-single-instance 依赖的 zbus 5 引入，zbus 6 已合并该 crate；2027-06 前随插件升级移除" },
   { id = "RUSTSEC-2026-0371", reason = "由 tauri-plugin-single-instance 依赖的 zbus 5 引入，zbus 6 已合并该 crate；2027-06 前随插件升级移除" },
@@ -29,6 +22,7 @@ allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "BSD-3-Clause",
+    "bzip2-1.0.6",
     "CC0-1.0",
     "CDLA-Permissive-2.0",
     "GPL-3.0-or-later",
