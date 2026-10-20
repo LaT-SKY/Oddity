@@ -1,0 +1,203 @@
+name: 发布版本
+
+on:
+  push:
+    tags:
+      - 'oddity-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的 tag，例如 oddity-v0.1.0-alpha.1'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: 校验版本与 Tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      notes_start: ${{ steps.meta.outputs.notes_start }}
+      commit: ${{ steps.meta.outputs.commit }}
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: 校验 Tag 与版本
+        id: meta
+        shell: bash
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^oddity-v(.+)$ ]]; then
+            echo "::error::tag 必须以 oddity-v 开头: $TAG"
+            exit 1
+          fi
+          version="${BASH_REMATCH[1]}"
+
+          git fetch --tags --force origin
+          if [[ "$(git cat-file -t "refs/tags/$TAG")" != "tag" ]]; then
+            echo "::error::tag 必须是 annotated tag: $TAG"
+            exit 1
+          fi
+
+          commit="$(git rev-parse "refs/tags/$TAG^{commit}")"
+          if [[ "$(git rev-parse HEAD)" != "$commit" ]]; then
+            echo "::error::检出的提交与 tag 不一致"
+            exit 1
+          fi
+
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$commit" origin/main; then
+            echo "::error::tag 必须指向 main 上的提交"
+            exit 1
+          fi
+
+          node scripts/check-release-version.mjs "$version" "$TAG"
+
+          if [[ "$version" == *-* ]]; then
+            prerelease=true
+          else
+            prerelease=false
+          fi
+
+          notes_start=""
+          if [[ "$prerelease" == "false" ]]; then
+            while read -r candidate; do
+              [[ -z "$candidate" ]] && continue
+              candidate_version="${candidate#oddity-v}"
+              [[ "$candidate_version" == *-* ]] && continue
+              [[ "$candidate" == "$TAG" ]] && continue
+              if ! git merge-base --is-ancestor "refs/tags/$candidate^{commit}" "$commit"; then
+                continue
+              fi
+              notes_start="$candidate"
+              break
+            done < <(git tag --list 'oddity-v*' --sort=-v:refname)
+
+            if [[ -z "$notes_start" ]]; then
+              series="${version%.*}"
+              while read -r candidate; do
+                [[ -z "$candidate" ]] && continue
+                [[ "$candidate" == "$TAG" ]] && continue
+                if git merge-base --is-ancestor "refs/tags/$candidate^{commit}" "$commit"; then
+                  notes_start="$candidate"
+                  break
+                fi
+              done < <(git tag --list "oddity-v${series}.*" --sort=v:refname)
+            fi
+          fi
+
+          {
+            echo "version=$version"
+            echo "prerelease=$prerelease"
+            echo "notes_start=$notes_start"
+            echo "commit=$commit"
+          } >> "$GITHUB_OUTPUT"
+
+  build:
+    name: 构建发布产物
+    needs: verify
+    uses: ./.github/workflows/build-package.yml
+
+  release:
+    name: 创建 GitHub Release
+    needs: [verify, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag || github.ref_name }}
+      VERSION: ${{ needs.verify.outputs.version }}
+      PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+      NOTES_START: ${{ needs.verify.outputs.notes_start }}
+      COMMIT: ${{ needs.verify.outputs.commit }}
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v7
+        with:
+          name: oddity-linux-x86_64
+          path: dist
+
+      - name: 准备发布文件
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          oddity="$(find dist -type f -name oddity -print -quit)"
+          cli="$(find dist -type f -name nte-cli -print -quit)"
+          deb="$(find dist -type f -name '*.deb' -print -quit)"
+          for path in "$oddity" "$cli" "$deb"; do
+            if [[ -z "$path" ]]; then
+              echo "::error::构建产物不完整"
+              exit 1
+            fi
+          done
+          cp "$oddity" "release/oddity-${VERSION}-linux-x86_64"
+          cp "$cli" "release/nte-cli-${VERSION}-linux-x86_64"
+          cp "$deb" "release/oddity_${VERSION}_amd64.deb"
+          (cd release && sha256sum -- * > SHA256SUMS)
+
+      - name: 检查 Release 是否已存在
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Release $TAG 已存在"
+            exit 1
+          fi
+
+      - name: 生成 Release 说明
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            -X POST
+            "repos/$GITHUB_REPOSITORY/releases/generate-notes"
+            -f "tag_name=$TAG"
+            -f "target_commitish=$COMMIT"
+            -f "configuration_file_path=.github/release.yml"
+          )
+          if [[ -n "$NOTES_START" ]]; then
+            args+=(-f "previous_tag_name=$NOTES_START")
+          fi
+          gh api "${args[@]}" --jq .body > release-notes.md
+          {
+            echo "### Oddity ${VERSION}"
+            echo
+            cat release-notes.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 创建 Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(
+            --verify-tag
+            --title "Oddity ${VERSION}"
+            --notes-file release-notes.md
+          )
+          if [[ "$PRERELEASE" == "true" ]]; then
+            args+=(--prerelease)
+          fi
+          gh release create "$TAG" "${args[@]}" release/*

@@ -2338,7 +2338,7 @@ dependencies = [
 
 [[package]]
 name = "nte-app"
-version = "0.1.0-rc1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "libc",
  "nte-core",
@@ -2351,7 +2351,7 @@ dependencies = [
 
 [[package]]
 name = "nte-cli"
-version = "0.1.0-rc1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "anyhow",
  "nte-core",
@@ -2360,7 +2360,7 @@ dependencies = [
 
 [[package]]
 name = "nte-core"
-version = "0.1.0-rc1"
+version = "0.1.0-alpha.1"
 dependencies = [
  "aes",
  "anyhow",
