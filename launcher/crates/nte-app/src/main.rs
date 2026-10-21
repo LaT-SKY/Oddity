@@ -22,6 +22,7 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent};
 
+use nte_core::bulletin::{self, BulletinFeed};
 use nte_core::config::{Ini, LauncherConfig};
 use nte_core::manifest::Manifest;
 use nte_core::{update, version};
@@ -971,6 +972,13 @@ async fn check_update(state: State<'_, AppState>, full: bool) -> Result<CheckRes
 }
 
 #[tauri::command]
+async fn fetch_bulletins() -> Result<BulletinFeed, String> {
+    tauri::async_runtime::spawn_blocking(bulletin::fetch)
+        .await
+        .map_err(|error| format!("公告抓取任务失败：{error}"))
+}
+
+#[tauri::command]
 fn save_settings(state: State<AppState>, settings: Settings) -> Result<Bootstrap, String> {
     let mut next = settings;
     if !matches!(
@@ -1775,6 +1783,7 @@ fn main() {
             play_hero_video,
             bootstrap,
             check_update,
+            fetch_bulletins,
             save_settings,
             open_url,
             launch_official,

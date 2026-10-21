@@ -67,10 +67,25 @@ export interface GameStatus {
   exe: string;
   log: string;
 }
+export type BulletinKind = "bilibili" | "preview" | "maintenance";
+export interface BulletinItem {
+  kind: BulletinKind;
+  title: string;
+  summary: string;
+  url: string;
+  imageUrl: string | null;
+  publishedAt: string;
+  source: string;
+}
+export interface BulletinFeed {
+  items: BulletinItem[];
+  errors: string[];
+}
 export interface Commands {
   play_hero_video: null;
   bootstrap: Bootstrap;
   check_update: CheckResult;
+  fetch_bulletins: BulletinFeed;
   save_settings: Bootstrap;
   open_url: null;
   launch_official: LaunchResult;
@@ -86,6 +101,7 @@ export interface CommandArgs {
   play_hero_video: undefined;
   bootstrap: undefined;
   check_update: { full: boolean };
+  fetch_bulletins: undefined;
   save_settings: { settings: Settings };
   open_url: { url: string };
   launch_official: undefined;

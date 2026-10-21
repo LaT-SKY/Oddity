@@ -5,12 +5,15 @@ import type {
   CheckResult,
   LaunchResult,
   GameStatus,
+  BulletinFeed,
 } from "../types/launcher";
 import { invoke, isTauri, listenGameState } from "./api";
 import { APP_VERSION } from "./version";
 
 let generation = 0;
 let events = new window.AbortController();
+const BULLETIN_CACHE_KEY = "nte.bulletins.v1";
+const BULLETIN_CACHE_TTL_MS = 15 * 60 * 1000;
 const disposers: (() => void)[] = [];
 const timers = new Set<number>();
 function schedule(callback: () => void, ms: number) {
@@ -54,6 +57,8 @@ type GamePhase = "idle" | "launching" | "running" | "closing";
 export const state = reactive<{
   bootstrap: Bootstrap | null;
   check: CheckResult | null;
+  bulletins: BulletinFeed | null;
+  bulletinsLoading: boolean;
   page: string;
   checking: boolean;
   game: GamePhase;
@@ -62,6 +67,8 @@ export const state = reactive<{
 }>({
   bootstrap: null,
   check: null,
+  bulletins: null,
+  bulletinsLoading: false,
   page: "home",
   checking: false,
   game: "idle",
@@ -399,6 +406,70 @@ export async function checkUpdate(full = false, silent = false) {
     if (!silent) toast(message, "error", 6500);
   } finally {
     if (epoch === generation) state.checking = false;
+  }
+}
+
+function readBulletinCache() {
+  try {
+    const parsed = JSON.parse(
+      window.localStorage.getItem(BULLETIN_CACHE_KEY) || "",
+    ) as { savedAt?: unknown; feed?: BulletinFeed };
+    if (
+      typeof parsed.savedAt !== "number" ||
+      !parsed.feed ||
+      !Array.isArray(parsed.feed.items) ||
+      !Array.isArray(parsed.feed.errors)
+    )
+      return null;
+    return { savedAt: parsed.savedAt, feed: parsed.feed };
+  } catch {
+    return null;
+  }
+}
+
+function writeBulletinCache(feed: BulletinFeed) {
+  try {
+    window.localStorage.setItem(
+      BULLETIN_CACHE_KEY,
+      JSON.stringify({ savedAt: Date.now(), feed }),
+    );
+  } catch {}
+}
+
+export async function fetchBulletins(silent = true, force = false) {
+  const epoch = generation;
+  if (state.bulletinsLoading) return;
+  const cached = readBulletinCache();
+  if (!force && cached && Date.now() - cached.savedAt < BULLETIN_CACHE_TTL_MS) {
+    state.bulletins = cached.feed;
+    return;
+  }
+  state.bulletinsLoading = true;
+  try {
+    const feed = await invoke("fetch_bulletins");
+    if (epoch !== generation) return;
+    state.bulletins = feed;
+    writeBulletinCache(feed);
+    if (!silent && feed.errors.length > 0 && feed.items.length === 0) {
+      toast("公告暂时无法更新，请稍后重试。", "error", 6000);
+    }
+  } catch (error) {
+    if (epoch !== generation) return;
+    if (!state.bulletins) {
+      state.bulletins = {
+        items: [],
+        errors: [error instanceof Error ? error.message : String(error)],
+      };
+    }
+    if (!silent) {
+      toast(
+        error instanceof Error ? error.message : String(error),
+        "error",
+        6000,
+      );
+    }
+  } finally {
+    if (epoch === generation) state.bulletinsLoading = false;
   }
 }
 
@@ -781,6 +852,8 @@ export async function init() {
     );
   }
 
+  void fetchBulletins();
+
   startIntro();
 
   if (state.bootstrap && state.bootstrap.ok) {
@@ -811,6 +884,8 @@ export function dispose() {
   Object.assign(state, {
     bootstrap: null,
     check: null,
+    bulletins: null,
+    bulletinsLoading: false,
     page: "home",
     checking: false,
     game: "idle",
