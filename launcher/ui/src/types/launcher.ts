@@ -8,6 +8,7 @@ export interface Settings {
   reduceMotion: boolean;
   theme: string;
   heroMedia: string;
+  minimizeToTrayOnClose: boolean;
 }
 export interface CheckItem {
   label: string;

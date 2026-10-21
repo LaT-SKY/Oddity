@@ -13,6 +13,7 @@ fn settings_default_matches_the_ui_contract() {
     assert!(!settings.reduce_motion);
     assert_eq!(settings.theme, "light");
     assert_eq!(settings.hero_media, "video");
+    assert!(settings.minimize_to_tray_on_close);
 }
 
 #[test]
@@ -35,12 +36,14 @@ fn settings_round_trip_through_the_config_dir() {
         reduce_motion: true,
         theme: "dark".to_string(),
         hero_media: "photo".to_string(),
+        minimize_to_tray_on_close: false,
     };
     persist_settings(&settings).expect("persist settings");
 
     let text = dir.read_text("oddity/settings.json");
     assert!(text.contains("\"installRoot\""), "{text}");
     assert!(text.contains("\"reduceMotion\""), "{text}");
+    assert!(text.contains("\"minimizeToTrayOnClose\""), "{text}");
     assert!(!dir.join("oddity/settings.json.tmp").exists());
 
     let loaded = load_settings();
@@ -52,6 +55,7 @@ fn settings_round_trip_through_the_config_dir() {
     assert!(loaded.reduce_motion);
     assert_eq!(loaded.theme, "dark");
     assert_eq!(loaded.hero_media, "photo");
+    assert!(!loaded.minimize_to_tray_on_close);
 }
 
 #[test]
@@ -70,6 +74,30 @@ fn settings_fall_back_when_the_file_is_broken_or_partial() {
     assert_eq!(partial.theme, "dark");
     assert_eq!(partial.launch_mode, "background");
     assert_eq!(partial.hero_media, "video");
+    assert!(partial.minimize_to_tray_on_close);
+}
+
+#[test]
+fn settings_minimize_to_tray_round_trip() {
+    let mut env = EnvGuard::new();
+    let dir = TempDir::new("settings-tray");
+    env.set("XDG_CONFIG_HOME", dir.path());
+
+    let settings = Settings {
+        minimize_to_tray_on_close: true,
+        ..Settings::default()
+    };
+    persist_settings(&settings).expect("persist settings");
+    let loaded = load_settings();
+    assert!(loaded.minimize_to_tray_on_close);
+
+    let settings_disabled = Settings {
+        minimize_to_tray_on_close: false,
+        ..Settings::default()
+    };
+    persist_settings(&settings_disabled).expect("persist settings");
+    let loaded_disabled = load_settings();
+    assert!(!loaded_disabled.minimize_to_tray_on_close);
 }
 
 #[test]

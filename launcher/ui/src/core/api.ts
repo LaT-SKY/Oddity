@@ -149,6 +149,7 @@ const mock: Bootstrap = {
     reduceMotion: false,
     theme: "light",
     heroMedia: "video",
+    minimizeToTrayOnClose: true,
   },
   appVersion: APP_VERSION,
   os: previewOs(),

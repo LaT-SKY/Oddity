@@ -24,8 +24,9 @@ test("导航、更新、设置、快捷键与启动关闭流程", async ({ page 
   await page.locator("#set-theme").selectOption("dark");
   await expect(page.locator("#app")).toHaveAttribute("data-theme", "dark");
   await page.locator("#set-hero-media").selectOption("photo");
-  await page.locator(".switch-row").click();
+  await page.locator(".switch-row").first().click();
   await expect(page.locator("#set-motion")).toBeChecked();
+  await expect(page.locator("#set-minimize-to-tray")).toBeChecked();
   await expect(page.locator("#app")).toHaveClass(/reduce-motion/);
   await page.locator("#set-install").fill("/tmp/oddity-game");
   await page.keyboard.press("Control+s");

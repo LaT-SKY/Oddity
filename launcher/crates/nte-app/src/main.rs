@@ -20,7 +20,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent};
 
 use nte_core::config::{Ini, LauncherConfig};
 use nte_core::manifest::Manifest;
@@ -40,6 +40,7 @@ struct Settings {
     reduce_motion: bool,
     theme: String,
     hero_media: String,
+    minimize_to_tray_on_close: bool,
 }
 
 impl Default for Settings {
@@ -54,6 +55,7 @@ impl Default for Settings {
             reduce_motion: false,
             theme: "light".to_string(),
             hero_media: "video".to_string(),
+            minimize_to_tray_on_close: true,
         }
     }
 }
@@ -1741,6 +1743,24 @@ fn main() {
         .manage(AppState {
             settings: Mutex::new(settings),
             game: Mutex::new(GameTracker::default()),
+        })
+        .on_window_event(|window, event| {
+            if let WindowEvent::CloseRequested { api, .. } = event {
+                let minimize = window
+                    .try_state::<AppState>()
+                    .and_then(|state| {
+                        state
+                            .settings
+                            .lock()
+                            .ok()
+                            .map(|s| s.minimize_to_tray_on_close)
+                    })
+                    .unwrap_or(true);
+                if minimize {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {

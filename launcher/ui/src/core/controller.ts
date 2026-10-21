@@ -47,6 +47,7 @@ export const form = reactive({
   theme: "light",
   heroMedia: "video",
   reduceMotion: false,
+  minimizeToTrayOnClose: true,
 });
 
 type GamePhase = "idle" | "launching" | "running" | "closing";
@@ -374,6 +375,7 @@ function applyBootstrap(data: Bootstrap) {
 
   applyReduceMotion(Boolean(settings.reduceMotion));
   applyHeroMedia(settings.heroMedia || "video");
+  form.minimizeToTrayOnClose = settings.minimizeToTrayOnClose ?? true;
 
   if (data.error) {
     toast(data.error, "error", 6000);
@@ -521,6 +523,7 @@ export async function saveSettings() {
     reduceMotion: form.reduceMotion,
     theme: applyTheme(form.theme),
     heroMedia: applyHeroMedia(form.heroMedia),
+    minimizeToTrayOnClose: form.minimizeToTrayOnClose,
   };
   ui.saving = true;
   try {
