@@ -1,20 +1,13 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref } from "vue";
 import {
   state,
-  media,
-  setHeroVideos,
-  heroEnded,
   launchView,
   updateView,
   showPage,
   checkUpdate,
   handleLaunchAction,
 } from "../core/controller";
-const videoA = ref<HTMLVideoElement | null>(null);
-const videoB = ref<HTMLVideoElement | null>(null);
-onMounted(() => setHeroVideos([videoA.value!, videoB.value!]));
-onBeforeUnmount(() => setHeroVideos([]));
+import HeroMedia from "../components/HeroMedia.vue";
 </script>
 
 <template>
@@ -26,39 +19,7 @@ onBeforeUnmount(() => setHeroVideos([]));
   >
     <div class="hero">
       <div class="hero__inner">
-        <div class="hero__art" aria-hidden="true"></div>
-        <video
-          class="hero__video"
-          id="hero-video-a"
-          ref="videoA"
-          :src="media.url || undefined"
-          :class="{
-            'is-visible': media.looping && media.active === 0,
-            'is-front': media.looping && media.active === 0,
-          }"
-          @ended="heroEnded(0)"
-          muted
-          playsinline
-          :preload="media.url ? 'auto' : 'none'"
-          poster="assets/hero-poster.jpg"
-          aria-hidden="true"
-        ></video>
-        <video
-          class="hero__video"
-          id="hero-video-b"
-          ref="videoB"
-          :src="media.url || undefined"
-          :class="{
-            'is-visible': media.looping && media.active === 1,
-            'is-front': media.looping && media.active === 1,
-          }"
-          @ended="heroEnded(1)"
-          muted
-          playsinline
-          :preload="media.url ? 'auto' : 'none'"
-          poster="assets/hero-poster.jpg"
-          aria-hidden="true"
-        ></video>
+        <HeroMedia />
         <div class="hero__fade" aria-hidden="true"></div>
         <div class="hero__content">
           <h1 class="hero__title" id="home-title">

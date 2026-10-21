@@ -36,8 +36,11 @@ allow = [
 confidence-threshold = 0.8
 
 [bans]
-multiple-versions = "warn"
-wildcards = "warn"
+# Tauri、GTK 和平台适配链由上游分别约束多个版本；强行收敛会引入不兼容升级。
+# 依赖更新仍由 Cargo.lock 和 advisories 检查负责，暂不把这类传递依赖提示当作告警。
+multiple-versions = "allow"
+# nte-app/nte-cli 对同一 workspace 内的 nte-core 使用 path dependency，版本字段没有意义。
+wildcards = "allow"
 
 [sources]
 unknown-registry = "deny"

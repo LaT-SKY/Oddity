@@ -1640,11 +1640,24 @@ fn win_drag(window: WebviewWindow) -> Result<(), String> {
     window.start_dragging().map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn play_hero_video(window: tauri::WebviewWindow) -> Result<(), String> {
+    // 由原生窗口启动解码, 避免被遮挡的视频源受到自动播放限制。
+    window.eval("{ const video = document.getElementById('hero-video'); if (video instanceof HTMLVideoElement && video.autoplay) void video.play().catch(() => {}); }")
+        .map_err(|error| error.to_string())
+}
+
 fn nvidia_driver_loaded() -> bool {
     Path::new("/sys/module/nvidia").exists()
 }
 
 fn is_wayland_session() -> bool {
+    // GTK 后端可与桌面会话不同, 尤其是 Wayland 桌面中的 XWayland 窗口。
+    match std::env::var("GDK_BACKEND").as_deref() {
+        Ok("x11") => return false,
+        Ok("wayland") => return true,
+        _ => {}
+    }
     std::env::var("XDG_SESSION_TYPE")
         .map(|value| value.eq_ignore_ascii_case("wayland"))
         .unwrap_or(false)
@@ -1652,6 +1665,9 @@ fn is_wayland_session() -> bool {
 }
 
 fn configure_graphics() {
+    // 画布从不可见的视频源取帧, 使用内存视频帧避免 GL 视频层的拷贝与挂起。
+    std::env::set_var("WEBKIT_GST_DISABLE_GL_SINK", "1");
+    std::env::set_var("WEBKIT_GST_ALLOW_PLAYBACK_OF_INVISIBLE_VIDEOS", "1");
     // Hardware acceleration is the default. WebKitGTK's DMABUF renderer is the
     // accelerated path; keep an explicit escape hatch for broken drivers.
     if std::env::var_os("NTE_SOFTWARE_RENDER").is_some() {
@@ -1660,6 +1676,7 @@ fn configure_graphics() {
         return;
     }
 
+    std::env::remove_var("WEBKIT_DMABUF_RENDERER_FORCE_SHM");
     std::env::remove_var("WEBKIT_DISABLE_DMABUF_RENDERER");
     std::env::remove_var("WEBKIT_DISABLE_COMPOSITING_MODE");
     std::env::remove_var("LIBGL_ALWAYS_SOFTWARE");
@@ -1670,14 +1687,10 @@ fn configure_graphics() {
         // This keeps the accelerated DMABUF path; it is not a software fallback.
         std::env::set_var("__NV_DISABLE_EXPLICIT_SYNC", "1");
         eprintln!("graphics: WebKitGTK hardware acceleration enabled (NVIDIA Wayland explicit-sync workaround)");
-    } else if nvidia_driver_loaded()
-        && std::env::var("XDG_SESSION_TYPE")
-            .map(|value| value.eq_ignore_ascii_case("x11"))
-            .unwrap_or(false)
-    {
-        // X11 + NVIDIA: blank window with the DMABUF renderer.
-        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-        eprintln!("graphics: WebKitGTK X11 NVIDIA workaround (DMABUF renderer disabled)");
+    } else if nvidia_driver_loaded() {
+        // NVIDIA/X11 通过共享内存传帧, 避免 GBM 分配失败与旧渲染器的透明区域缺失。
+        std::env::set_var("WEBKIT_DMABUF_RENDERER_FORCE_SHM", "1");
+        eprintln!("graphics: WebKitGTK X11 NVIDIA workaround (shared-memory buffers)");
     } else {
         eprintln!("graphics: WebKitGTK hardware acceleration enabled");
     }
@@ -1739,6 +1752,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            play_hero_video,
             bootstrap,
             check_update,
             save_settings,

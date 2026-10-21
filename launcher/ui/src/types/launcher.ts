@@ -67,6 +67,7 @@ export interface GameStatus {
   log: string;
 }
 export interface Commands {
+  play_hero_video: null;
   bootstrap: Bootstrap;
   check_update: CheckResult;
   save_settings: Bootstrap;
@@ -81,6 +82,7 @@ export interface Commands {
   win_drag: null;
 }
 export interface CommandArgs {
+  play_hero_video: undefined;
   bootstrap: undefined;
   check_update: { full: boolean };
   save_settings: { settings: Settings };
