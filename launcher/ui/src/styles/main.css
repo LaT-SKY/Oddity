@@ -618,6 +618,47 @@ button:disabled {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.main::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.scroll-edge {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 44px;
+  pointer-events: none;
+  z-index: 20;
+  opacity: 0;
+  transition: opacity 180ms var(--ease);
+}
+
+.scroll-edge.is-visible {
+  opacity: 1;
+}
+
+.scroll-edge--top {
+  top: 0;
+  background: linear-gradient(to bottom, var(--bg) 0%, transparent 100%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  mask-image: linear-gradient(to bottom, black 25%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black 25%, transparent 100%);
+}
+
+.scroll-edge--bottom {
+  bottom: 0;
+  background: linear-gradient(to top, var(--bg) 0%, transparent 100%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  mask-image: linear-gradient(to top, black 25%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to top, black 25%, transparent 100%);
 }
 
 .page {
@@ -631,6 +672,14 @@ button:disabled {
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: 2px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.page::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .page.is-active {
@@ -914,7 +963,7 @@ button:disabled {
 
 .page-head {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
   gap: 24px;
   padding: 2px 2px 0;
@@ -925,7 +974,7 @@ button:disabled {
 }
 
 .page-head__copy h2 {
-  margin: 12px 0 8px;
+  margin: 0;
   font-family: var(--font-display);
   font-size: 34px;
   font-weight: 900;
@@ -934,8 +983,12 @@ button:disabled {
   color: var(--bone);
 }
 
+.page-head__copy:has(.eyebrow) h2 {
+  margin-top: 10px;
+}
+
 .page-head__copy p {
-  margin: 0;
+  margin: 8px 0 0;
   max-width: 62ch;
   font-size: 13px;
   line-height: 1.65;
@@ -947,7 +1000,6 @@ button:disabled {
   align-items: center;
   gap: 9px;
   flex: none;
-  padding-bottom: 2px;
 }
 
 .page-head__actions .btn {
@@ -1262,7 +1314,6 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: 18px;
-  max-width: 940px;
 }
 
 .settings-section {
@@ -1432,18 +1483,6 @@ button:disabled {
   justify-content: space-between;
   gap: 16px;
   padding: 4px 2px 2px;
-}
-
-.settings-hint {
-  font-family: var(--mono);
-  font-size: 11px;
-  color: var(--faint);
-}
-
-.settings-note {
-  grid-column: 1 / -1;
-  margin: 0;
-  line-height: 1.5;
 }
 
 .diagnostics {

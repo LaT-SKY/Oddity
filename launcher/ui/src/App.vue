@@ -38,6 +38,12 @@ onBeforeUnmount(dispose);
       <NavigationRail />
 
       <main class="main">
+        <div
+          class="scroll-edge scroll-edge--top"
+          :class="{ 'is-visible': ui.scrollEdge.top }"
+          aria-hidden="true"
+        ></div>
+
         <HomePage />
 
         <UpdatePage />
@@ -45,6 +51,12 @@ onBeforeUnmount(dispose);
         <BulletinPage />
 
         <SettingsPage />
+
+        <div
+          class="scroll-edge scroll-edge--bottom"
+          :class="{ 'is-visible': ui.scrollEdge.bottom }"
+          aria-hidden="true"
+        ></div>
       </main>
     </div>
   </div>

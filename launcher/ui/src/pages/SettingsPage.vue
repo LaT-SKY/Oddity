@@ -2,7 +2,6 @@
 import {
   state,
   ui,
-  displayVersion,
   form,
   applyTheme,
   applyReduceMotion,
@@ -21,23 +20,16 @@ import {
   >
     <header class="page-head">
       <div class="page-head__copy">
-        <div class="eyebrow">
-          <span class="eyebrow__line"></span>SETTINGS / 设置
-        </div>
-        <h2 id="settings-title">把环境调到顺手</h2>
-        <p>路径、Proton 与启动方式。保存后立即生效。</p>
+        <h2 id="settings-title">设置</h2>
       </div>
       <div class="page-head__actions">
         <button
-          class="btn btn--ghost"
+          class="btn btn--link"
           id="settings-redetect"
           :disabled="ui.redetecting"
           :class="{ 'is-busy': ui.redetecting }"
           @click="redetect"
         >
-          <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-            <use href="#i-arrows-clockwise"></use>
-          </svg>
           <span class="btn__text">重新检测</span>
         </button>
         <button
@@ -48,6 +40,9 @@ import {
           :disabled="ui.saving"
           :class="{ 'is-busy': ui.saving }"
         >
+          <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
+            <use href="#i-floppy-disk"></use>
+          </svg>
           <span class="btn__text">保存设置</span>
         </button>
       </div>
@@ -159,19 +154,8 @@ import {
               </option>
             </select>
           </label>
-          <p class="settings-hint settings-note">
-            Wine prefix / 桥接目录沿用历史路径（软链到
-            ~/.local/share/oddity），以保持官方 OneSDK 自动登录票据有效。
-          </p>
         </div>
       </section>
-
-      <div class="settings-actions">
-        <span class="settings-hint"
-          >Oddity <span id="app-version">v{{ displayVersion }}</span> · 设置写入
-          ~/.config/oddity/settings.json · Ctrl+S 保存</span
-        >
-      </div>
     </form>
 
     <section class="diagnostics">
