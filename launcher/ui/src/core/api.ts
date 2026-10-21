@@ -8,6 +8,7 @@ import type {
   Commands,
   CommandArgs,
   PreviewPaths,
+  BulletinFeed,
 } from "../types/launcher";
 export { isTauri };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -169,6 +170,39 @@ const mockCheck = {
   changedPreview: [],
 };
 
+const mockBulletins: BulletinFeed = {
+  items: [
+    {
+      kind: "bilibili",
+      title: "《异环》官方动态示例",
+      summary: "浏览器预览使用本地示例数据，原生启动器会自动读取官方动态。",
+      url: "https://space.bilibili.com/3546636978489848/dynamic",
+      imageUrl: null,
+      publishedAt: "刚刚",
+      source: "B站官方动态",
+    },
+    {
+      kind: "preview",
+      title: "《异环》版本前瞻特别节目 | 情报回顾",
+      summary: "版本前瞻回顾",
+      url: "https://yh.wanmei.com/launcher/launcher_ob2.html?expand=0",
+      imageUrl: "/assets/hero-keyart.jpg",
+      publishedAt: "",
+      source: "版本前瞻",
+    },
+    {
+      kind: "maintenance",
+      title: "《异环》不停服更新公告",
+      summary: "服务器维护时间以官方公告为准。",
+      url: "https://yh.wanmei.com/news/gamebroad/index.html",
+      imageUrl: null,
+      publishedAt: "最新",
+      source: "官方公告",
+    },
+  ],
+  errors: [],
+};
+
 // 浏览器预览模拟会话, 原生窗口的状态由 Rust 维护。
 const previewGame = {
   running: false,
@@ -221,6 +255,9 @@ async function previewInvoke(
     case "check_update":
       await new Promise((resolve) => setTimeout(resolve, 620));
       return clone(mockCheck);
+    case "fetch_bulletins":
+      await new Promise((resolve) => setTimeout(resolve, 260));
+      return clone(mockBulletins);
     case "save_settings": {
       const settings = (args as { settings: Settings }).settings;
       mock.settings = { ...mock.settings, ...settings };
