@@ -15,6 +15,7 @@ export const settings: Settings = {
   reduceMotion: true,
   theme: "light",
   heroMedia: "photo",
+  minimizeToTrayOnClose: true,
 };
 export const bootstrap = (overrides: Partial<Bootstrap> = {}): Bootstrap => ({
   ok: true,

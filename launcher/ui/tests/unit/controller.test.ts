@@ -216,6 +216,7 @@ describe("启动与设置", () => {
         theme: "dark",
         reduceMotion: false,
         heroMedia: "photo",
+        minimizeToTrayOnClose: true,
       },
     });
     expect(text("toast")).toBe("设置已保存。");
@@ -226,6 +227,22 @@ describe("启动与设置", () => {
     expect(button("settings-save").disabled).toBe(false);
     await vi.advanceTimersByTimeAsync(6000);
     expect(button("toast").classList.contains("is-visible")).toBe(false);
+  });
+
+  it("关闭窗口时最小化到托盘配置支持切换与保存", async () => {
+    const c = await boot();
+    expect(c.form.minimizeToTrayOnClose).toBe(true);
+    const checkbox = document.querySelector<HTMLInputElement>(
+      "#set-minimize-to-tray",
+    )!;
+    expect(checkbox.checked).toBe(true);
+    c.form.minimizeToTrayOnClose = false;
+    await c.saveSettings();
+    expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
+      settings: expect.objectContaining({
+        minimizeToTrayOnClose: false,
+      }),
+    });
   });
 });
 

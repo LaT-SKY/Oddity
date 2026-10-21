@@ -171,6 +171,18 @@ const launchModeOptions = [
             />
           </div>
         </div>
+        <label class="switch-row">
+          <span
+            ><strong>关闭窗口时最小化到托盘</strong
+            ><small>关闭主窗口时保持后台运行。</small></span
+          >
+          <input
+            id="set-minimize-to-tray"
+            v-model="form.minimizeToTrayOnClose"
+            type="checkbox"
+          />
+          <i class="switch" aria-hidden="true"></i>
+        </label>
       </section>
     </form>
 
