@@ -129,7 +129,7 @@ describe("启动与设置", () => {
     const c = await boot();
     expect(c.form.installRoot).toBe("/game");
     expect(wrapper!.findAll(".check-row")).toHaveLength(1);
-    expect(text("app-version")).toBe("v0.1.0");
+    expect(c.displayVersion.value).toBe("0.1.0");
     expect(text("update-state-title")).toBe("已是最新");
     expect(button("app").classList.contains("is-intro-done")).toBe(true);
     backend.isMaximized.mockResolvedValueOnce(true);
@@ -153,7 +153,7 @@ describe("启动与设置", () => {
     const c = await boot();
     expect(button("setup-chip").hidden).toBe(false);
     expect(text("toast")).toBe("找不到游戏");
-    expect(text("app-version")).toBe("v" + APP_VERSION);
+    expect(c.displayVersion.value).toBe(APP_VERSION);
     expect(text("update-state-text")).toBe("等待检查");
     expect(c.form.launchMode).toBe("background");
     expect(c.form.theme).toBe("light");
@@ -708,7 +708,7 @@ it("版本显示随后台快照刷新, 缺失值显示未知而非固定版本",
     launcherBuild: "abcd",
   });
   await c.redetect();
-  expect(text("app-version")).toBe("v9.8.7");
+  expect(c.displayVersion.value).toBe("9.8.7");
   expect(wrapper!.find(".bulletin-number").text()).toBe("6.5.4");
   expect(wrapper!.find(".bulletin-copy").text()).toContain(
     "3.2.1 / build abcd",
@@ -721,7 +721,7 @@ it("版本显示随后台快照刷新, 缺失值显示未知而非固定版本",
     gameExists: false,
   });
   await c.redetect();
-  expect(text("app-version")).toBe("v" + APP_VERSION);
+  expect(c.displayVersion.value).toBe(APP_VERSION);
   expect(wrapper!.find(".bulletin-number").text()).toBe("未检测");
   expect(wrapper!.find(".bulletin-copy").text()).toContain(
     "尚未检测到游戏资源",
@@ -830,4 +830,50 @@ it("启动反馈期间卸载会取消等待, 不再隐藏窗口", async () => {
   await vi.advanceTimersByTimeAsync(900);
   expect(c.state.game).toBe("idle");
   expect(backend.invoke).not.toHaveBeenCalled();
+});
+
+it("设置页面标题与按钮图标正确, 且能计算滚动模糊边缘状态", async () => {
+  const c = await boot();
+  c.showPage("settings");
+  await nextTick();
+  expect(text("settings-title")).toBe("设置");
+  expect(wrapper!.find("#settings-redetect svg").exists()).toBe(false);
+  expect(wrapper!.find("#settings-save svg use").attributes("href")).toBe(
+    "#i-floppy-disk",
+  );
+
+  const activePage = document.querySelector<HTMLElement>(".page.is-active")!;
+  Object.defineProperty(activePage, "scrollHeight", {
+    value: 1000,
+    configurable: true,
+  });
+  Object.defineProperty(activePage, "clientHeight", {
+    value: 600,
+    configurable: true,
+  });
+  Object.defineProperty(activePage, "scrollTop", {
+    value: 0,
+    configurable: true,
+    writable: true,
+  });
+
+  c.syncScrollEdges();
+  expect(c.ui.scrollEdge.top).toBe(false);
+  expect(c.ui.scrollEdge.bottom).toBe(true);
+
+  activePage.scrollTop = 100;
+  c.syncScrollEdges();
+  expect(c.ui.scrollEdge.top).toBe(true);
+  expect(c.ui.scrollEdge.bottom).toBe(true);
+
+  activePage.scrollTop = 400;
+  c.syncScrollEdges();
+  expect(c.ui.scrollEdge.top).toBe(true);
+  expect(c.ui.scrollEdge.bottom).toBe(false);
+
+  c.showPage("home");
+  await nextTick();
+  c.syncScrollEdges();
+  expect(c.ui.scrollEdge.top).toBe(false);
+  expect(c.ui.scrollEdge.bottom).toBe(false);
 });

@@ -77,6 +77,7 @@ export const ui = reactive({
   introStarted: false,
   introDone: false,
   toast: { message: "", kind: "ok", visible: false },
+  scrollEdge: { top: false, bottom: false },
 });
 export const media = reactive({ url: "", looping: false });
 let toastTimer = 0;
@@ -377,6 +378,7 @@ function applyBootstrap(data: Bootstrap) {
   if (data.error) {
     toast(data.error, "error", 6000);
   }
+  void nextTick(syncScrollEdges);
 }
 
 export async function checkUpdate(full = false, silent = false) {
@@ -588,6 +590,24 @@ function hashPage() {
     : "home";
 }
 
+export function syncScrollEdges() {
+  const activePage = document.querySelector<HTMLElement>(".page.is-active");
+  if (!activePage || activePage.classList.contains("page--home")) {
+    ui.scrollEdge.top = false;
+    ui.scrollEdge.bottom = false;
+    return;
+  }
+  const { scrollTop, scrollHeight, clientHeight } = activePage;
+  const maxScroll = scrollHeight - clientHeight;
+  if (maxScroll <= 2) {
+    ui.scrollEdge.top = false;
+    ui.scrollEdge.bottom = false;
+    return;
+  }
+  ui.scrollEdge.top = scrollTop > 4;
+  ui.scrollEdge.bottom = scrollTop < maxScroll - 4;
+}
+
 export function showPage(name: string | undefined, syncHash = true) {
   if (!name || !["home", "update", "bulletin", "settings"].includes(name))
     return;
@@ -595,6 +615,7 @@ export function showPage(name: string | undefined, syncHash = true) {
   state.page = name;
   // 封面与播放起点一致, 返回主页时不恢复到缩放动画的中途。
   if (changed) applyHeroMedia(state.heroMedia);
+  void nextTick(syncScrollEdges);
   if (syncHash && window.location.hash !== "#" + name) {
     try {
       history.replaceState(null, "", "#" + name);
@@ -631,6 +652,19 @@ export function dragWindow(event: MouseEvent) {
 
 function bindInteractions() {
   onDocument("visibilitychange", () => applyHeroMedia(state.heroMedia));
+  onDocument(
+    "scroll",
+    (event) => {
+      if (
+        event.target instanceof Element &&
+        event.target.classList.contains("page")
+      ) {
+        syncScrollEdges();
+      }
+    },
+    { capture: true, passive: true },
+  );
+  onWindow("resize", syncScrollEdges);
   const blockDrag = (event: Event) => event.preventDefault();
   onDocument("dragstart", blockDrag);
   onDocument("dragover", blockDrag);
@@ -785,5 +819,6 @@ export function dispose() {
     updateError: false,
     setupNeeded: false,
     maximized: false,
+    scrollEdge: { top: false, bottom: false },
   });
 }

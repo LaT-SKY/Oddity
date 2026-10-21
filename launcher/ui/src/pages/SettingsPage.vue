@@ -2,7 +2,6 @@
 import {
   state,
   ui,
-  displayVersion,
   form,
   applyTheme,
   applyReduceMotion,
@@ -10,6 +9,32 @@ import {
   saveSettings,
   redetect,
 } from "../core/controller";
+import BaseSelect from "../components/BaseSelect.vue";
+
+const themeOptions = [
+  { label: "亮色（默认）", value: "light" },
+  { label: "暗色", value: "dark" },
+];
+
+const heroMediaOptions = [
+  { label: "动态视频", value: "video" },
+  { label: "静态照片", value: "photo" },
+];
+
+const launchModeOptions = [
+  {
+    label: "官方后台桥接（推荐：自动登录，隐藏启动器窗口）",
+    value: "background",
+  },
+  {
+    label: "官方启动器桥接（显示启动器窗口，自动登录）",
+    value: "official",
+  },
+  {
+    label: "研究直启（无启动器自动登录，仅供调试）",
+    value: "direct",
+  },
+];
 </script>
 
 <template>
@@ -21,23 +46,16 @@ import {
   >
     <header class="page-head">
       <div class="page-head__copy">
-        <div class="eyebrow">
-          <span class="eyebrow__line"></span>SETTINGS / 设置
-        </div>
-        <h2 id="settings-title">把环境调到顺手</h2>
-        <p>路径、Proton 与启动方式。保存后立即生效。</p>
+        <h2 id="settings-title">设置</h2>
       </div>
       <div class="page-head__actions">
         <button
-          class="btn btn--ghost"
+          class="btn btn--link"
           id="settings-redetect"
           :disabled="ui.redetecting"
           :class="{ 'is-busy': ui.redetecting }"
           @click="redetect"
         >
-          <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-            <use href="#i-arrows-clockwise"></use>
-          </svg>
           <span class="btn__text">重新检测</span>
         </button>
         <button
@@ -48,6 +66,9 @@ import {
           :disabled="ui.saving"
           :class="{ 'is-busy': ui.saving }"
         >
+          <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
+            <use href="#i-floppy-disk"></use>
+          </svg>
           <span class="btn__text">保存设置</span>
         </button>
       </div>
@@ -57,28 +78,24 @@ import {
       <section class="settings-section">
         <h3>外观</h3>
         <div class="field-grid">
-          <label class="field">
+          <div class="field">
             <span>主题</span>
-            <select
+            <BaseSelect
               id="set-theme"
               v-model="form.theme"
+              :options="themeOptions"
               @change="applyTheme(form.theme)"
-            >
-              <option value="light">亮色（默认）</option>
-              <option value="dark">暗色</option>
-            </select>
-          </label>
-          <label class="field">
+            />
+          </div>
+          <div class="field">
             <span>主页主视觉</span>
-            <select
+            <BaseSelect
               id="set-hero-media"
               v-model="form.heroMedia"
+              :options="heroMediaOptions"
               @change="applyHeroMedia(form.heroMedia)"
-            >
-              <option value="video">动态视频</option>
-              <option value="photo">静态照片</option>
-            </select>
-          </label>
+            />
+          </div>
         </div>
         <label class="switch-row">
           <span
@@ -145,33 +162,16 @@ import {
               placeholder="~/.local/share/Steam/compatibilitytools.d/GE-Proton..."
             />
           </label>
-          <label class="field">
+          <div class="field">
             <span>启动方式</span>
-            <select id="set-mode" v-model="form.launchMode">
-              <option value="background">
-                官方后台桥接（推荐：自动登录，隐藏启动器窗口）
-              </option>
-              <option value="official">
-                官方启动器桥接（显示启动器窗口，自动登录）
-              </option>
-              <option value="direct">
-                研究直启（无启动器自动登录，仅供调试）
-              </option>
-            </select>
-          </label>
-          <p class="settings-hint settings-note">
-            Wine prefix / 桥接目录沿用历史路径（软链到
-            ~/.local/share/oddity），以保持官方 OneSDK 自动登录票据有效。
-          </p>
+            <BaseSelect
+              id="set-mode"
+              v-model="form.launchMode"
+              :options="launchModeOptions"
+            />
+          </div>
         </div>
       </section>
-
-      <div class="settings-actions">
-        <span class="settings-hint"
-          >Oddity <span id="app-version">v{{ displayVersion }}</span> · 设置写入
-          ~/.config/oddity/settings.json · Ctrl+S 保存</span
-        >
-      </div>
     </form>
 
     <section class="diagnostics">
