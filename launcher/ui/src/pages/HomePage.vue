@@ -29,7 +29,7 @@ import HeroMedia from "../components/HeroMedia.vue";
           <p class="hero__tagline">一切正常，就是异常。</p>
           <div class="hero__actions">
             <button
-              class="btn btn--primary"
+              class="btn btn--primary btn--trailing"
               id="launch-btn"
               @click="handleLaunchAction"
               type="button"

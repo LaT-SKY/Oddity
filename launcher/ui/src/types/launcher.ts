@@ -1,3 +1,43 @@
+export type AttendanceTrigger = "off" | "launch" | "boot" | "daily" | "manual";
+export interface AttendancePreferences {
+  trigger: AttendanceTrigger;
+  time: string;
+}
+export interface AttendanceFailure {
+  kind:
+    | "network"
+    | "auth"
+    | "verification"
+    | "keyring"
+    | "storage"
+    | "busy"
+    | "protocol"
+    | "service";
+  message: string;
+}
+export interface AttendanceReport {
+  at: number;
+  ok: boolean;
+  steps: {
+    label: string;
+    ok: boolean;
+    message: string;
+    kind: AttendanceFailure["kind"] | null;
+  }[];
+}
+export interface AttendanceAccount {
+  id: string;
+  maskedPhone: string;
+  rememberPassword: boolean;
+  signedToday: boolean;
+  failedToday: boolean;
+  lastReport: AttendanceReport | null;
+  attention: AttendanceFailure | null;
+}
+export interface AttendanceStatus {
+  accounts: AttendanceAccount[];
+  preferences: AttendancePreferences;
+}
 export interface Settings {
   installRoot: string | null;
   bridgeRoot: string | null;
@@ -82,6 +122,14 @@ export interface BulletinFeed {
   errors: string[];
 }
 export interface Commands {
+  attendance_status: AttendanceStatus;
+  attendance_login: AttendanceStatus;
+  attendance_send_code: string;
+  attendance_login_sms: AttendanceStatus;
+  attendance_configure: AttendanceStatus;
+  attendance_run: AttendanceStatus;
+  attendance_logout: AttendanceStatus;
+  attendance_keyring_check: void;
   play_hero_video: null;
   bootstrap: Bootstrap;
   check_update: CheckResult;
@@ -98,6 +146,18 @@ export interface Commands {
   win_drag: null;
 }
 export interface CommandArgs {
+  attendance_status: undefined;
+  attendance_send_code: { phone: string };
+  attendance_login_sms: { phone: string; code: string; deviceId: string };
+  attendance_login: {
+    phone: string;
+    password: string;
+    rememberPassword: boolean;
+  };
+  attendance_configure: { preferences: AttendancePreferences };
+  attendance_run: undefined;
+  attendance_logout: { accountId: string };
+  attendance_keyring_check: undefined;
   play_hero_video: undefined;
   bootstrap: undefined;
   check_update: { full: boolean };

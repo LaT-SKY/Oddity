@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import {
   state,
   ui,
@@ -9,6 +10,7 @@ import {
   saveSettings,
   redetect,
 } from "../core/controller";
+import TaygedoSettings from "../components/TaygedoSettings.vue";
 import BaseSelect from "../components/BaseSelect.vue";
 
 const themeOptions = [
@@ -23,18 +25,25 @@ const heroMediaOptions = [
 
 const launchModeOptions = [
   {
-    label: "官方后台桥接（推荐：自动登录，隐藏启动器窗口）",
+    label: "后台启动 (推荐)",
     value: "background",
+    hint: "自动完成官方登录, 启动后隐藏启动器窗口.",
   },
   {
-    label: "官方启动器桥接（显示启动器窗口，自动登录）",
+    label: "前台启动",
     value: "official",
+    hint: "自动完成官方登录, 保留官方启动器窗口.",
   },
   {
-    label: "研究直启（无启动器自动登录，仅供调试）",
+    label: "直接启动 (开发中)",
     value: "direct",
+    hint: "跳过官方登录, 开发中.",
   },
 ];
+const launchModeHint = computed(
+  () =>
+    launchModeOptions.find((option) => option.value === form.launchMode)?.hint,
+);
 </script>
 
 <template>
@@ -56,7 +65,9 @@ const launchModeOptions = [
           :class="{ 'is-busy': ui.redetecting }"
           @click="redetect"
         >
-          <span class="btn__text">重新检测</span>
+          <svg class="icon" aria-hidden="true">
+            <use href="#i-arrows-clockwise" /></svg
+          ><span class="btn__text">重新检测</span>
         </button>
         <button
           class="btn btn--primary"
@@ -168,7 +179,7 @@ const launchModeOptions = [
               id="set-mode"
               v-model="form.launchMode"
               :options="launchModeOptions"
-            />
+            /><small class="field__hint">{{ launchModeHint }}</small>
           </div>
         </div>
         <label class="switch-row">
@@ -184,10 +195,11 @@ const launchModeOptions = [
           <i class="switch" aria-hidden="true"></i>
         </label>
       </section>
+      <TaygedoSettings v-if="state.page === 'settings'" />
     </form>
 
     <section class="diagnostics">
-      <div class="panel-label">DIAGNOSTICS</div>
+      <div class="panel-label">运行环境</div>
       <div id="settings-checks" class="checks">
         <div
           v-for="(item, index) in state.bootstrap?.checks ?? []"

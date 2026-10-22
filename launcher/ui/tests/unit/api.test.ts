@@ -189,3 +189,106 @@ describe("原生命令和事件", () => {
     expect(dispose).not.toThrow();
   });
 });
+
+it("签到预览默认关闭, 手机号密码登录不保存原始凭据且不会自动开启", async () => {
+  const { invoke } = await import("../../src/core/api");
+  expect((await invoke("attendance_status")).preferences.trigger).toBe("off");
+  await expect(invoke("attendance_run")).rejects.toThrow("请先登录");
+  await expect(
+    invoke("attendance_login", {
+      phone: "bad",
+      password: "",
+      rememberPassword: false,
+    }),
+  ).rejects.toThrow();
+  await expect(
+    invoke("attendance_configure", {
+      preferences: { trigger: "daily", time: "20:30" },
+    }),
+  ).rejects.toThrow("请先登录");
+  const logged = await invoke("attendance_login", {
+    phone: "13800138000",
+    password: "test-password",
+    rememberPassword: true,
+  });
+  expect(logged.accounts).toHaveLength(1);
+  expect(logged.accounts[0].rememberPassword).toBe(true);
+  expect(logged.preferences.trigger).toBe("off");
+  expect(logged.accounts[0].maskedPhone).toBe("138****8000");
+  expect(JSON.stringify(logged)).not.toContain("test-password");
+  expect(JSON.stringify(logged)).not.toContain("13800138000");
+  expect(localStorage.length).toBe(0);
+  await invoke("attendance_keyring_check");
+  await invoke("attendance_configure", {
+    preferences: { trigger: "launch", time: "08:00" },
+  });
+  expect((await invoke("attendance_run")).accounts[0].lastReport?.ok).toBe(
+    true,
+  );
+  const second = await invoke("attendance_login", {
+    phone: "13900139000",
+    password: "other-password",
+    rememberPassword: false,
+  });
+  expect(second.accounts).toHaveLength(2);
+  const relogged = await invoke("attendance_login", {
+    phone: "13800138000",
+    password: "new-password",
+    rememberPassword: false,
+  });
+  expect(relogged.accounts.map((account) => account.id)).toEqual(
+    second.accounts.map((account) => account.id),
+  );
+  expect(relogged.accounts[0].lastReport).toBeNull();
+  expect(relogged.accounts[0].signedToday).toBe(false);
+  const signed = await invoke("attendance_run");
+  expect(signed.accounts.every((account) => account.signedToday)).toBe(true);
+  const remaining = await invoke("attendance_logout", {
+    accountId: second.accounts[1].id,
+  });
+  expect(remaining.accounts).toHaveLength(1);
+  expect(remaining.preferences.trigger).toBe("launch");
+  const cleared = await invoke("attendance_logout", {
+    accountId: logged.accounts[0].id,
+  });
+  expect(cleared.accounts).toHaveLength(0);
+  expect(cleared.preferences.trigger).toBe("off");
+});
+
+it("预览短信登录校验输入并更新同一账号", async () => {
+  const { invoke } = await import("../../src/core/api");
+  await expect(
+    invoke("attendance_send_code", { phone: "123" }),
+  ).rejects.toThrow("手机号码");
+  const phone = "13700137000";
+  const deviceId = await invoke("attendance_send_code", { phone });
+  expect(await invoke("attendance_send_code", { phone })).toBe(deviceId);
+  await expect(
+    invoke("attendance_login_sms", { phone, code: "abc", deviceId }),
+  ).rejects.toThrow("验证码");
+  await expect(
+    invoke("attendance_login_sms", { phone: "1", code: "123456", deviceId }),
+  ).rejects.toThrow("手机号码");
+  await expect(
+    invoke("attendance_login_sms", {
+      phone,
+      code: "123456",
+      deviceId: "wrong",
+    }),
+  ).rejects.toThrow("获取验证码");
+  const status = await invoke("attendance_login_sms", {
+    phone,
+    code: "123456",
+    deviceId,
+  });
+  const entry = status.accounts.find((a) => a.maskedPhone === "137****7000")!;
+  expect(entry.rememberPassword).toBe(false);
+  expect(JSON.stringify(status)).not.toContain("123456");
+  const again = await invoke("attendance_login_sms", {
+    phone,
+    code: "123456",
+    deviceId,
+  });
+  expect(again.accounts.filter((a) => a.id === entry.id)).toHaveLength(1);
+  await invoke("attendance_logout", { accountId: entry.id });
+});

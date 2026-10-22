@@ -1,6 +1,8 @@
 import { computed, nextTick, reactive } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
+  AttendanceStatus,
+  AttendanceTrigger,
   Bootstrap,
   CheckResult,
   LaunchResult,
@@ -39,6 +41,147 @@ function onWindow<K extends keyof WindowEventMap>(
   handler: (event: WindowEventMap[K]) => void,
 ) {
   window.addEventListener(type, handler, { signal: events.signal });
+}
+
+export const attendance = reactive({
+  status: null as AttendanceStatus | null,
+  loaded: false,
+  loading: false,
+  busy: false,
+  running: false,
+  error: "",
+});
+export const attendanceForm = reactive({
+  enabled: false,
+  trigger: "launch" as Exclude<AttendanceTrigger, "off">,
+  time: "08:00",
+});
+export function syncAttendance(next: AttendanceStatus, syncForm = true) {
+  attendance.status = next;
+  if (syncForm) {
+    attendanceForm.enabled = next.preferences.trigger !== "off";
+    attendanceForm.trigger =
+      next.preferences.trigger === "off" ? "launch" : next.preferences.trigger;
+    attendanceForm.time = next.preferences.time;
+  }
+}
+function attendanceMessage(cause: unknown) {
+  return cause && typeof cause === "object" && "message" in cause
+    ? String(cause.message)
+    : String(cause);
+}
+async function attendanceAction(
+  action: () => Promise<AttendanceStatus>,
+  syncForm = true,
+) {
+  if (attendance.busy || attendance.running)
+    throw new Error("签到操作正在进行, 请稍后重试.");
+  const epoch = generation;
+  attendance.busy = true;
+  attendance.error = "";
+  try {
+    const next = await action();
+    if (epoch === generation) syncAttendance(next, syncForm);
+  } catch (cause) {
+    if (epoch === generation) attendance.error = attendanceMessage(cause);
+    throw cause;
+  } finally {
+    if (epoch === generation) attendance.busy = false;
+  }
+}
+export async function loadAttendance() {
+  if (attendance.busy || attendance.loading || attendance.running) return;
+  const epoch = generation;
+  attendance.loading = true;
+  try {
+    const next = await invoke("attendance_status");
+    // 轮询不能覆盖正在进行的登录或签到结果。
+    if (epoch !== generation || attendance.busy || attendance.running) return;
+    syncAttendance(next, !attendance.loaded);
+    attendance.loaded = true;
+    attendance.error = "";
+  } catch (cause) {
+    if (epoch === generation) attendance.error = attendanceMessage(cause);
+  } finally {
+    if (epoch === generation) attendance.loading = false;
+  }
+}
+export function loginAttendance(
+  phone: string,
+  password: string,
+  rememberPassword: boolean,
+) {
+  return attendanceAction(
+    () =>
+      invoke("attendance_login", {
+        phone: phone.trim(),
+        password,
+        rememberPassword,
+      }),
+    false,
+  );
+}
+export async function sendAttendanceCode(phone: string): Promise<string> {
+  if (attendance.busy || attendance.running)
+    throw new Error("签到操作正在进行, 请稍后重试.");
+  const epoch = generation;
+  attendance.busy = true;
+  attendance.error = "";
+  try {
+    return await invoke("attendance_send_code", { phone: phone.trim() });
+  } catch (cause) {
+    if (epoch === generation) attendance.error = attendanceMessage(cause);
+    throw cause;
+  } finally {
+    if (epoch === generation) attendance.busy = false;
+  }
+}
+export function loginAttendanceSms(
+  phone: string,
+  code: string,
+  deviceId: string,
+): Promise<void> {
+  return attendanceAction(
+    () =>
+      invoke("attendance_login_sms", { phone: phone.trim(), code, deviceId }),
+    false,
+  );
+}
+export function logoutAttendance(accountId: string) {
+  return attendanceAction(async () => {
+    const next = await invoke("attendance_logout", { accountId });
+    // 最后一个账号移除后偏好会被后端重置, 同步回开关。
+    if (!next.accounts.length) syncAttendance(next, true);
+    return next;
+  }, false);
+}
+export async function runAttendance() {
+  try {
+    await attendanceAction(async () => {
+      attendance.running = true;
+      try {
+        return await invoke("attendance_run");
+      } finally {
+        attendance.running = false;
+      }
+    }, false);
+  } catch {
+    /* 错误由签到区显示。 */
+  }
+}
+export async function saveAttendancePreferences() {
+  if (!attendance.status) return;
+  const preferences = {
+    trigger: attendanceForm.enabled ? attendanceForm.trigger : ("off" as const),
+    time: attendanceForm.time,
+  };
+  const current = attendance.status.preferences;
+  if (
+    current.trigger === preferences.trigger &&
+    current.time === preferences.time
+  )
+    return;
+  await attendanceAction(() => invoke("attendance_configure", { preferences }));
 }
 
 export const form = reactive({
@@ -602,7 +745,20 @@ export async function saveSettings() {
     if (epoch !== generation) return;
     applyBootstrap(data);
     applyReduceMotion(settings.reduceMotion);
-    toast("设置已保存。");
+    if (attendance.loaded && attendance.status) {
+      try {
+        await saveAttendancePreferences();
+      } catch (cause) {
+        if (epoch === generation)
+          toast(
+            "设置已保存, 签到设置保存失败: " + attendanceMessage(cause),
+            "error",
+            6000,
+          );
+        return;
+      }
+    }
+    if (epoch === generation) toast("设置已保存.");
   } catch (error) {
     if (epoch !== generation) return;
     toast(
@@ -761,7 +917,14 @@ function bindInteractions() {
   });
 
   onDocument("keydown", (event) => {
-    if (event.key === "Tab") event.preventDefault();
+    if (
+      event.key === "Tab" &&
+      !(
+        event.target instanceof Element &&
+        event.target.closest('[role="dialog"]')
+      )
+    )
+      event.preventDefault();
   });
   onDocument(
     "pointerdown",

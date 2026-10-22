@@ -312,10 +312,7 @@ fn launch_reports_an_immediate_exit_with_the_log_tail() {
     assert!(error.contains("游戏启动失败（退出码 1）"), "{error}");
 
     let error = expect_launch_error(launch_impl(&fixture.settings("background")));
-    assert!(
-        error.contains("官方后台桥接启动失败（退出码 1）"),
-        "{error}"
-    );
+    assert!(error.contains("后台启动失败（退出码 1）"), "{error}");
 }
 
 #[test]

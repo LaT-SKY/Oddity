@@ -121,6 +121,56 @@
           d="M142,176a6,6,0,0,1-6,6,14,14,0,0,1-14-14V128a2,2,0,0,0-2-2,6,6,0,0,1,0-12,14,14,0,0,1,14,14v40a2,2,0,0,0,2,2A6,6,0,0,1,142,176ZM124,94a10,10,0,1,0-10-10A10,10,0,0,0,124,94Zm106,34A102,102,0,1,1,128,26,102.12,102.12,0,0,1,230,128Zm-12,0a90,90,0,1,0-90,90A90.1,90.1,0,0,0,218,128Z"
         />
       </symbol>
+      <symbol id="i-sign-in" viewBox="0 0 256 256">
+        <path
+          d="M152 40H208V216H152 M32 128H160 M112 80L160 128L112 176"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="12"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-calendar-check" viewBox="0 0 256 256">
+        <path
+          d="M48 48H208V216H48Z M80 24V72 M176 24V72 M48 96H208 M88 152L116 180L172 124"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="12"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-users" viewBox="0 0 256 256">
+        <path
+          d="M152 88A40 40 0 1 1 72 88A40 40 0 1 1 152 88 M32 208C32 144 192 144 192 208 M184 48A40 40 0 0 1 184 128 M200 160Q232 168 232 208"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="12"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-plus" viewBox="0 0 256 256">
+        <path
+          d="M40 128H216 M128 40V216"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="12"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
+      <symbol id="i-trash" viewBox="0 0 256 256">
+        <path
+          d="M40 56H216 M96 56V32H160V56 M64 56L72 224H184L192 56 M104 96V184 M152 96V184"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="12"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
     </svg>
   </div>
 </template>

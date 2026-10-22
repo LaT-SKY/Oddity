@@ -29,3 +29,7 @@ Oddity 的源代码以 [GPL-3.0-or-later](LICENSE) 授权。下列组件保留�
 
 - 主页主视觉（`launcher/ui/public/assets/hero-scene.svg` 及其导出的 jpg、mp4、webm）、应用图标、托盘图标与标志由本项目创作，随源代码以 GPL-3.0-or-later 授权。
 - 《异环》/ Neverness To Everness 的名称、商标与游戏资源归其权利人所有。本仓库不包含游戏的美术、音频或视频素材。
+
+## 塔吉多登录与签到
+
+`launcher/crates/nte-core/src/attendance/` 的老虎账号密码登录、AES 表单字段编码、请求签名、用户中心会话及签到协议参考并改写自 [zzstar101/taygedo-auto-attendance](https://github.com/zzstar101/taygedo-auto-attendance), 参考版本 `cc8c036d0a66802a39b4ecc10f7095e38f695151`. 上游为 MIT 许可, 许可全文见 [taygedo-auto-attendance-MIT.txt](licenses/taygedo-auto-attendance-MIT.txt).

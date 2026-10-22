@@ -9,6 +9,8 @@ import type {
   CommandArgs,
   PreviewPaths,
   BulletinFeed,
+  AttendanceStatus,
+  AttendancePreferences,
 } from "../types/launcher";
 export { isTauri };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -217,6 +219,10 @@ function previewGameStatus() {
   return clone(previewGame);
 }
 
+const previewAttendance: AttendanceStatus = {
+  accounts: [],
+  preferences: { trigger: "off", time: "08:00" },
+};
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function listenGameState(handler: (status: GameStatus) => void) {
@@ -250,6 +256,93 @@ async function previewInvoke(
   args?: CommandArgs[keyof CommandArgs],
 ): Promise<Commands[keyof Commands]> {
   switch (command) {
+    case "attendance_status":
+      return clone(previewAttendance);
+    case "attendance_keyring_check":
+      return undefined;
+    case "attendance_send_code": {
+      const { phone } = args as CommandArgs["attendance_send_code"];
+      if (!/^[0-9]{11}$/.test(phone)) throw new Error("请输入有效的手机号码");
+      return "preview-device-" + phone;
+    }
+    case "attendance_login_sms": {
+      const { phone, code, deviceId } =
+        args as CommandArgs["attendance_login_sms"];
+      if (!/^[0-9]{11}$/.test(phone)) throw new Error("请输入有效的手机号码");
+      if (!/^[0-9]{4,8}$/.test(code))
+        throw new Error("请输入 4-8 位短信验证码");
+      if (deviceId !== "preview-device-" + phone)
+        throw new Error("请先为当前手机号获取验证码.");
+      return previewInvoke("attendance_login", {
+        phone,
+        password: "preview",
+        rememberPassword: false,
+      });
+    }
+    case "attendance_login": {
+      const login = args as CommandArgs["attendance_login"];
+      if (!/^[0-9]{11}$/.test(login.phone) || !login.password)
+        throw new Error("请输入手机号码和密码");
+      let hash = 2166136261;
+      for (const char of login.phone)
+        hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+      const account = {
+        id: (hash >>> 0).toString(16),
+        maskedPhone: login.phone.slice(0, 3) + "****" + login.phone.slice(7),
+        rememberPassword: login.rememberPassword,
+        signedToday: false,
+        failedToday: false,
+        lastReport: null,
+        attention: null,
+      };
+      const index = previewAttendance.accounts.findIndex(
+        (item) => item.id === account.id,
+      );
+      if (index < 0) previewAttendance.accounts.push(account);
+      else previewAttendance.accounts[index] = account;
+      return clone(previewAttendance);
+    }
+    case "attendance_configure": {
+      const preferences = (args as { preferences: AttendancePreferences })
+        .preferences;
+      if (preferences.trigger !== "off" && !previewAttendance.accounts.length)
+        throw new Error("请先登录塔吉多账号");
+      previewAttendance.preferences = clone(preferences);
+      return clone(previewAttendance);
+    }
+    case "attendance_run":
+      if (!previewAttendance.accounts.length)
+        throw new Error("请先登录塔吉多账号");
+      for (const account of previewAttendance.accounts) {
+        if (
+          account.signedToday ||
+          ["auth", "verification"].includes(account.attention?.kind ?? "")
+        )
+          continue;
+        account.signedToday = true;
+        account.failedToday = false;
+        account.lastReport = {
+          at: Math.floor(Date.now() / 1000),
+          ok: true,
+          steps: [
+            {
+              label: "预览",
+              ok: true,
+              message: "模拟签到完成, 未发送真实请求",
+              kind: null,
+            },
+          ],
+        };
+      }
+      return clone(previewAttendance);
+    case "attendance_logout":
+      previewAttendance.accounts = previewAttendance.accounts.filter(
+        (account) =>
+          account.id !== (args as CommandArgs["attendance_logout"]).accountId,
+      );
+      if (!previewAttendance.accounts.length)
+        previewAttendance.preferences = { trigger: "off", time: "08:00" };
+      return clone(previewAttendance);
     case "bootstrap":
       return clone(mock);
     case "check_update":
