@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fs;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -219,6 +219,7 @@ fn serve(mut stream: TcpStream, state: &Arc<Mutex<ServerState>>) -> std::io::Res
         .unwrap_or_default()
         .to_string();
     let mut range = None;
+    let mut content_length = 0usize;
     loop {
         let mut header = String::new();
         if reader.read_line(&mut header)? == 0 {
@@ -231,8 +232,18 @@ fn serve(mut stream: TcpStream, state: &Arc<Mutex<ServerState>>) -> std::io::Res
         if let Some((name, value)) = header.split_once(':') {
             if name.trim().eq_ignore_ascii_case("range") {
                 range = Some(value.trim().to_string());
+            } else if name.trim().eq_ignore_ascii_case("content-length") {
+                content_length = value.trim().parse().unwrap_or(0);
             }
         }
+    }
+    // 读完请求体再响应, 否则关闭连接时未读数据会触发 RST, 客户端偶尔读不到响应。
+    if content_length > 0 {
+        if content_length > 16 * 1024 * 1024 {
+            return Ok(());
+        }
+        let mut body = vec![0u8; content_length];
+        reader.read_exact(&mut body)?;
     }
 
     let path = target

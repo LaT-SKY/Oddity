@@ -63,3 +63,9 @@ launcher/ui/test-results/
 launcher/ui/playwright-report/
 
 launcher/ui/coverage/
+
+# ============================================================
+# DSH / MirCode
+# ============================================================
+.agents/
+.mircode/

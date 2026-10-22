@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
+    "motion-dom": "~14.5.0",
     "vue": "^3.5.44"
   },
   "devDependencies": {

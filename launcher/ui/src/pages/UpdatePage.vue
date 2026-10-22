@@ -35,6 +35,9 @@ import { state, checkUpdate, updateView } from "../core/controller";
             :class="{ 'is-busy': state.checking }"
             @click="checkUpdate(false)"
           >
+            <svg class="icon" aria-hidden="true">
+              <use href="#i-arrows-clockwise" />
+            </svg>
             <span class="btn__text">检查更新</span>
           </button>
           <button

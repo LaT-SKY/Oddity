@@ -13,6 +13,42 @@ fn main() -> Result<()> {
     let Some(command) = args.first().cloned() else {
         return usage();
     };
+    if command == "keyring-check" {
+        nte_core::attendance::check_keyring()?;
+        println!("Keyring 存取与清理检查通过");
+        return Ok(());
+    }
+    if command == "attendance" {
+        let dir = flag_value(&args, "--config")
+            .map(PathBuf::from)
+            .unwrap_or_else(nte_core::attendance::default_dir);
+        let status = nte_core::attendance::Service::new(dir).run(None)?;
+        if status.accounts.is_empty() {
+            anyhow::bail!("请先登录塔吉多账号");
+        }
+        let mut failed = false;
+        for account in status.accounts {
+            if let Some(error) = &account.attention {
+                eprintln!("{}: {}", account.masked_phone, error);
+                failed = true;
+            }
+            if account.signed_today {
+                println!("{}: 今日已签到", account.masked_phone);
+            } else {
+                failed = true;
+                println!("{}: 今日未签到", account.masked_phone);
+            }
+            if let Some(report) = &account.last_report {
+                for step in &report.steps {
+                    println!("{}: {}: {}", account.masked_phone, step.label, step.message);
+                }
+            }
+        }
+        if failed {
+            anyhow::bail!("签到未全部成功");
+        }
+        return Ok(());
+    }
     let root = flag_value(&args, "--root")
         .map(PathBuf::from)
         .ok_or_else(|| anyhow!("missing --root <launcher install dir>"))?;
@@ -265,6 +301,7 @@ fn flag_value(args: &[String], name: &str) -> Option<String> {
 }
 
 fn usage() -> Result<()> {
+    println!("nte-cli attendance [--config <签到配置目录>]\nnte-cli keyring-check");
     println!("nte-cli <check|apply|doctor|game-check|game-apply> --root <launcher install dir> [--quick] [--full] [--include-optional] [--only <substr>] [--dry-run] [--force]");
     Ok(())
 }

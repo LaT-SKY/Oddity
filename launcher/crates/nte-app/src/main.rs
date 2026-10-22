@@ -27,6 +27,8 @@ use nte_core::config::{Ini, LauncherConfig};
 use nte_core::manifest::Manifest;
 use nte_core::{update, version};
 
+mod attendance_commands;
+
 const APP_IDENTIFIER: &str = "io.github.oddity.Launcher";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1454,12 +1456,12 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
             .map(|code| format!("退出码 {code}"))
             .unwrap_or_else(|| "被信号终止".to_string());
         let label = match mode.as_str() {
-            "direct" => "游戏",
-            "background" => "官方后台桥接",
-            _ => "官方启动器",
+            "direct" => "游戏启动",
+            "background" => "后台启动",
+            _ => "官方启动器启动",
         };
         return Err(format!(
-            "{label}启动失败（{code}）{}",
+            "{label}失败（{code}）{}",
             launch_log_tail(&log_path)
         ));
     }
@@ -1741,6 +1743,9 @@ fn install_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 }
 
 fn main() {
+    if attendance_commands::headless_entry() {
+        return;
+    }
     migrate_legacy_dirs();
     configure_graphics();
     let settings = load_settings();
@@ -1771,6 +1776,7 @@ fn main() {
             }
         })
         .setup(|app| {
+            attendance_commands::on_launch();
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_icon(tauri::include_image!("icons/icon.png"));
             }
@@ -1780,6 +1786,14 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            attendance_commands::attendance_status,
+            attendance_commands::attendance_login,
+            attendance_commands::attendance_send_code,
+            attendance_commands::attendance_login_sms,
+            attendance_commands::attendance_configure,
+            attendance_commands::attendance_run,
+            attendance_commands::attendance_logout,
+            attendance_commands::attendance_keyring_check,
             play_hero_video,
             bootstrap,
             check_update,

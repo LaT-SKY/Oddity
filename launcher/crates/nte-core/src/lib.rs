@@ -4,6 +4,7 @@
 //! Protocol details are kept in the project's internal notes; this crate
 //! exposes only the public launcher and resource-update behavior.
 
+pub mod attendance;
 pub mod bulletin;
 pub mod config;
 pub mod error;

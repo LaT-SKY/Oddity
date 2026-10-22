@@ -219,7 +219,7 @@ describe("启动与设置", () => {
         minimizeToTrayOnClose: true,
       },
     });
-    expect(text("toast")).toBe("设置已保存。");
+    expect(text("toast")).toBe("设置已保存.");
     Object.assign(c.form, { installRoot: "", prefix: "", protonPath: "" });
     backend.invoke.mockRejectedValueOnce(new Error("disk full"));
     await c.saveSettings();
@@ -854,7 +854,9 @@ it("设置页面标题与按钮图标正确, 且能计算滚动模糊边缘状�
   c.showPage("settings");
   await nextTick();
   expect(text("settings-title")).toBe("设置");
-  expect(wrapper!.find("#settings-redetect svg").exists()).toBe(false);
+  expect(wrapper!.find("#settings-redetect svg use").attributes("href")).toBe(
+    "#i-arrows-clockwise",
+  );
   expect(wrapper!.find("#settings-save svg use").attributes("href")).toBe(
     "#i-floppy-disk",
   );
@@ -893,4 +895,117 @@ it("设置页面标题与按钮图标正确, 且能计算滚动模糊边缘状�
   c.syncScrollEdges();
   expect(c.ui.scrollEdge.top).toBe(false);
   expect(c.ui.scrollEdge.bottom).toBe(false);
+});
+
+it("页面保存先保存通用设置, 再保存已加载的签到偏好", async () => {
+  const c = await boot();
+  c.syncAttendance({
+    accounts: [],
+    preferences: { trigger: "off", time: "08:00" },
+  });
+  c.attendance.loaded = true;
+  c.attendanceForm.enabled = true;
+  c.attendanceForm.trigger = "daily";
+  c.attendanceForm.time = "20:30";
+  const original = backend.invoke.getMockImplementation()!;
+  backend.invoke.mockImplementation(async (command, args) =>
+    command === "attendance_configure"
+      ? { accounts: [], preferences: { trigger: "daily", time: "20:30" } }
+      : original(command, args),
+  );
+  backend.invoke.mockClear();
+  await c.saveSettings();
+  expect(backend.invoke.mock.calls.map(([command]) => command)).toEqual([
+    "save_settings",
+    "attendance_configure",
+  ]);
+  expect(backend.invoke).toHaveBeenLastCalledWith("attendance_configure", {
+    preferences: { trigger: "daily", time: "20:30" },
+  });
+  expect(c.ui.toast.message).toBe("设置已保存.");
+});
+
+it("签到未加载时页面保存不提交签到偏好", async () => {
+  const c = await boot();
+  backend.invoke.mockClear();
+  await c.saveSettings();
+  expect(backend.invoke.mock.calls.map(([command]) => command)).toEqual([
+    "save_settings",
+  ]);
+});
+
+it("签到保存失败明确提示通用设置已经保存", async () => {
+  const c = await boot();
+  c.syncAttendance({
+    accounts: [],
+    preferences: { trigger: "off", time: "08:00" },
+  });
+  c.attendance.loaded = true;
+  c.attendanceForm.enabled = true;
+  const original = backend.invoke.getMockImplementation()!;
+  backend.invoke.mockImplementation(async (command, args) => {
+    if (command === "attendance_configure")
+      throw { message: "定时任务设置失败" };
+    return original(command, args);
+  });
+  await c.saveSettings();
+  expect(c.ui.toast.message).toBe(
+    "设置已保存, 签到设置保存失败: 定时任务设置失败",
+  );
+  expect(c.ui.toast.kind).toBe("error");
+  expect(c.ui.saving).toBe(false);
+  expect(c.attendance.busy).toBe(false);
+});
+
+it("短信控制器保留未保存偏好, 发送失败复位并阻止并发", async () => {
+  const c = await import("../../src/core/controller");
+  Object.assign(c.attendance, { busy: false, running: false, error: "" });
+  c.attendanceForm.enabled = true;
+  c.attendanceForm.trigger = "boot";
+  c.attendanceForm.time = "21:30";
+  let finish!: (value: string) => void;
+  backend.invoke.mockImplementationOnce(
+    () =>
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const sending = c.sendAttendanceCode(" 13800138000 ");
+  expect(c.attendance.busy).toBe(true);
+  await expect(c.sendAttendanceCode("13800138000")).rejects.toThrow("正在进行");
+  finish("test-device");
+  await expect(sending).resolves.toBe("test-device");
+  expect(backend.invoke).toHaveBeenCalledWith("attendance_send_code", {
+    phone: "13800138000",
+  });
+  expect(c.attendance.busy).toBe(false);
+  backend.invoke.mockRejectedValueOnce({ message: "发送失败" });
+  await expect(c.sendAttendanceCode("13800138000")).rejects.toEqual({
+    message: "发送失败",
+  });
+  expect(c.attendance.error).toBe("发送失败");
+  expect(c.attendance.busy).toBe(false);
+  backend.invoke.mockResolvedValueOnce({
+    accounts: [],
+    preferences: { trigger: "off", time: "08:00" },
+  });
+  await c.loginAttendanceSms(" 13800138000 ", "123456", "test-device");
+  expect(backend.invoke).toHaveBeenLastCalledWith("attendance_login_sms", {
+    phone: "13800138000",
+    code: "123456",
+    deviceId: "test-device",
+  });
+  expect(c.attendanceForm).toMatchObject({
+    enabled: true,
+    trigger: "boot",
+    time: "21:30",
+  });
+  expect(c.attendance.error).toBe("");
+  expect(c.attendance.busy).toBe(false);
+  backend.invoke.mockRejectedValueOnce({ message: "验证码错误" });
+  await expect(
+    c.loginAttendanceSms("13800138000", "123456", "test-device"),
+  ).rejects.toEqual({ message: "验证码错误" });
+  expect(c.attendance.error).toBe("验证码错误");
+  expect(c.attendance.busy).toBe(false);
 });
