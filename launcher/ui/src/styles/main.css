@@ -2140,6 +2140,7 @@ button:disabled {
   background: var(--modal-backdrop);
 }
 .modal__panel {
+  transform-origin: 50% 45%;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -2193,6 +2194,73 @@ button:disabled {
 }
 .account-row__success {
   color: var(--accent-text);
+}
+.account-row__tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 0;
+  list-style: none;
+}
+.task-capsule {
+  appearance: none;
+  font-family: inherit;
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 6px 11px;
+  border: 1px solid color-mix(in srgb, var(--accent-text) 20%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent-text) 6%, var(--surface-solid));
+  color: var(--accent-text);
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+.task-capsule .icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.task-capsule:hover,
+.task-capsule:focus-visible {
+  background: color-mix(in srgb, var(--accent-text) 11%, var(--surface-solid));
+  border-color: color-mix(in srgb, var(--accent-text) 40%, transparent);
+}
+.task-tooltip {
+  position: fixed;
+  z-index: 1010;
+  width: max-content;
+  max-width: min(340px, calc(100vw - 24px));
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-solid);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--bone) 12%, transparent);
+  color: var(--bone);
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.task-tooltip strong {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--accent-text);
+  font-size: 12px;
+  font-weight: 600;
+}
+.task-tooltip p {
+  margin: 0;
+  color: var(--muted);
+  white-space: pre-line;
+}
+.account-row__notes {
+  margin: 12px 0;
+  color: var(--muted);
+  font-size: 12px;
 }
 .account-row__danger,
 .account-row__danger:hover:not(:disabled) {

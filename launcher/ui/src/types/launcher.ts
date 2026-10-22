@@ -23,6 +23,7 @@ export interface AttendanceReport {
     ok: boolean;
     message: string;
     kind: AttendanceFailure["kind"] | null;
+    optional?: boolean;
   }[];
 }
 export interface AttendanceAccount {

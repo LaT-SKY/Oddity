@@ -316,3 +316,169 @@ it("短信冷却在 60 秒结束, 关闭和卸载清理计时器", async () => {
     vi.useRealTimers();
   }
 });
+
+it("任务结果显示金币、时长和附加失败, 保持核心签到成功", async () => {
+  status.accounts = [account("1")];
+  status.accounts[0].signedToday = true;
+  status.accounts[0].lastReport = {
+    at: Math.floor(Date.now() / 1000),
+    ok: true,
+    steps: [
+      { label: "社区签到", ok: true, message: "签到完成", kind: null },
+      { label: "角色 测试角色甲", ok: true, message: "签到完成", kind: null },
+      {
+        label: "今日金币",
+        ok: true,
+        message: "今日金币 110/150",
+        kind: null,
+        optional: true,
+      },
+      {
+        label: "云异环时长",
+        ok: true,
+        message: "本次赠送 15 分钟, 剩余 120 分钟",
+        kind: null,
+        optional: true,
+      },
+      {
+        label: "点赞帖子",
+        ok: false,
+        message: "本次完成 0/5",
+        kind: null,
+        optional: true,
+      },
+    ],
+  };
+  await boot();
+  expect(wrapper.get("#attendance-action").text()).toBe("今日已签到");
+  expect(wrapper.text()).not.toContain("110/150");
+  await click("#attendance-manage");
+  const report = el(".account-row__tasks");
+  expect(document.querySelector("details")).toBeNull();
+  expect(report.querySelectorAll(".task-capsule")).toHaveLength(3);
+  expect(report.textContent).toContain("社区签到");
+  expect(report.textContent).toContain("异环签到");
+  expect(report.textContent).toContain("云异环签到");
+  expect(report.textContent).not.toContain("社区杂活");
+  const cloud = Array.from(
+    report.querySelectorAll<HTMLButtonElement>("button"),
+  ).find((button) => button.textContent?.includes("云异环签到"))!;
+  cloud.focus();
+  await flushPromises();
+  expect(el('[role="tooltip"]').textContent).toContain(
+    "本次赠送 15 分钟, 剩余 120 分钟",
+  );
+  expect(cloud.getAttribute("aria-describedby")).toBe(
+    el('[role="tooltip"]').id,
+  );
+  expect(cloud.hasAttribute("title")).toBe(false);
+  cloud.blur();
+  expect(el(".account-row__notes .attendance__error").textContent).toContain(
+    "本次完成 0/5",
+  );
+  expect(el(".account-row__success").textContent).toContain("今日已签到");
+  expect(el("[role=dialog]").textContent).not.toContain("签到失败");
+});
+
+it("四类完成标签使用不同 SVG, 社区杂活与异环签到要求整组完成", async () => {
+  status.accounts = [account("1")];
+  const steps = [
+    "社区签到",
+    "角色 测试角色甲",
+    "角色 测试角色乙",
+    "BBS 金币签到",
+    "浏览帖子",
+    "点赞帖子",
+    "分享帖子",
+    "云异环时长",
+  ].map((label) => ({ label, ok: true, message: "已完成", kind: null }));
+  status.accounts[0].lastReport = {
+    at: Date.now() / 1000,
+    ok: true,
+    steps: [
+      ...steps,
+      { label: "今日金币", ok: true, message: "今日金币 110/150", kind: null },
+    ],
+  };
+  await boot();
+  await click("#attendance-manage");
+  const capsules = Array.from(document.querySelectorAll(".task-capsule"));
+  expect(capsules.map((capsule) => capsule.textContent?.trim())).toEqual([
+    "社区签到",
+    "异环签到",
+    "社区杂活",
+    "云异环签到",
+  ]);
+  expect(
+    new Set(
+      capsules.map((capsule) =>
+        capsule.querySelector("use")?.getAttribute("href"),
+      ),
+    ).size,
+  ).toBe(4);
+  (capsules[1] as HTMLElement).focus();
+  await flushPromises();
+  expect(el('[role="tooltip"]').textContent).toContain("角色 测试角色甲");
+  expect(el('[role="tooltip"]').textContent).toContain("角色 测试角色乙");
+  (capsules[2] as HTMLElement).focus();
+  await flushPromises();
+  expect(el('[role="tooltip"]').textContent).toContain("今日金币 110/150");
+  capsules[2].dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+  );
+  await flushPromises();
+  expect(document.querySelector('[role="tooltip"]')).toBeNull();
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  steps.find((step) => step.label === "角色 测试角色乙")!.ok = false;
+  steps.find((step) => step.label === "点赞帖子")!.ok = false;
+  await c.loadAttendance();
+  await flushPromises();
+  expect(
+    Array.from(document.querySelectorAll(".task-capsule")).map((capsule) =>
+      capsule.textContent?.trim(),
+    ),
+  ).toEqual(["社区签到", "云异环签到"]);
+});
+
+it("核心失败原因跳过附加任务错误, 云时长跳过原因可查看", async () => {
+  status.accounts = [account("1")];
+  status.accounts[0].failedToday = true;
+  status.accounts[0].lastReport = {
+    at: Math.floor(Date.now() / 1000),
+    ok: false,
+    steps: [
+      {
+        label: "金币任务",
+        ok: false,
+        message: "金币错误",
+        kind: "auth",
+        optional: true,
+      },
+      {
+        label: "角色 测试角色甲",
+        ok: false,
+        message: "角色签到错误",
+        kind: "network",
+      },
+      {
+        label: "云异环时长",
+        ok: true,
+        message: "已跳过: 缺少老虎会话且未保存密码",
+        kind: null,
+        optional: true,
+      },
+    ],
+  };
+  await boot();
+  await click("#attendance-manage");
+  expect(el(".account-row > .attendance__error").textContent).toContain(
+    "角色签到错误",
+  );
+  expect(el(".account-row > .attendance__error").textContent).not.toContain(
+    "金币错误",
+  );
+  expect(document.querySelector(".account-row__tasks")).toBeNull();
+  expect(el(".account-row__notes").textContent).toContain(
+    "已跳过: 缺少老虎会话且未保存密码",
+  );
+});

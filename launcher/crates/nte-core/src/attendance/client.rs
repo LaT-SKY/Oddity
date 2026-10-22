@@ -8,16 +8,27 @@ use std::collections::BTreeMap;
 use std::io::Read;
 use std::time::Duration;
 
+mod tasks;
+
 const BASE: &str = "https://bbs-api.tajiduo.com";
 const LAOHU: &str = "https://user.laohu.com";
 const APP_VERSION: &str = "1.2.5";
+const H5_USER_AGENT: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Tajiduo/1.2.2";
 const LAOHU_SECRET: &str = "89155cc4e8634ec5b1b6364013b23e3e";
 const GAME_ID: &str = "1289";
+const CLOUD_APP_ID: &str = "10597";
+const CLOUD_APP_KEY: &str = "f1b7f11fc3774f898e387368cce4da04";
+const CLOUD_CHANNEL_ID: &str = "9";
+const CLOUD_BID: &str = "com.pwrd.cloud.yh.laohu";
+const CLOUD_SDK_VERSION: &str = "1.34.0";
+const CLOUD_APP_VERSION: &str = "1.1.0";
+const SHARE_PLATFORM: &str = "qq";
 
 pub(super) struct Client {
     agent: ureq::Agent,
     base: String,
     laohu: String,
+    delays: bool,
 }
 pub(super) struct Session {
     pub access: String,
@@ -30,6 +41,15 @@ impl Default for Client {
     fn default() -> Self {
         Self::new(BASE, LAOHU)
     }
+}
+struct Task {
+    code: String,
+    complete: u64,
+    limit: u64,
+}
+struct Post {
+    id: String,
+    liked: Option<bool>,
 }
 fn hash(text: impl AsRef<[u8]>) -> String {
     Md5::digest(text)
@@ -140,7 +160,23 @@ impl Client {
             agent: config.into(),
             base: base.into(),
             laohu: laohu.into(),
+            delays: true,
         }
+    }
+    #[cfg(test)]
+    pub(super) fn without_delays(mut self) -> Self {
+        self.delays = false;
+        self
+    }
+    fn pause(&self, min: u64, max: u64) {
+        if !self.delays || max < min {
+            return;
+        }
+        let offset = random_hex(4)
+            .ok()
+            .and_then(|hex| u32::from_str_radix(&hex, 16).ok())
+            .map_or(0, |value| u64::from(value) % (max - min + 1));
+        std::thread::sleep(Duration::from_millis(min + offset));
     }
     fn request_raw(
         &self,
@@ -316,14 +352,18 @@ impl Client {
         token: &str,
         body: Option<BTreeMap<String, String>>,
     ) -> Result<Value> {
-        let h5 = path.starts_with("/apihub/awapi/");
+        let h5 = path.starts_with("/apihub/awapi/") || path == "/apihub/api/getUserCoinTaskState";
         let mut headers = vec![
             ("Accept", "application/json".into()),
             ("Authorization", token.into()),
             ("Content-Type", "application/x-www-form-urlencoded".into()),
         ];
         if h5 {
-            headers.extend([("Origin","https://webstatic.tajiduo.com".into()),("Referer","https://webstatic.tajiduo.com/".into()),("User-Agent","Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Tajiduo/1.2.2".into())]);
+            headers.extend([
+                ("Origin", "https://webstatic.tajiduo.com".into()),
+                ("Referer", "https://webstatic.tajiduo.com/".into()),
+                ("User-Agent", H5_USER_AGENT.into()),
+            ]);
         } else {
             headers.extend([
                 ("appVersion", APP_VERSION.into()),
@@ -342,6 +382,15 @@ impl Client {
         self.request(&format!("{}{path}", self.base), &headers, body.as_ref())
     }
     pub(super) fn login(&self, phone: &str, password: &str, device: &str) -> Result<Session> {
+        let (token, user) = self.login_laohu(phone, password, device)?;
+        self.user_center(&token, &user, device)
+    }
+    pub(super) fn login_laohu(
+        &self,
+        phone: &str,
+        password: &str,
+        device: &str,
+    ) -> Result<(String, String)> {
         let mut body: BTreeMap<String, String> = [
             ("adm", ""),
             ("appId", "10550"),
@@ -392,11 +441,10 @@ impl Client {
             Some(&body),
         ).map_err(|e| e.at("账号密码登录"))?;
         check(&value).map_err(|e| e.at("账号密码登录"))?;
-        self.user_center(
-            &required(&value["result"], "token")?,
-            &required(&value["result"], "userId")?,
-            device,
-        )
+        Ok((
+            required(&value["result"], "token")?,
+            required(&value["result"], "userId")?,
+        ))
     }
     pub(super) fn user_center(&self, token: &str, user: &str, device: &str) -> Result<Session> {
         let account = Account {
@@ -463,7 +511,7 @@ impl Client {
         {
             return steps;
         }
-        let roles = (|| -> Result<Vec<String>> {
+        let roles = (|| -> Result<BTreeMap<String, String>> {
             let value = self.native(
                 &format!("/usercenter/api/v2/getGameRoles?gameId={GAME_ID}"),
                 account,
@@ -471,14 +519,34 @@ impl Client {
                 None,
             )?;
             check(&value)?;
-            let mut roles: Vec<String> = value["data"]["roles"]
+            let list = value["data"]["roles"]
                 .as_array()
-                .ok_or_else(|| Failure::new(FailureKind::Protocol, "角色列表格式无效"))?
-                .iter()
-                .filter_map(|r| id(&r["roleId"]))
-                .collect();
-            roles.sort();
-            roles.dedup();
+                .ok_or_else(|| Failure::new(FailureKind::Protocol, "角色列表格式无效"))?;
+            let mut roles = BTreeMap::new();
+            for role in list {
+                let Some(role_id) = id(&role["roleId"]) else {
+                    continue;
+                };
+                let name = role["roleName"]
+                    .as_str()
+                    .map(str::trim)
+                    .filter(|name| {
+                        !name.is_empty()
+                            && name.chars().count() <= 128
+                            && !name.chars().any(char::is_control)
+                    })
+                    .unwrap_or_default()
+                    .to_string();
+                // 同一角色只签到一次, 重复记录中优先保留有效名称。
+                roles
+                    .entry(role_id)
+                    .and_modify(|current: &mut String| {
+                        if current.is_empty() {
+                            *current = name.clone();
+                        }
+                    })
+                    .or_insert(name);
+            }
             if roles.is_empty() {
                 return Err(Failure::new(
                     FailureKind::Protocol,
@@ -490,7 +558,7 @@ impl Client {
         match roles {
             Err(error) => steps.push(Step::from_result("获取异环角色", Err(error))),
             Ok(roles) => {
-                for (i, role) in roles.iter().enumerate() {
+                for (role, name) in &roles {
                     let result = (|| -> Result<()> {
                         let value = self.native(
                             "/apihub/awapi/sign",
@@ -517,7 +585,8 @@ impl Client {
                         check(&value)
                     })();
                     let stop = result.as_ref().is_err_and(|e| e.needs_login());
-                    steps.push(Step::from_result(format!("异环角色 {}", i + 1), result));
+                    let display_name = if name.is_empty() { role } else { name };
+                    steps.push(Step::from_result(format!("角色 {display_name}"), result));
                     if stop {
                         break;
                     }

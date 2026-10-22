@@ -9,6 +9,64 @@ import {
   logoutAttendance,
 } from "../core/controller";
 import BaseModal from "./BaseModal.vue";
+import TaskCapsule from "./TaskCapsule.vue";
+import type { AttendanceAccount, AttendanceReport } from "../types/launcher";
+type TaskResult = AttendanceReport["steps"][number];
+function skipped(step: TaskResult) {
+  return step.message.startsWith("已跳过:");
+}
+function completed(account: AttendanceAccount) {
+  const steps = account.lastReport?.steps ?? [];
+  const chores = ["BBS 金币签到", "浏览帖子", "点赞帖子", "分享帖子"];
+  return [
+    {
+      label: "社区签到",
+      icon: "i-calendar-check",
+      tasks: steps.filter((step) => step.label === "社区签到"),
+      minimum: 1,
+    },
+    {
+      label: "异环签到",
+      icon: "i-game-controller",
+      tasks: steps.filter((step) => step.label.startsWith("角色 ")),
+      minimum: 1,
+    },
+    {
+      label: "社区杂活",
+      icon: "i-newspaper-clipping",
+      tasks: steps.filter((step) => chores.includes(step.label)),
+      minimum: chores.length,
+    },
+    {
+      label: "云异环签到",
+      icon: "i-cloud-check",
+      tasks: steps.filter((step) => step.label === "云异环时长"),
+      minimum: 1,
+    },
+  ]
+    .filter(
+      (group) =>
+        group.tasks.length >= group.minimum &&
+        group.tasks.every((step) => step.ok && !skipped(step)),
+    )
+    .map((group) => ({
+      label: group.label,
+      icon: group.icon,
+      description: [
+        ...group.tasks,
+        ...(group.label === "社区杂活"
+          ? steps.filter((step) => step.label === "今日金币" && step.ok)
+          : []),
+      ]
+        .map((step) => `${step.label}: ${step.message}`)
+        .join("\n"),
+    }));
+}
+function taskNotes(account: AttendanceAccount) {
+  return (
+    account.lastReport?.steps.filter((step) => !step.ok || skipped(step)) ?? []
+  );
+}
 const props = defineProps<{ open: boolean; startMode: "list" | "add" }>();
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
 const mode = ref<"list" | "add">("list");
@@ -143,7 +201,7 @@ async function login() {
       if (!deviceId.value || sentPhone.value !== phone.value.trim())
         throw new Error("请先为当前手机号获取验证码.");
       if (!/^[0-9]{4,8}$/.test(code.value.trim()))
-        throw new Error("请输入 4-8 位短信验证码.");
+        throw new Error("请输入 6 位短信验证码.");
       await loginAttendanceSms(phone.value, code.value, deviceId.value);
     } else {
       await loginAttendance(phone.value, password.value, remember.value);
@@ -180,6 +238,7 @@ async function remove(id: string) {
   <BaseModal
     :open="open"
     :theme="form.theme"
+    :reduce-motion="form.reduceMotion"
     :title="mode === 'list' ? '塔吉多账号' : '添加塔吉多账号'"
     @update:open="emit('update:open', $event)"
   >
@@ -212,10 +271,37 @@ async function remove(id: string) {
           <template v-else-if="account.failedToday"
             ><span>签到失败</span>
             <p>
-              {{ account.lastReport?.steps.find((step) => !step.ok)?.message }}
+              {{
+                account.lastReport?.steps.find(
+                  (step) => !step.optional && !step.ok,
+                )?.message
+              }}
             </p></template
           >
           <span v-else>今日未签到</span>
+        </div>
+        <ul
+          v-if="completed(account).length"
+          class="account-row__tasks"
+          aria-label="已完成任务"
+        >
+          <li v-for="step in completed(account)" :key="step.label">
+            <TaskCapsule
+              :label="step.label"
+              :icon="step.icon"
+              :description="step.description"
+              :theme="form.theme"
+            />
+          </li>
+        </ul>
+        <div v-if="taskNotes(account).length" class="account-row__notes">
+          <p
+            v-for="(step, index) in taskNotes(account)"
+            :key="index"
+            :class="{ attendance__error: !step.ok }"
+          >
+            {{ step.label }}: {{ step.message }}
+          </p>
         </div>
         <div class="attendance__actions">
           <template v-if="confirming === account.id"

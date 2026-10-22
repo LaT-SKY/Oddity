@@ -161,6 +161,28 @@
           stroke-linejoin="round"
         />
       </symbol>
+      <symbol id="i-game-controller" viewBox="0 0 256 256">
+        <path
+          d="M88 88H168C188 88 200 100 206 120L223 180C229 203 208 215 192 199L165 172H91L64 199C48 215 27 203 33 180L50 120C56 100 68 88 88 88ZM72 120V152M56 136H88"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="12"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <circle cx="164" cy="124" r="8" />
+        <circle cx="188" cy="148" r="8" />
+      </symbol>
+      <symbol id="i-cloud-check" viewBox="0 0 256 256">
+        <path
+          d="M64 192A40 40 0 1 1 72 113A64 64 0 0 1 193 104A44 44 0 0 1 192 192H64ZM88 144L116 172L164 124"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="12"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </symbol>
       <symbol id="i-trash" viewBox="0 0 256 256">
         <path
           d="M40 56H216 M96 56V32H160V56 M64 56L72 224H184L192 56 M104 96V184 M152 96V184"

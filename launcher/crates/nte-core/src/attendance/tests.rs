@@ -5,6 +5,15 @@ use std::sync::{
     Arc, Mutex,
 };
 
+fn completed_tasks() -> &'static str {
+    r#"{"code":0,"data":{"task_list1":[
+        {"code":"signin_c","completeTimes":1,"limitTimes":1},
+        {"code":"browse_post_c","completeTimes":5,"limitTimes":5},
+        {"code":"like_post_c","completeTimes":5,"limitTimes":5},
+        {"code":"share","completeTimes":1,"limitTimes":1}
+    ]}}"#
+}
+
 #[derive(Clone, Default)]
 struct MemoryVault {
     account: Arc<Mutex<Vec<Account>>>,
@@ -54,9 +63,18 @@ fn fixture() -> (TempDir, HttpServer, MemoryVault, Service<MemoryVault>) {
     server.route("/apihub/api/signin", r#"{"code":0}"#);
     server.route(
         "/usercenter/api/v2/getGameRoles",
-        r#"{"code":0,"data":{"roles":[{"roleId":9007199254740993},{"roleId":"role-2"}]}}"#,
+        r#"{"code":0,"data":{"roles":[{"roleId":9007199254740993,"roleName":"测试角色甲"},{"roleId":"role-2","roleName":"测试角色乙"}]}}"#,
     );
     server.route("/apihub/awapi/sign", r#"{"code":0}"#);
+    server.route("/apihub/api/getUserTasks", completed_tasks());
+    server.route(
+        "/apihub/api/getUserCoinTaskState",
+        r#"{"code":0,"data":{"todayCoin":110,"limitCoin":150}}"#,
+    );
+    server.route(
+        "/cloud/game/getUserInfo",
+        r#"{"code":0,"result":{"perDayFirstLoginGiveDuration":"15","remainedDuration":"120"}}"#,
+    );
     let service = Service::testing(dir.path(), vault.clone(), &server.base());
     (dir, server, vault, service)
 }
@@ -585,7 +603,7 @@ fn one_account_sign_failure_does_not_stop_next_account() {
         let deadline = Instant::now() + Duration::from_secs(10);
         let mut requests = 0;
         let mut communities = 0;
-        while requests < 10 && Instant::now() < deadline {
+        while requests < 16 && Instant::now() < deadline {
             let (mut stream, _) = match listener.accept() {
                 Ok(value) => value,
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -627,6 +645,12 @@ fn one_account_sign_failure_does_not_stop_next_account() {
                 }
             } else if path.starts_with("/usercenter/api/v2/getGameRoles") {
                 r#"{"code":0,"data":{"roles":[{"roleId":"one"},{"roleId":"two"}]}}"#
+            } else if path.starts_with("/apihub/api/getUserTasks") {
+                completed_tasks()
+            } else if path == "/apihub/api/getUserCoinTaskState" {
+                r#"{"code":0,"data":{"todayCoin":110}}"#
+            } else if path == "/cloud/game/getUserInfo" {
+                r#"{"code":0,"result":{"perDayFirstLoginGiveDuration":0}}"#
             } else {
                 assert_eq!(path, "/apihub/awapi/sign");
                 r#"{"code":0}"#
@@ -645,7 +669,7 @@ fn one_account_sign_failure_does_not_stop_next_account() {
     });
     let service = Service::testing(dir.path(), vault, &base);
     let status = service.run(None).unwrap();
-    assert_eq!(worker.join().unwrap(), 10);
+    assert_eq!(worker.join().unwrap(), 16);
     assert!(!status.accounts[0].signed_today);
     let first = status.accounts[0].last_report.as_ref().unwrap();
     assert!(!first.ok);
@@ -843,4 +867,312 @@ fn invalid_sms_inputs_and_keyring_failure_make_no_requests() {
     assert!(service.send_code("13800138000").is_err());
     assert!(service.login_sms("13800138000", "123", "device").is_err());
     assert!(server.targets().is_empty());
+}
+
+#[test]
+fn daily_coin_tasks_and_cloud_duration_run_once_and_record_results() {
+    let (dir, server, _vault, service) = fixture();
+    service.login("13800138000", "secret", false).unwrap();
+    server.route(
+        "/apihub/api/getUserTasks",
+        r#"{"code":0,"data":{"task_list1":[
+        {"taskKey":"signin_c","completeTimes":"0","limitTimes":"1"},
+        {"code":"browse_post_c","completeTimes":3,"limitTimes":5},
+        {"code":"like_post_c","completeTimes":4,"limitTimes":5},
+        {"code":"share","completeTimes":0,"limitTimes":1}
+    ]}}"#,
+    );
+    server.route(
+        "/bbs/api/getRecommendPostList",
+        r#"{"code":0,"data":{"posts":[
+        {"postId":"first"},{"postId":"first"},{"id":"second"}
+    ]}}"#,
+    );
+    server.route(
+        "/bbs/api/getPostFull",
+        r#"{"code":0,"data":{"post":{},"selfOperation":{"liked":false}}}"#,
+    );
+    server.route("/bbs/api/post/like", r#"{"code":0}"#);
+    server.route("/bbs/api/post/share", r#"{"code":0}"#);
+    service.set_trigger(Trigger::Launch);
+    let status = service.run(None).unwrap();
+    let report = status.accounts[0].last_report.as_ref().unwrap();
+    assert!(status.accounts[0].signed_today);
+    assert!(report.steps.iter().all(|s| s.ok));
+    assert_eq!(server.hits("/apihub/api/signin"), 2);
+    assert_eq!(server.hits("/bbs/api/getPostFull"), 2);
+    assert_eq!(server.hits("/bbs/api/post/like"), 1);
+    assert_eq!(server.hits("/bbs/api/post/share"), 1);
+    assert!(report.steps.iter().any(|s| s.message == "今日金币 110/150"));
+    assert!(report
+        .steps
+        .iter()
+        .any(|s| s.message == "本次赠送 15 分钟, 剩余 120 分钟"));
+    service.run(None).unwrap();
+    service.run(Some(Trigger::Launch)).unwrap();
+    assert_eq!(server.hits("/cloud/game/getUserInfo"), 1);
+    assert_eq!(server.hits("/apihub/api/getUserTasks"), 1);
+    let saved = dir.read_text("state.json");
+    for secret in [
+        "13800138000",
+        "secret",
+        "new-access",
+        "new-refresh",
+        "9007199254740993",
+    ] {
+        assert!(!saved.contains(secret));
+    }
+}
+
+#[test]
+fn completed_coin_tasks_only_read_state_and_do_not_fetch_posts() {
+    let (_dir, server, _vault, service) = fixture();
+    service.login("13800138000", "secret", false).unwrap();
+    let status = service.run(None).unwrap();
+    assert!(status.accounts[0].signed_today);
+    assert_eq!(server.hits("/apihub/api/signin"), 1);
+    assert_eq!(server.hits("/bbs/api/getRecommendPostList"), 0);
+    assert_eq!(server.hits("/apihub/api/getUserCoinTaskState"), 1);
+    assert_eq!(server.hits("/openApi/secureLogin"), 1);
+}
+
+#[test]
+fn liked_posts_are_not_toggled_and_incomplete_actions_remain_visible() {
+    let (_dir, server, _vault, service) = fixture();
+    service.login("13800138000", "secret", false).unwrap();
+    server.route(
+        "/apihub/api/getUserTasks",
+        r#"{"code":0,"data":{"task_list1":[]}}"#,
+    );
+    server.route(
+        "/bbs/api/getRecommendPostList",
+        r#"{"code":0,"data":[
+        {"postId":"first","selfOperation":{"liked":false}},
+        {"postId":"second","selfOperation":{"liked":true}}
+    ]}"#,
+    );
+    server.route(
+        "/bbs/api/getPostFull",
+        r#"{"code":0,"data":{"post":{},"selfOperation":{"liked":true}}}"#,
+    );
+    server.route("/bbs/api/post/share", r#"{"code":0}"#);
+    let status = service.run(None).unwrap();
+    assert!(status.accounts[0].signed_today);
+    assert!(status.accounts[0].attention.is_none());
+    assert_eq!(server.hits("/bbs/api/post/like"), 0);
+    assert_eq!(server.hits("/bbs/api/post/share"), 1);
+    let steps = &status.accounts[0].last_report.as_ref().unwrap().steps;
+    assert!(steps
+        .iter()
+        .any(|s| s.label == "浏览帖子" && !s.ok && s.message.contains("2/5")));
+    assert!(steps
+        .iter()
+        .any(|s| s.label == "点赞帖子" && !s.ok && s.message.contains("0/5")));
+}
+
+#[test]
+fn empty_recommendations_do_not_claim_coin_actions_succeeded() {
+    let (_dir, server, _vault, service) = fixture();
+    service.login("13800138000", "secret", false).unwrap();
+    server.route(
+        "/apihub/api/getUserTasks",
+        r#"{"code":0,"data":{"task_list1":[]}}"#,
+    );
+    server.route(
+        "/bbs/api/getRecommendPostList",
+        r#"{"code":0,"data":{"list":[]}}"#,
+    );
+    let status = service.run(None).unwrap();
+    assert!(status.accounts[0].signed_today);
+    let steps = &status.accounts[0].last_report.as_ref().unwrap().steps;
+    for label in ["浏览帖子", "点赞帖子", "分享帖子"] {
+        assert!(steps
+            .iter()
+            .any(|s| s.label == label && !s.ok && s.optional));
+    }
+    assert_eq!(server.hits("/apihub/api/getUserCoinTaskState"), 1);
+    assert_eq!(server.hits("/cloud/game/getUserInfo"), 1);
+}
+
+#[test]
+fn optional_authentication_failures_do_not_pause_core_or_other_accounts() {
+    let (dir, server, _vault, service) = fixture();
+    service.login("13800138000", "secret", true).unwrap();
+    service.login("13900139000", "secret", false).unwrap();
+    server.route(
+        "/apihub/api/getUserTasks",
+        r#"{"code":1,"msg":"token 已过期 private-value"}"#,
+    );
+    server.route(
+        "/cloud/game/getUserInfo",
+        r#"{"code":7,"message":"需要人工验证 private-token"}"#,
+    );
+    let status = service.run(None).unwrap();
+    assert!(status
+        .accounts
+        .iter()
+        .all(|a| a.signed_today && a.attention.is_none()));
+    assert_eq!(server.hits("/apihub/awapi/sign"), 4);
+    assert_eq!(server.hits("/apihub/api/getUserCoinTaskState"), 2);
+    assert_eq!(server.hits("/cloud/game/getUserInfo"), 2);
+    assert_eq!(server.hits("/openApi/secureLogin"), 2);
+    for account in &status.accounts {
+        let steps = &account.last_report.as_ref().unwrap().steps;
+        assert!(steps
+            .iter()
+            .any(|s| !s.ok && s.optional && s.kind == Some(FailureKind::Auth)));
+        assert!(steps
+            .iter()
+            .any(|s| !s.ok && s.optional && s.kind == Some(FailureKind::Verification)));
+    }
+    assert!(!dir.read_text("state.json").contains("private-"));
+}
+
+#[test]
+fn missing_cloud_credentials_without_saved_password_skip_only_cloud() {
+    let (_dir, server, vault, service) = fixture();
+    service.login("13800138000", "secret", false).unwrap();
+    {
+        let mut accounts = vault.account.lock().unwrap();
+        accounts[0].laohu_token.clear();
+        accounts[0].laohu_user_id.clear();
+    }
+    let status = service.run(None).unwrap();
+    assert!(status.accounts[0].signed_today);
+    assert_eq!(server.hits("/cloud/game/getUserInfo"), 0);
+    assert_eq!(server.hits("/openApi/secureLogin"), 1);
+    assert_eq!(server.hits("/apihub/api/getUserCoinTaskState"), 1);
+    assert!(status.accounts[0]
+        .last_report
+        .as_ref()
+        .unwrap()
+        .steps
+        .iter()
+        .any(|s| s.label == "云异环时长" && s.message.starts_with("已跳过:")));
+}
+
+#[test]
+fn missing_cloud_token_is_restored_and_saved_even_when_cloud_request_fails() {
+    let (dir, server, vault, service) = fixture();
+    service
+        .login("13800138000", "saved-password", true)
+        .unwrap();
+    vault.account.lock().unwrap()[0].laohu_token.clear();
+    server.route(
+        "/openApi/secureLogin",
+        r#"{"code":0,"result":{"token":"new-laohu-secret","userId":"new-user"}}"#,
+    );
+    server.route(
+        "/cloud/game/getUserInfo",
+        r#"{"code":1,"msg":"服务错误 private-value"}"#,
+    );
+    let status = service.run(None).unwrap();
+    assert!(status.accounts[0].signed_today);
+    assert!(status.accounts[0].attention.is_none());
+    assert_eq!(server.hits("/openApi/secureLogin"), 2);
+    assert_eq!(server.hits("/usercenter/api/login"), 1);
+    assert_eq!(vault.load_all().unwrap()[0].laohu_token, "new-laohu-secret");
+    assert_eq!(vault.load_all().unwrap()[0].laohu_user_id, "new-user");
+    assert!(!dir.read_text("state.json").contains("new-laohu-secret"));
+    assert!(
+        !status.accounts[0]
+            .last_report
+            .as_ref()
+            .unwrap()
+            .steps
+            .last()
+            .unwrap()
+            .ok
+    );
+}
+
+#[test]
+fn cloud_password_verification_does_not_invalidate_taygedo_session() {
+    let (_dir, server, vault, service) = fixture();
+    service
+        .login("13800138000", "saved-password", true)
+        .unwrap();
+    vault.account.lock().unwrap()[0].laohu_user_id.clear();
+    server.route(
+        "/openApi/secureLogin",
+        r#"{"code":7,"message":"人机验证 private-value"}"#,
+    );
+    let status = service.run(None).unwrap();
+    assert!(status.accounts[0].signed_today);
+    assert!(status.accounts[0].attention.is_none());
+    assert_eq!(server.hits("/cloud/game/getUserInfo"), 0);
+    assert_eq!(
+        status.accounts[0]
+            .last_report
+            .as_ref()
+            .unwrap()
+            .steps
+            .last()
+            .unwrap()
+            .kind,
+        Some(FailureKind::Verification)
+    );
+}
+
+#[test]
+fn game_role_names_are_preserved_and_duplicate_ids_sign_once() {
+    let (dir, server, _vault, service) = fixture();
+    service.login("13800138000", "secret", false).unwrap();
+    server.route(
+        "/usercenter/api/v2/getGameRoles",
+        r#"{"code":0,"data":{"roles":[
+        {"roleId":9007199254740993},
+        {"roleId":"9007199254740993","roleName":" 测试角色甲 "},
+        {"roleId":"role-2","roleName":""},
+        {"roleId":"role-2","roleName":"测试角色乙"},
+        {"roleName":"没有 ID"}
+    ]}}"#,
+    );
+    let status = service.run(None).unwrap();
+    assert!(status.accounts[0].signed_today);
+    let roles: Vec<_> = status.accounts[0]
+        .last_report
+        .as_ref()
+        .unwrap()
+        .steps
+        .iter()
+        .filter(|step| step.label.starts_with("角色 "))
+        .collect();
+    assert_eq!(roles.len(), 2);
+    assert_eq!(roles[0].label, "角色 测试角色甲");
+    assert_eq!(roles[1].label, "角色 测试角色乙");
+    assert_eq!(server.hits("/apihub/awapi/sign"), 2);
+    assert!(dir.read_text("state.json").contains("角色 测试角色甲"));
+}
+
+#[test]
+fn unnamed_role_uses_id_and_failed_signin_keeps_role_name() {
+    let (_dir, server, _vault, service) = fixture();
+    service.login("13800138000", "secret", false).unwrap();
+    server.route(
+        "/usercenter/api/v2/getGameRoles",
+        r#"{"code":0,"data":{"roles":[
+        {"roleId":"role-a","roleName":"测试角色甲"},
+        {"roleId":"role-b","roleName":" \n "},
+        {"roleId":9007199254740993}
+    ]}}"#,
+    );
+    server.route("/apihub/awapi/sign", r#"{"code":500,"msg":"服务错误"}"#);
+    let status = service.run(None).unwrap();
+    assert!(!status.accounts[0].signed_today);
+    let roles: Vec<_> = status.accounts[0]
+        .last_report
+        .as_ref()
+        .unwrap()
+        .steps
+        .iter()
+        .filter(|step| step.label.starts_with("角色 "))
+        .collect();
+    assert_eq!(roles.len(), 3);
+    assert!(roles.iter().all(|step| !step.ok));
+    assert!(roles.iter().any(|step| step.label == "角色 测试角色甲"));
+    assert!(roles.iter().any(|step| step.label == "角色 role-b"));
+    assert!(roles
+        .iter()
+        .any(|step| step.label == "角色 9007199254740993"));
 }

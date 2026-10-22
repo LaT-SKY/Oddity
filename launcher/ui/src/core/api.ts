@@ -326,10 +326,37 @@ async function previewInvoke(
           ok: true,
           steps: [
             {
-              label: "预览",
+              label: "社区签到",
               ok: true,
               message: "模拟签到完成, 未发送真实请求",
               kind: null,
+            },
+            ...[
+              "角色 预览角色",
+              "BBS 金币签到",
+              "浏览帖子",
+              "点赞帖子",
+              "分享帖子",
+            ].map((label) => ({
+              label,
+              ok: true,
+              message: "模拟任务完成, 未发送真实请求",
+              kind: null,
+              optional: label !== "角色 预览角色",
+            })),
+            {
+              label: "今日金币",
+              ok: true,
+              message: "模拟今日金币 110/150, 未发送真实请求",
+              kind: null,
+              optional: true,
+            },
+            {
+              label: "云异环时长",
+              ok: true,
+              message: "模拟本次赠送 15 分钟, 剩余 120 分钟, 未发送真实请求",
+              kind: null,
+              optional: true,
             },
           ],
         };

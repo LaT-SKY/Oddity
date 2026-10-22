@@ -125,6 +125,9 @@ pub struct Step {
     pub ok: bool,
     pub message: String,
     pub kind: Option<FailureKind>,
+    /// 附加任务失败不影响核心签到状态, 也不触发重新登录。
+    #[serde(default)]
+    pub optional: bool,
 }
 impl Step {
     fn from_result(label: impl Into<String>, result: Result<()>) -> Self {
@@ -134,13 +137,38 @@ impl Step {
                 ok: true,
                 message: "签到完成或今日已签到".into(),
                 kind: None,
+                optional: false,
             },
             Err(e) => Self {
                 label: label.into(),
                 ok: false,
                 message: e.message.clone(),
                 kind: Some(e.kind),
+                optional: false,
             },
+        }
+    }
+    fn optional(
+        label: impl Into<String>,
+        ok: bool,
+        message: impl Into<String>,
+        kind: Option<FailureKind>,
+    ) -> Self {
+        Self {
+            label: label.into(),
+            ok,
+            message: message.into(),
+            kind,
+            optional: true,
+        }
+    }
+    fn optional_failure(label: impl Into<String>, error: Failure) -> Self {
+        Self {
+            label: label.into(),
+            ok: false,
+            message: error.message.replace("; 自动任务已暂停", ""),
+            kind: Some(error.kind),
+            optional: true,
         }
     }
 }

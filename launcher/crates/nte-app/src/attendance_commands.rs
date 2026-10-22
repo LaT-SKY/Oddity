@@ -114,9 +114,9 @@ pub fn headless_entry() -> bool {
             if let Some(report) = &account.last_report {
                 if !report.ok {
                     failed = true;
-                    for step in &report.steps {
-                        println!("{}: {}: {}", account.masked_phone, step.label, step.message);
-                    }
+                }
+                for step in &report.steps {
+                    println!("{}: {}: {}", account.masked_phone, step.label, step.message);
                 }
             }
             if account.signed_today {

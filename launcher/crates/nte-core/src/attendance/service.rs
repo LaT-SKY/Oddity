@@ -297,6 +297,28 @@ impl<V: Vault> Service<V> {
             )),
         }
     }
+    fn cloud_duration(&self, account: &mut Account) -> Step {
+        let result = (|| -> Result<Step> {
+            if account.laohu_token.is_empty() || account.laohu_user_id.is_empty() {
+                let Some(password) = account.password.as_deref().filter(|p| !p.is_empty()) else {
+                    return Ok(Step::optional(
+                        "云异环时长",
+                        true,
+                        "已跳过: 缺少老虎会话且未保存密码",
+                        None,
+                    ));
+                };
+                let (token, user) =
+                    self.client
+                        .login_laohu(&account.phone, password, &account.device_id)?;
+                account.laohu_token = token;
+                account.laohu_user_id = user;
+                self.vault.save(account)?;
+            }
+            self.client.cloud_duration(account)
+        })();
+        result.unwrap_or_else(|e| Step::optional_failure("云异环时长", e))
+    }
     pub fn run(&self, automatic: Option<Trigger>) -> Result<Status> {
         let _lock = self.lock(automatic.is_some())?;
         let mut status = self.status_locked()?;
@@ -338,17 +360,26 @@ impl<V: Vault> Service<V> {
                 account.laohu_user_id = session.laohu_user;
                 // 保存轮换令牌后才继续签到, 避免丢失有效会话。
                 self.vault.save(&account)?;
-                Ok(self.client.sign(&account, &session.access))
+                let mut steps = self.client.sign(&account, &session.access);
+                if !steps.iter().any(|s| {
+                    s.kind
+                        .is_some_and(|k| matches!(k, FailureKind::Auth | FailureKind::Verification))
+                }) {
+                    steps.extend(self.client.coin_tasks(&account, &session.access));
+                }
+                steps.push(self.cloud_duration(&mut account));
+                Ok(steps)
             })();
             let steps =
                 result.unwrap_or_else(|error| vec![Step::from_result("登录与准备", Err(error))]);
             let report = Report {
                 at: now(),
-                ok: !steps.is_empty() && steps.iter().all(|s| s.ok),
+                ok: steps.iter().any(|s| !s.optional)
+                    && steps.iter().filter(|s| !s.optional).all(|s| s.ok),
                 steps,
             };
             let current = &mut status.accounts[index];
-            current.attention = report.steps.iter().find_map(|s| {
+            current.attention = report.steps.iter().filter(|s| !s.optional).find_map(|s| {
                 s.kind
                     .filter(|k| matches!(k, FailureKind::Auth | FailureKind::Verification))
                     .map(|k| Failure::new(k, s.message.clone()))
@@ -374,7 +405,7 @@ impl<V: Vault> Service<V> {
         Self {
             dir: dir.into(),
             vault,
-            client: Client::new(base, base),
+            client: Client::new(base, base).without_delays(),
         }
     }
     pub(super) fn set_trigger(&self, trigger: Trigger) {

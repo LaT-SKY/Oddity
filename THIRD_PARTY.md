@@ -19,7 +19,7 @@ Oddity 的源代码以 [GPL-3.0-or-later](LICENSE) 授权。下列组件保留�
 
 ## 前端依赖
 
-运行时使用 Vue 3 (MIT) 与 `@tauri-apps/api` (Apache-2.0 OR MIT)。直接依赖和开发工具见 [`launcher/ui/package.json`](launcher/ui/package.json), 完整版本与来源由 [`launcher/ui/pnpm-lock.yaml`](launcher/ui/pnpm-lock.yaml) 锁定。各组件保留自身许可证, pnpm 漏洞审计在 CI 中执行。
+运行时使用 Vue 3 (MIT)、Motion (MIT) 与 `@tauri-apps/api` (Apache-2.0 OR MIT)。直接依赖和开发工具见 [`launcher/ui/package.json`](launcher/ui/package.json), 完整版本与来源由 [`launcher/ui/pnpm-lock.yaml`](launcher/ui/pnpm-lock.yaml) 锁定。各组件保留自身许可证, pnpm 漏洞审计在 CI 中执行。
 
 ## Rust 依赖
 
@@ -32,4 +32,7 @@ Oddity 的源代码以 [GPL-3.0-or-later](LICENSE) 授权。下列组件保留�
 
 ## 塔吉多登录与签到
 
-`launcher/crates/nte-core/src/attendance/` 的老虎账号密码登录、AES 表单字段编码、请求签名、用户中心会话及签到协议参考并改写自 [zzstar101/taygedo-auto-attendance](https://github.com/zzstar101/taygedo-auto-attendance), 参考版本 `cc8c036d0a66802a39b4ecc10f7095e38f695151`. 上游为 MIT 许可, 许可全文见 [taygedo-auto-attendance-MIT.txt](licenses/taygedo-auto-attendance-MIT.txt).
+`launcher/crates/nte-core/src/attendance/` 的老虎账号密码登录、AES 表单字段编码、请求签名、用户中心会话、签到、
+金币任务及云异环时长协议参考并改写自 [zzstar101/taygedo-auto-attendance](https://github.com/zzstar101/taygedo-auto-attendance),
+参考版本 `cc8c036d0a66802a39b4ecc10f7095e38f695151`.
+上游为 MIT 许可, 许可全文见 [taygedo-auto-attendance-MIT.txt](licenses/taygedo-auto-attendance-MIT.txt).

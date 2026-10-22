@@ -37,10 +37,10 @@ fn main() -> Result<()> {
             } else {
                 failed = true;
                 println!("{}: 今日未签到", account.masked_phone);
-                if let Some(report) = &account.last_report {
-                    for step in &report.steps {
-                        println!("{}: {}: {}", account.masked_phone, step.label, step.message);
-                    }
+            }
+            if let Some(report) = &account.last_report {
+                for step in &report.steps {
+                    println!("{}: {}: {}", account.masked_phone, step.label, step.message);
                 }
             }
         }
