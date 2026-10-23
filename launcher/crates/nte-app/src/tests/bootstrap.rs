@@ -227,7 +227,11 @@ fn bootstrap_reports_a_missing_install_when_nothing_is_found() {
             bootstrap.error
         );
         assert_eq!(bootstrap.launcher_root, "");
-        assert_eq!(bootstrap.install_root, "");
+        // 未找到安装时仍会给出所选区服的默认目录，供首次安装使用。
+        assert_eq!(
+            bootstrap.install_root,
+            selected_install_root(&settings).display().to_string()
+        );
         assert!(!bootstrap.bridge_ready);
         assert!(!bootstrap.game_exists);
         assert_eq!(bootstrap.checks[0].detail, "未找到");
