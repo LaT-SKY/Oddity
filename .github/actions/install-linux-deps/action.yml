@@ -4,9 +4,25 @@ description: 安装构建和打包 Oddity 所需的库
 runs:
   using: composite
   steps:
+    - name: 恢复 apt 包缓存
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/oddity-apt
+        # 改动包列表后递增 v1
+        key: apt-archives-${{ runner.os }}-v1
+        restore-keys: |
+          apt-archives-${{ runner.os }}-
+
     - name: 安装 apt 软件包
       shell: bash
+      env:
+        DEBIAN_FRONTEND: noninteractive
       run: |
+        set -euo pipefail
+        archives="$HOME/.cache/oddity-apt"
+        mkdir -p "$archives"
+        # 命中缓存时 apt 会优先使用本地 deb, 不再走镜像
+        sudo cp -n "$archives"/*.deb /var/cache/apt/archives/ 2>/dev/null || true
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends \
           build-essential \
@@ -21,3 +37,4 @@ runs:
           file \
           desktop-file-utils \
           dpkg-dev
+        sudo cp -n /var/cache/apt/archives/*.deb "$archives"/ 2>/dev/null || true
