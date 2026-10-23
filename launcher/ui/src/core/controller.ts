@@ -7,9 +7,10 @@ import type {
   CheckResult,
   LaunchResult,
   GameStatus,
+  DownloadStatus,
   BulletinFeed,
 } from "../types/launcher";
-import { invoke, isTauri, listenGameState } from "./api";
+import { invoke, isTauri, listenGameState, listenDownloadState } from "./api";
 import { APP_VERSION } from "./version";
 
 let generation = 0;
@@ -17,6 +18,7 @@ let events = new window.AbortController();
 const BULLETIN_CACHE_KEY = "nte.bulletins.v1";
 const BULLETIN_CACHE_TTL_MS = 15 * 60 * 1000;
 const disposers: (() => void)[] = [];
+let downloadRevision = 0;
 const timers = new Set<number>();
 function schedule(callback: () => void, ms: number) {
   const id = window.setTimeout(() => {
@@ -186,6 +188,8 @@ export async function saveAttendancePreferences() {
 
 export const form = reactive({
   installRoot: "",
+  globalInstallRoot: "",
+  distribution: "cn" as "cn" | "global",
   bridgeRoot: "",
   prefix: "",
   protonPath: "",
@@ -200,6 +204,7 @@ type GamePhase = "idle" | "launching" | "running" | "closing";
 export const state = reactive<{
   bootstrap: Bootstrap | null;
   check: CheckResult | null;
+  download: DownloadStatus | null;
   bulletins: BulletinFeed | null;
   bulletinsLoading: boolean;
   page: string;
@@ -210,6 +215,7 @@ export const state = reactive<{
 }>({
   bootstrap: null,
   check: null,
+  download: null,
   bulletins: null,
   bulletinsLoading: false,
   page: "home",
@@ -240,9 +246,113 @@ export const displayVersion = computed(
   () => state.bootstrap?.appVersion || APP_VERSION,
 );
 export const launchView = computed(() => ({
-  ...LAUNCH_COPY[state.game],
-  busy: state.game === "launching" || state.game === "closing",
+  ...(state.game === "idle" &&
+  (!state.bootstrap?.gameExists || downloadNeedsWork())
+    ? {
+        label: state.bootstrap?.gameExists ? "更新游戏" : "安装游戏",
+        icon: "i-arrow-down",
+      }
+    : LAUNCH_COPY[state.game]),
+  busy:
+    state.game === "launching" || state.game === "closing" || downloadBusy(),
 }));
+function downloadNeedsWork() {
+  return (
+    state.download?.distribution === form.distribution &&
+    ["needs-install", "needs-update"].includes(state.download.phase)
+  );
+}
+export function downloadBusy() {
+  return ["checking", "launcher", "game"].includes(state.download?.phase || "");
+}
+export function formatSize(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const digits = unit === 0 || value >= 100 ? 0 : 1;
+  return `${value.toFixed(digits)} ${units[unit]}`;
+}
+
+const DOWNLOAD_STAGE_LABELS: Record<string, string> = {
+  download: "下载中",
+  patch: "应用补丁",
+  verify: "校验文件",
+  install: "写入文件",
+};
+
+export const downloadView = computed(() => {
+  const status = state.download;
+  const titles: Record<string, string> = {
+    idle: "尚未检查游戏资源",
+    checking: "正在检查游戏资源",
+    "needs-install": "需要安装启动器文件",
+    "needs-update": "发现待下载的游戏资源",
+    launcher: "正在下载启动器文件",
+    game: "正在下载游戏资源",
+    ready: "游戏资源已就绪",
+    cancelled: "下载已暂停",
+    failed: "操作失败",
+  };
+  const phase = status?.phase || "idle";
+  const totalBytes = status?.totalBytes || 0;
+  const downloadedBytes = status?.downloadedBytes || 0;
+  // 回退整文件时实际传输量会超过计划量，此时用文件数表示进度。
+  const bytesProgress =
+    totalBytes > 0 && downloadedBytes <= totalBytes
+      ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100))
+      : null;
+  const fileProgress = status?.totalFiles
+    ? Math.min(
+        100,
+        Math.round((status.completedFiles / status.totalFiles) * 100),
+      )
+    : 0;
+  const stageText = DOWNLOAD_STAGE_LABELS[status?.stage || ""] || "";
+  return {
+    title: titles[phase],
+    progress: bytesProgress ?? fileProgress,
+    downloadedText:
+      totalBytes > 0 && downloadedBytes <= totalBytes
+        ? `${formatSize(downloadedBytes)} / ${formatSize(totalBytes)}`
+        : formatSize(downloadedBytes),
+    sizeText: totalBytes ? `本次需下载 ${formatSize(totalBytes)}` : "",
+    splitText:
+      status && status.patchBytes > 0
+        ? status.fullBytes > 0
+          ? `补丁 ${formatSize(status.patchBytes)} / 完整文件 ${formatSize(status.fullBytes)}`
+          : `补丁 ${formatSize(status.patchBytes)}`
+        : "",
+    stageText,
+    detail:
+      status?.error ||
+      (phase === "checking"
+        ? "正在读取官方清单并核对本地文件"
+        : status?.pendingFiles
+          ? `${status.pendingFiles} 个文件待处理`
+          : "选择地区和安装目录后检查资源"),
+  };
+});
+export const homeDownloadNotice = computed(() => {
+  const phase =
+    state.download?.distribution === form.distribution
+      ? state.download.phase
+      : "idle";
+  return {
+    visible: ["needs-install", "needs-update", "failed", "cancelled"].includes(
+      phase,
+    ),
+    kind: phase === "failed" ? "error" : "warn",
+    text:
+      phase === "cancelled"
+        ? "下载已暂停，打开更新页继续"
+        : downloadView.value.title,
+  };
+});
 export const updateView = computed(() => {
   const result = state.check;
   const rows = [
@@ -509,7 +619,7 @@ function toast(message: string, kind = "ok", duration = 3400) {
   }, duration);
 }
 
-function applyBootstrap(data: Bootstrap) {
+function applyBootstrap(data: Bootstrap, announceError = true) {
   state.bootstrap = data;
   const settings = data.settings || {};
 
@@ -517,8 +627,19 @@ function applyBootstrap(data: Bootstrap) {
   ui.setupNeeded = !ready;
   applyTheme(settings.theme || "light");
 
-  form.installRoot = settings.installRoot || data.installRoot || "";
-  form.bridgeRoot = settings.bridgeRoot || data.bridgeRoot || "";
+  form.installRoot =
+    settings.installRoot ||
+    (settings.distribution !== "global" ? data.installRoot : "") ||
+    "";
+  form.globalInstallRoot =
+    settings.globalInstallRoot ||
+    (settings.distribution === "global" ? data.installRoot : "") ||
+    "";
+  form.distribution = settings.distribution || "cn";
+  form.bridgeRoot =
+    settings.bridgeRoot ||
+    (settings.distribution !== "global" ? data.bridgeRoot : "") ||
+    "";
   form.prefix = settings.prefix || data.prefix || "";
   form.protonPath = settings.protonPath || data.protonPath || "";
   form.launchMode = settings.launchMode || "background";
@@ -527,7 +648,7 @@ function applyBootstrap(data: Bootstrap) {
   applyHeroMedia(settings.heroMedia || "video");
   form.minimizeToTrayOnClose = settings.minimizeToTrayOnClose ?? true;
 
-  if (data.error) {
+  if (data.error && announceError) {
     toast(data.error, "error", 6000);
   }
   void nextTick(syncScrollEdges);
@@ -549,6 +670,54 @@ export async function checkUpdate(full = false, silent = false) {
     if (!silent) toast(message, "error", 6500);
   } finally {
     if (epoch === generation) state.checking = false;
+  }
+}
+
+function applyDownloadStatus(status: DownloadStatus) {
+  downloadRevision++;
+  const previous = state.download?.phase;
+  state.download = status;
+  if (status.phase === "ready" && previous !== "ready") {
+    void invoke("bootstrap")
+      .then((data) => applyBootstrap(data, false))
+      .catch(() => {});
+  }
+}
+
+export async function loadDownloadStatus() {
+  const revision = downloadRevision;
+  try {
+    const status = await invoke("game_download_status");
+    if (revision === downloadRevision && status) applyDownloadStatus(status);
+  } catch {}
+}
+
+export async function startGameDownload(mode: "check" | "apply", full = false) {
+  if (downloadBusy()) return;
+  if (!(await saveSettings(false))) return;
+  try {
+    applyDownloadStatus(await invoke("game_download_start", { mode, full }));
+    if (!isTauri()) {
+      const poll = () => {
+        if (!downloadBusy()) return;
+        void loadDownloadStatus().then(() => schedule(poll, 250));
+      };
+      schedule(poll, 250);
+    }
+  } catch (error) {
+    toast(
+      error instanceof Error ? error.message : String(error),
+      "error",
+      6500,
+    );
+  }
+}
+
+export async function cancelGameDownload() {
+  try {
+    applyDownloadStatus(await invoke("game_download_cancel"));
+  } catch (error) {
+    toast(String(error), "error", 6500);
   }
 }
 
@@ -721,14 +890,18 @@ async function closeGame() {
 
 export function handleLaunchAction() {
   if (state.game === "running") closeGame();
-  else launchGame();
+  else if (!state.bootstrap?.gameExists || downloadNeedsWork())
+    showPage("update");
+  else if (!downloadBusy()) launchGame();
 }
 
-export async function saveSettings() {
+export async function saveSettings(announce = true): Promise<boolean> {
   const epoch = generation;
-  if (ui.saving) return;
+  if (ui.saving) return false;
   const settings = {
     installRoot: form.installRoot.trim() || null,
+    globalInstallRoot: form.globalInstallRoot.trim() || null,
+    distribution: form.distribution,
     bridgeRoot: form.bridgeRoot.trim() || null,
     prefix: form.prefix.trim() || null,
     protonPath: form.protonPath.trim() || null,
@@ -742,10 +915,10 @@ export async function saveSettings() {
   ui.saving = true;
   try {
     const data = await invoke("save_settings", { settings });
-    if (epoch !== generation) return;
-    applyBootstrap(data);
+    if (epoch !== generation) return false;
+    applyBootstrap(data, announce);
     applyReduceMotion(settings.reduceMotion);
-    if (attendance.loaded && attendance.status) {
+    if (announce && attendance.loaded && attendance.status) {
       try {
         await saveAttendancePreferences();
       } catch (cause) {
@@ -755,17 +928,19 @@ export async function saveSettings() {
             "error",
             6000,
           );
-        return;
+        return false;
       }
     }
-    if (epoch === generation) toast("设置已保存.");
+    if (epoch === generation && announce) toast("设置已保存.");
+    return true;
   } catch (error) {
-    if (epoch !== generation) return;
+    if (epoch !== generation) return false;
     toast(
       error instanceof Error ? error.message : String(error),
       "error",
       6000,
     );
+    return false;
   } finally {
     if (epoch === generation) ui.saving = false;
   }
@@ -997,6 +1172,7 @@ export async function init() {
   disposers.push(
     listenGameState((status) => applyGameStatus(status, { announce: true })),
   );
+  disposers.push(listenDownloadState(applyDownloadStatus));
   watchWindowShape();
   await syncGameStatus();
   if (epoch !== generation) return;
@@ -1015,6 +1191,7 @@ export async function init() {
     );
   }
 
+  void loadDownloadStatus();
   void fetchBulletins();
 
   startIntro();
@@ -1047,6 +1224,7 @@ export function dispose() {
   Object.assign(state, {
     bootstrap: null,
     check: null,
+    download: null,
     bulletins: null,
     bulletinsLoading: false,
     page: "home",

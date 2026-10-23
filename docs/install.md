@@ -10,10 +10,10 @@
 | 图形 | 支持 Vulkan 的显卡驱动；NVIDIA 用户建议使用较新的专有驱动 |
 | 依赖 | WebKitGTK 4.1、GTK 3、`umu-launcher`（`umu-run`） |
 | 兼容层 | Proton；推荐 **GE-Proton 11-5** 或更新版本 |
-| 游戏 | 已通过官方 Windows 客户端安装好的《异环》 |
+| 游戏 | 可写的安装目录，或已有的《异环》安装目录 |
 | 构建 | Rust 稳定版工具链 (edition 2021), Node.js 24 LTS 与 pnpm 12.14.0 |
 
-Oddity 不负责下载或安装游戏本体。请先使用官方安装包，在 Proton / Wine 环境中完成安装。安装完成后，目录中应当存在：
+Oddity 可以从官方 CDN 安装游戏资源，也可以检查已有安装。已有安装的目录结构示例：
 
 ```text
 Neverness To Everness/
@@ -86,7 +86,7 @@ cargo build --release --locked -p nte-app
 
 | 设置项 | 说明 |
 |---|---|
-| **游戏安装目录** | 《异环》的安装根目录，或其中的 `NTELauncher` 目录。例如 `~/Games/Neverness To Everness` |
+| **游戏地区与安装目录** | 国服和国际服分别设置安装根目录，例如 `~/Games/Neverness To Everness`；两个地区不能共用目录 |
 | **官方启动器桥接目录** | 一般保持默认。仅当官方启动器副本位于其他位置时才需要修改 |
 | **Wine prefix** | 游戏使用的 Wine 前缀，目录中应包含 `drive_c`。留空时使用默认目录 |
 | **Proton 路径** | Proton 安装目录，目录中应同时包含 `proton` 和 `toolmanifest.vdf` |
@@ -106,8 +106,8 @@ cargo build --release --locked -p nte-app
 
 ## 第一次启动
 
-1. 回到 **启动** 页，点击 **检查更新**。Oddity 会校验官方启动器文件。
-2. 点击 **启动游戏**。Oddity 会通过 Proton 启动官方后台组件，由它完成登录与资源检查。
+1. 前往 **更新** 页，选择地区与安装目录，点击 **安装或更新**。Oddity 会获取官方启动器文件和游戏资源。
+2. 更新完成后回到 **启动** 页，点击 **启动游戏**。Oddity 会通过 Proton 启动官方后台组件，完成登录与后续启动流程。
 3. 启动成功后，Oddity 窗口会收起到系统托盘，游戏开始运行。
 
 ![检查更新](assets/launcher-update.png)

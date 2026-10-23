@@ -20,3 +20,4 @@ flate2.workspace = true
 secret-service = { version = "5.2", features = ["rt-async-io-crypto-rust"] }
 base64 = "0.23"
 zeroize = "1"
+hdiffpatch-rs = { git = "https://github.com/TwintailTeam/hdiffpatch-rs", rev = "d58f4553b7d45acccd0b8e3b57badc26b9b04b6e" }

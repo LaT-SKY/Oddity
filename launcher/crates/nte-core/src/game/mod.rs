@@ -6,6 +6,7 @@
 pub mod check;
 pub mod config;
 pub mod download;
+mod http;
 pub mod ledger;
 pub mod manifest;
 pub mod patch;

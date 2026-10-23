@@ -7,6 +7,7 @@ pub enum Error {
     Parse(String),
     Integrity(String),
     Unsupported(String),
+    Cancelled,
 }
 
 impl fmt::Display for Error {
@@ -17,6 +18,7 @@ impl fmt::Display for Error {
             Error::Parse(m) => write!(f, "parse: {m}"),
             Error::Integrity(m) => write!(f, "integrity: {m}"),
             Error::Unsupported(m) => write!(f, "unsupported: {m}"),
+            Error::Cancelled => write!(f, "任务已取消"),
         }
     }
 }

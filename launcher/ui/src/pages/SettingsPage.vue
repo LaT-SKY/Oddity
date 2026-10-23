@@ -17,6 +17,10 @@ const themeOptions = [
   { label: "亮色（默认）", value: "light" },
   { label: "暗色", value: "dark" },
 ];
+const distributionOptions = [
+  { label: "国服", value: "cn" },
+  { label: "国际服", value: "global" },
+];
 
 const heroMediaOptions = [
   { label: "动态视频", value: "video" },
@@ -85,7 +89,7 @@ const launchModeHint = computed(
       </div>
     </header>
 
-    <form class="settings" id="settings-form" @submit.prevent="saveSettings">
+    <form class="settings" id="settings-form" @submit.prevent="saveSettings()">
       <section class="settings-section">
         <h3>外观</h3>
         <div class="field-grid">
@@ -129,8 +133,16 @@ const launchModeHint = computed(
       <section class="settings-section">
         <h3>安装与运行</h3>
         <div class="field-grid">
+          <div class="field">
+            <span>游戏地区</span>
+            <BaseSelect
+              id="set-distribution"
+              v-model="form.distribution"
+              :options="distributionOptions"
+            />
+          </div>
           <label class="field field--wide">
-            <span>游戏安装目录</span>
+            <span>国服安装目录</span>
             <input
               id="set-install"
               v-model="form.installRoot"
@@ -138,6 +150,17 @@ const launchModeHint = computed(
               spellcheck="false"
               autocomplete="off"
               placeholder="/path/to/Neverness To Everness"
+            />
+          </label>
+          <label class="field field--wide">
+            <span>国际服安装目录</span>
+            <input
+              id="set-global-install"
+              v-model="form.globalInstallRoot"
+              type="text"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="~/Games/Neverness To Everness Global"
             />
           </label>
           <label class="field">

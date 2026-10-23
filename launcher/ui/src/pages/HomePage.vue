@@ -3,8 +3,10 @@ import {
   state,
   launchView,
   updateView,
+  homeDownloadNotice,
   showPage,
-  checkUpdate,
+  startGameDownload,
+  downloadBusy,
   handleLaunchAction,
 } from "../core/controller";
 import HeroMedia from "../components/HeroMedia.vue";
@@ -49,11 +51,11 @@ import HeroMedia from "../components/HeroMedia.vue";
             <button
               class="btn btn--link"
               id="check-btn"
-              :disabled="state.checking"
-              :class="{ 'is-busy': state.checking }"
+              :disabled="downloadBusy()"
+              :class="{ 'is-busy': downloadBusy() }"
               @click="
                 showPage('update');
-                checkUpdate(false);
+                startGameDownload('check', false);
               "
             >
               <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
@@ -67,11 +69,19 @@ import HeroMedia from "../components/HeroMedia.vue";
             id="home-status"
             @click="showPage('update')"
             type="button"
-            :hidden="!updateView.showHomeStatus"
-            :data-state="updateView.homeStatusKind"
+            :hidden="!homeDownloadNotice.visible && !updateView.showHomeStatus"
+            :data-state="
+              homeDownloadNotice.visible
+                ? homeDownloadNotice.kind
+                : updateView.homeStatusKind
+            "
           >
             <i class="status-dot status-dot--warn"></i>
-            <span id="home-status-text">{{ updateView.homeStatusText }}</span>
+            <span id="home-status-text">{{
+              homeDownloadNotice.visible
+                ? homeDownloadNotice.text
+                : updateView.homeStatusText
+            }}</span>
           </button>
         </div>
       </div>

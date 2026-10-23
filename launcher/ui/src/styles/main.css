@@ -1042,7 +1042,70 @@ button:disabled {
   padding: 12px 2px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
+}
+
+.game-download-card {
+  margin-bottom: 22px;
+}
+
+.update-subtitle {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.download-fields {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(0, 2fr);
+  gap: 16px;
+  margin-top: 28px;
+}
+
+.download-hint {
+  margin: 14px 0 0;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.download-progress {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.download-progress__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.download-progress progress {
+  width: 100%;
+  height: 8px;
+  margin-top: 10px;
+  accent-color: var(--signal);
+}
+
+.download-progress p {
+  overflow: hidden;
+  margin: 8px 0 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .download-fields {
+    grid-template-columns: 1fr;
+  }
+  .update-card {
+    padding: 24px;
+  }
 }
 
 .update-title {
@@ -2265,4 +2328,17 @@ button:disabled {
 .account-row__danger,
 .account-row__danger:hover:not(:disabled) {
   color: var(--danger);
+}
+
+.download-progress__meta--size {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.download-progress__stage {
+  color: var(--bone);
+}
+
+.download-progress__file-size {
+  font-variant-numeric: tabular-nums;
 }

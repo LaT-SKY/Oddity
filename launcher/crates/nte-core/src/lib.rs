@@ -7,8 +7,10 @@
 pub mod attendance;
 pub mod bulletin;
 pub mod config;
+pub mod distribution;
 pub mod error;
 pub mod game;
+pub mod install;
 pub mod launch;
 pub mod manifest;
 pub mod update;

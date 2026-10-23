@@ -1,17 +1,18 @@
-use std::collections::BTreeMap;
+use std::cmp::Reverse;
+use std::collections::{BTreeMap, BinaryHeap, HashMap};
 use std::fs;
-use std::io::Read;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::game::config::GameUpdateConfig;
+use crate::game::http::HttpClient;
 use crate::game::manifest::{
     parse_diff_list, parse_remote_config, parse_res_list, DiffManifest, GameManifest,
     LocalManifest, PakEntry, RemoteConfig, ResEntry,
 };
 use crate::game::pxml;
 use crate::update::{md5_bytes, md5_file};
-use crate::{Error, Result, USER_AGENT};
+use crate::{Error, Result};
 
 const SMALL_HASH_LIMIT: u64 = 20 * 1024 * 1024;
 
@@ -75,10 +76,16 @@ impl UpdateKind {
     }
 }
 
-#[derive(Debug, Clone)]
+/// 差分链中的一步：从旧内容生成新内容。
+///
+/// 链可能跨多个版本，每一步的 `old_*` 必须等于上一步的 `new_*`；
+/// 应用时仍以最终文件的 MD5 为准，避免链中间内容被误信。
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PatchRef {
     pub md5: String,
     pub size: u64,
+    pub old_md5: String,
+    pub old_size: u64,
     pub new_md5: String,
     pub new_size: u64,
 }
@@ -90,8 +97,14 @@ pub struct UpdateItem {
     pub md5: String,
     pub reason: UpdateReason,
     pub kind: UpdateKind,
-    pub patch: Option<PatchRef>,
+    pub patches: Vec<PatchRef>,
     pub download_size: u64,
+}
+
+impl UpdateItem {
+    pub fn has_patch(&self) -> bool {
+        !self.patches.is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -103,6 +116,7 @@ pub struct UpdatePlan {
     pub checked: usize,
     pub items: Vec<UpdateItem>,
     pub unverified: Vec<UpdateItem>,
+    pub max_threads: usize,
 }
 
 impl UpdatePlan {
@@ -129,7 +143,8 @@ struct LocalInfo {
 }
 
 pub fn load_remote(config: &GameUpdateConfig) -> Result<RemoteBundle> {
-    let remote = fetch_config(config)?;
+    let http = HttpClient::new();
+    let remote = fetch_config(&http, config)?;
     let url_path = format!(
         "/{}/Version/Windows/version/{}/ResList.bin.zip",
         config.branch, remote.res_version
@@ -138,7 +153,8 @@ pub fn load_remote(config: &GameUpdateConfig) -> Result<RemoteBundle> {
     let mut manifests = None;
     for cdn in &config.cdns {
         let url = format!("{}{}", cdn.trim_end_matches('/'), url_path);
-        match fetch_bytes(&url, 8 * 1024 * 1024)
+        match http
+            .fetch_bytes(&url, 8 * 1024 * 1024, Duration::from_secs(60))
             .and_then(|zip| pxml::read_zip_manifests(&zip, &config.app_id))
         {
             Ok(m) => {
@@ -217,6 +233,7 @@ pub fn check_bundle(
         } else {
             bundle.manifest.tag.clone()
         },
+        max_threads: bundle.config.max_threads.clamp(1, 8),
         ..Default::default()
     };
 
@@ -278,7 +295,7 @@ pub fn check_bundle(
                     md5,
                     reason: UpdateReason::Missing,
                     kind,
-                    patch: None,
+                    patches: Vec::new(),
                     download_size: size,
                 });
                 continue;
@@ -291,7 +308,7 @@ pub fn check_bundle(
                 md5,
                 reason: UpdateReason::Size,
                 kind,
-                patch: None,
+                patches: Vec::new(),
                 download_size: size,
             });
             continue;
@@ -317,7 +334,7 @@ pub fn check_bundle(
                     md5,
                     reason: UpdateReason::Size,
                     kind,
-                    patch: None,
+                    patches: Vec::new(),
                     download_size: size,
                 });
                 continue;
@@ -338,7 +355,7 @@ pub fn check_bundle(
                     md5,
                     reason: UpdateReason::Md5,
                     kind,
-                    patch: None,
+                    patches: Vec::new(),
                     download_size: size,
                 });
                 continue;
@@ -364,7 +381,7 @@ pub fn check_bundle(
                                 UpdateReason::Md5
                             },
                             kind,
-                            patch: None,
+                            patches: Vec::new(),
                             download_size: size,
                         });
                         continue;
@@ -392,7 +409,7 @@ pub fn check_bundle(
                             UpdateReason::Md5
                         },
                         kind,
-                        patch: None,
+                        patches: Vec::new(),
                         download_size: size,
                     });
                     continue;
@@ -406,7 +423,7 @@ pub fn check_bundle(
             md5,
             reason: UpdateReason::Unverified,
             kind,
-            patch: None,
+            patches: Vec::new(),
             download_size: size,
         });
     }
@@ -427,7 +444,7 @@ fn attach_patches(
         return;
     };
     for item in &mut plan.items {
-        if item.reason == UpdateReason::Missing {
+        if item.reason == UpdateReason::Missing || item.size == 0 {
             continue;
         }
         let Some(info) = map.get(&normalize_path(&item.path)) else {
@@ -442,27 +459,153 @@ fn attach_patches(
         }
         let old_id = format!("{}.{}", info.md5.to_ascii_lowercase(), info.size);
         let new_id = format!("{}.{}", item.md5.to_ascii_lowercase(), item.size);
-        let Some(patch) = diff.patches.iter().find(|p| {
-            p.old_file.eq_ignore_ascii_case(&old_id)
-                && p.new_file.eq_ignore_ascii_case(&new_id)
-                && (p.version.is_empty() || p.version.eq_ignore_ascii_case(&bundle.config.hash))
-        }) else {
+        let Some(chain) = best_patch_chain(diff, &old_id, &new_id, &bundle.config.hash, item.size)
+        else {
+            continue;
+        };
+        item.download_size = chain.iter().map(|patch| patch.size).sum();
+        item.patches = chain;
+    }
+}
+
+const MAX_CHAIN_STEPS: u32 = 8;
+
+struct DiffEdge {
+    old_file: String,
+    new_file: String,
+    patch_md5: String,
+    patch_size: u64,
+    version: String,
+}
+
+/// 在 lastdiff 反向图上找总补丁体积最小的链。
+///
+/// 官方允许跨多个历史版本拼接补丁，但最后一步必须落到当前构建（v 与
+/// config.Hash 一致）；中间步骤可以是更早版本的补丁。返回的链已经按
+/// 应用顺序排列，并且总大小严格小于整文件下载。
+fn best_patch_chain(
+    diff: &DiffManifest,
+    old_id: &str,
+    new_id: &str,
+    remote_hash: &str,
+    full_size: u64,
+) -> Option<Vec<PatchRef>> {
+    if old_id == new_id {
+        return None;
+    }
+    let mut edges = Vec::new();
+    for patch in &diff.patches {
+        let Some(old_file) = normalize_content_id(&patch.old_file) else {
+            continue;
+        };
+        let Some(new_file) = normalize_content_id(&patch.new_file) else {
             continue;
         };
         let Some((patch_md5, patch_size)) = split_content_id(&patch.patch) else {
             continue;
         };
-        if patch_size == 0 || patch_size >= item.size {
+        if patch_size == 0 {
             continue;
         }
-        item.patch = Some(PatchRef {
-            md5: patch_md5,
-            size: patch_size,
-            new_md5: item.md5.clone(),
-            new_size: item.size,
+        edges.push(DiffEdge {
+            old_file,
+            new_file,
+            patch_md5,
+            patch_size,
+            version: patch.version.clone(),
         });
-        item.download_size = patch_size;
     }
+
+    let mut incoming: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (index, edge) in edges.iter().enumerate() {
+        incoming.entry(&edge.new_file).or_default().push(index);
+    }
+
+    // 从目标内容反向搜索：每条边的代价是该补丁的下载大小。
+    let mut best: HashMap<String, (u64, u32)> = HashMap::new();
+    let mut parent: HashMap<String, (String, usize)> = HashMap::new();
+    let mut heap = BinaryHeap::new();
+    best.insert(new_id.to_string(), (0, 0));
+    heap.push(Reverse((0u64, 0u32, new_id.to_string())));
+
+    let mut found = false;
+    while let Some(Reverse((cost, steps, node))) = heap.pop() {
+        if best
+            .get(&node)
+            .is_some_and(|&(known_cost, known_steps)| (known_cost, known_steps) < (cost, steps))
+        {
+            continue;
+        }
+        if node == old_id {
+            found = true;
+            break;
+        }
+        if steps >= MAX_CHAIN_STEPS {
+            continue;
+        }
+        let Some(indices) = incoming.get(node.as_str()) else {
+            continue;
+        };
+        for &index in indices {
+            let edge = &edges[index];
+            // 只有链的最后一跳需要匹配当前构建；中间跳允许来自历史版本。
+            if node == new_id
+                && !edge.version.is_empty()
+                && !remote_hash.is_empty()
+                && !edge.version.eq_ignore_ascii_case(remote_hash)
+            {
+                continue;
+            }
+            let next_cost = cost.saturating_add(edge.patch_size);
+            if next_cost >= full_size {
+                continue;
+            }
+            let next_steps = steps + 1;
+            let better = match best.get(&edge.old_file) {
+                None => true,
+                Some(&(known_cost, known_steps)) => {
+                    (next_cost, next_steps) < (known_cost, known_steps)
+                }
+            };
+            if !better {
+                continue;
+            }
+            best.insert(edge.old_file.clone(), (next_cost, next_steps));
+            parent.insert(edge.old_file.clone(), (node.clone(), index));
+            heap.push(Reverse((next_cost, next_steps, edge.old_file.clone())));
+        }
+    }
+    if !found {
+        return None;
+    }
+
+    let mut order = Vec::new();
+    let mut current = old_id.to_string();
+    while current != new_id {
+        let (next, index) = parent.get(&current)?;
+        order.push(*index);
+        current = next.clone();
+    }
+    let mut chain = Vec::with_capacity(order.len());
+    for index in order {
+        let edge = &edges[index];
+        let (old_md5, old_size) = split_content_id(&edge.old_file)?;
+        let (new_md5, new_size) = split_content_id(&edge.new_file)?;
+        chain.push(PatchRef {
+            md5: edge.patch_md5.clone(),
+            size: edge.patch_size,
+            old_md5,
+            old_size,
+            new_md5,
+            new_size,
+        });
+    }
+    Some(chain)
+}
+
+fn normalize_content_id(value: &str) -> Option<String> {
+    let (md5, size) = split_content_id(value)?;
+    Some(format!("{md5}.{size}"))
 }
 
 fn split_content_id(value: &str) -> Option<(String, u64)> {
@@ -540,7 +683,7 @@ pub fn join_install_path(root: &Path, rel: &str) -> std::path::PathBuf {
     out
 }
 
-fn fetch_config(config: &GameUpdateConfig) -> Result<RemoteConfig> {
+fn fetch_config(http: &HttpClient, config: &GameUpdateConfig) -> Result<RemoteConfig> {
     let mut last = None;
     for cdn in &config.cdns {
         let url = format!(
@@ -549,7 +692,7 @@ fn fetch_config(config: &GameUpdateConfig) -> Result<RemoteConfig> {
             config.branch,
             now_ms()
         );
-        match fetch_bytes(&url, 2 * 1024 * 1024) {
+        match http.fetch_bytes(&url, 2 * 1024 * 1024, Duration::from_secs(30)) {
             Ok(bytes) => match String::from_utf8(bytes)
                 .map_err(|e| Error::Parse(format!("config.xml utf8: {e}")))
                 .and_then(|s| parse_remote_config(&s))
@@ -561,23 +704,6 @@ fn fetch_config(config: &GameUpdateConfig) -> Result<RemoteConfig> {
         }
     }
     Err(last.unwrap_or_else(|| Error::Http("no game CDN configured".into())))
-}
-
-fn fetch_bytes(url: &str, limit: u64) -> Result<Vec<u8>> {
-    let mut resp = ureq::get(url)
-        .header("User-Agent", USER_AGENT)
-        .config()
-        .timeout_global(Some(std::time::Duration::from_secs(30)))
-        .build()
-        .call()
-        .map_err(|e| Error::Http(format!("GET {url}: {e}")))?;
-    let mut bytes = Vec::new();
-    resp.body_mut()
-        .as_reader()
-        .take(limit)
-        .read_to_end(&mut bytes)
-        .map_err(|e| Error::Http(format!("read {url}: {e}")))?;
-    Ok(bytes)
 }
 
 fn now_ms() -> u128 {
@@ -752,7 +878,7 @@ mod tests {
         assert_eq!(plan.items[0].kind.path(), "data/gone.bin");
         assert_eq!(plan.items[0].kind.size(), 7);
         assert_eq!(plan.items[0].kind.md5(), "bb");
-        assert!(plan.items[0].patch.is_none());
+        assert!(plan.items[0].patches.is_empty());
     }
 
     #[test]
@@ -1075,9 +1201,11 @@ mod tests {
         .expect("check");
         assert_eq!(plan.items.len(), 1);
         assert_eq!(plan.items[0].reason, UpdateReason::Size);
-        let patch = plan.items[0].patch.as_ref().expect("patch attached");
+        let patch = plan.items[0].patches.first().expect("patch attached");
         assert_eq!(patch.md5, patch_md5);
         assert_eq!(patch.size, 50);
+        assert_eq!(patch.old_md5, old_md5);
+        assert_eq!(patch.old_size, 100);
         assert_eq!(patch.new_md5, new_md5);
         assert_eq!(patch.new_size, 200);
         assert_eq!(plan.items[0].download_size, 50);
@@ -1093,7 +1221,7 @@ mod tests {
             CheckOptions::default(),
         )
         .expect("check");
-        assert!(plan.items[0].patch.is_none());
+        assert!(plan.items[0].patches.is_empty());
         assert_eq!(plan.items[0].download_size, 200);
 
         // 补丁体积不小于整包时直接下载整包
@@ -1106,7 +1234,7 @@ mod tests {
             CheckOptions::default(),
         )
         .expect("check");
-        assert!(plan.items[0].patch.is_none());
+        assert!(plan.items[0].patches.is_empty());
 
         // 内容标识非法时忽略补丁
         let plan = check_bundle(
@@ -1118,7 +1246,7 @@ mod tests {
             CheckOptions::default(),
         )
         .expect("check");
-        assert!(plan.items[0].patch.is_none());
+        assert!(plan.items[0].patches.is_empty());
 
         // 账本里没有可用的旧 md5 时不上补丁
         write_ledger(
@@ -1131,7 +1259,7 @@ mod tests {
             CheckOptions::default(),
         )
         .expect("check");
-        assert!(plan.items[0].patch.is_none());
+        assert!(plan.items[0].patches.is_empty());
 
         // 缺失的文件永远不用补丁
         let missing_dir = TempDir::new("check-patch-missing");
@@ -1152,7 +1280,139 @@ mod tests {
         )
         .expect("check");
         assert_eq!(plan.items[0].reason, UpdateReason::Missing);
-        assert!(plan.items[0].patch.is_none());
+        assert!(plan.items[0].patches.is_empty());
+    }
+
+    #[test]
+    fn chooses_the_cheapest_multi_step_patch_chain() {
+        let dir = TempDir::new("check-patch-chain");
+        let config = config_for(&dir);
+        let old_content = vec![b'o'; 100];
+        dir.write("install/data/a.bin", &old_content);
+        let old_md5 = crate::update::md5_bytes(&old_content);
+        let mid_md5 = "11".repeat(16);
+        let new_md5 = "22".repeat(16);
+        write_ledger(
+            &config,
+            &format!(
+                "<ResList version=\"1.4.16\" tag=\"baseTag\"><Res filename=\"data/a.bin\" md5=\"{old_md5}\" filesize=\"100\"/></ResList>"
+            ),
+        );
+        let remote = manifest_res(vec![res("data/a.bin", &new_md5, 300)]);
+        let edge = |old: &str, new: &str, patch: &str, version: &str| PatchEntry {
+            old_file: old.to_string(),
+            new_file: new.to_string(),
+            patch: patch.to_string(),
+            version: version.to_string(),
+            blocks: Vec::new(),
+        };
+        let old_id = format!("{old_md5}.100");
+        let mid_id = format!("{mid_md5}.200");
+        let new_id = format!("{new_md5}.300");
+
+        let plan = check_bundle(
+            &config,
+            &bundle(
+                remote.clone(),
+                Some(DiffManifest {
+                    sections: Vec::new(),
+                    patches: vec![
+                        edge(&old_id, &mid_id, &format!("{}.40", "aa".repeat(16)), "OLD"),
+                        edge(&mid_id, &new_id, &format!("{}.30", "bb".repeat(16)), "HASH"),
+                        edge(
+                            &old_id,
+                            &new_id,
+                            &format!("{}.100", "cc".repeat(16)),
+                            "HASH",
+                        ),
+                    ],
+                }),
+            ),
+            CheckOptions::default(),
+        )
+        .expect("check");
+        assert_eq!(plan.items.len(), 1);
+        assert_eq!(plan.items[0].patches.len(), 2);
+        assert_eq!(plan.items[0].download_size, 70);
+        assert_eq!(plan.items[0].patches[0].old_md5, old_md5);
+        assert_eq!(plan.items[0].patches[0].new_md5, mid_md5);
+        assert_eq!(plan.items[0].patches[1].old_md5, mid_md5);
+        assert_eq!(plan.items[0].patches[1].new_md5, new_md5);
+        assert_eq!(plan.total_bytes(), 70);
+
+        // 直达补丁更便宜时只走一步；同一对内容有多条边时取最小补丁
+        let plan = check_bundle(
+            &config,
+            &bundle(
+                remote.clone(),
+                Some(DiffManifest {
+                    sections: Vec::new(),
+                    patches: vec![
+                        edge(&old_id, &new_id, &format!("{}.80", "dd".repeat(16)), "HASH"),
+                        edge(&old_id, &new_id, &format!("{}.50", "ee".repeat(16)), "HASH"),
+                    ],
+                }),
+            ),
+            CheckOptions::default(),
+        )
+        .expect("check");
+        assert_eq!(plan.items[0].patches.len(), 1);
+        assert_eq!(plan.items[0].download_size, 50);
+        assert_eq!(plan.items[0].patches[0].md5, "ee".repeat(16));
+
+        // 最后一跳必须是当前构建；中间跳可以是历史版本
+        let plan = check_bundle(
+            &config,
+            &bundle(
+                remote.clone(),
+                Some(DiffManifest {
+                    sections: Vec::new(),
+                    patches: vec![
+                        edge(&old_id, &mid_id, &format!("{}.40", "aa".repeat(16)), "OLD"),
+                        edge(
+                            &mid_id,
+                            &new_id,
+                            &format!("{}.30", "bb".repeat(16)),
+                            "OTHER",
+                        ),
+                        edge(
+                            &old_id,
+                            &new_id,
+                            &format!("{}.100", "cc".repeat(16)),
+                            "OTHER",
+                        ),
+                    ],
+                }),
+            ),
+            CheckOptions::default(),
+        )
+        .expect("check");
+        assert!(plan.items[0].patches.is_empty());
+        assert_eq!(plan.items[0].download_size, 300);
+
+        // 链的总体积不小于整包时直接下载整包
+        let plan = check_bundle(
+            &config,
+            &bundle(
+                remote,
+                Some(DiffManifest {
+                    sections: Vec::new(),
+                    patches: vec![
+                        edge(&old_id, &mid_id, &format!("{}.200", "aa".repeat(16)), "OLD"),
+                        edge(
+                            &mid_id,
+                            &new_id,
+                            &format!("{}.200", "bb".repeat(16)),
+                            "HASH",
+                        ),
+                    ],
+                }),
+            ),
+            CheckOptions::default(),
+        )
+        .expect("check");
+        assert!(plan.items[0].patches.is_empty());
+        assert_eq!(plan.items[0].download_size, 300);
     }
 
     #[test]

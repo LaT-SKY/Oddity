@@ -7,6 +7,8 @@ import type {
 
 export const settings: Settings = {
   installRoot: null,
+  globalInstallRoot: null,
+  distribution: "cn",
   bridgeRoot: null,
   prefix: null,
   protonPath: null,

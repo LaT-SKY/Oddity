@@ -41,6 +41,8 @@ export interface AttendanceStatus {
 }
 export interface Settings {
   installRoot: string | null;
+  globalInstallRoot: string | null;
+  distribution: "cn" | "global";
   bridgeRoot: string | null;
   prefix: string | null;
   protonPath: string | null;
@@ -108,6 +110,35 @@ export interface GameStatus {
   exe: string;
   log: string;
 }
+export type DownloadPhase =
+  | "idle"
+  | "checking"
+  | "needs-install"
+  | "needs-update"
+  | "launcher"
+  | "game"
+  | "ready"
+  | "cancelled"
+  | "failed";
+export interface DownloadStatus {
+  phase: DownloadPhase;
+  distribution: "cn" | "global";
+  installRoot: string;
+  currentFile: string;
+  currentFileBytes: number;
+  completedFiles: number;
+  totalFiles: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  patchFiles: number;
+  patchBytes: number;
+  fullFiles: number;
+  fullBytes: number;
+  stage: string;
+  remoteVersion: string;
+  pendingFiles: number;
+  error: string;
+}
 export type BulletinKind = "bilibili" | "preview" | "maintenance";
 export interface BulletinItem {
   kind: BulletinKind;
@@ -139,6 +170,9 @@ export interface Commands {
   open_url: null;
   launch_official: LaunchResult;
   game_status: GameStatus;
+  game_download_status: DownloadStatus;
+  game_download_start: DownloadStatus;
+  game_download_cancel: DownloadStatus;
   close_game: GameStatus;
   win_minimize: null;
   win_toggle_maximize: null;
@@ -167,6 +201,9 @@ export interface CommandArgs {
   open_url: { url: string };
   launch_official: undefined;
   game_status: undefined;
+  game_download_status: undefined;
+  game_download_start: { mode: "check" | "apply"; full: boolean };
+  game_download_cancel: undefined;
   close_game: undefined;
   win_minimize: undefined;
   win_toggle_maximize: undefined;

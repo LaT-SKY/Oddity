@@ -5,6 +5,7 @@ import type {
   Bootstrap,
   Settings,
   GameStatus,
+  DownloadStatus,
   Commands,
   CommandArgs,
   PreviewPaths,
@@ -144,6 +145,8 @@ const mock: Bootstrap = {
   ],
   settings: {
     installRoot: null,
+    globalInstallRoot: null,
+    distribution: "cn",
     bridgeRoot: null,
     prefix: null,
     protonPath: null,
@@ -240,6 +243,44 @@ export function listenGameState(handler: (status: GameStatus) => void) {
     if (unlisten) unlisten();
   };
 }
+
+export function listenDownloadState(handler: (status: DownloadStatus) => void) {
+  if (!isTauri()) return () => {};
+  let disposed = false;
+  let unlisten: (() => void) | null = null;
+  listen<DownloadStatus>("game-download-state", (event) =>
+    handler(event.payload),
+  )
+    .then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    })
+    .catch(() => {});
+  return () => {
+    disposed = true;
+    if (unlisten) unlisten();
+  };
+}
+
+const mockDownload: DownloadStatus = {
+  phase: "idle",
+  distribution: "cn",
+  installRoot: preview.installRoot,
+  currentFile: "",
+  currentFileBytes: 0,
+  completedFiles: 0,
+  totalFiles: 0,
+  downloadedBytes: 0,
+  totalBytes: 0,
+  patchFiles: 0,
+  patchBytes: 0,
+  fullFiles: 0,
+  fullBytes: 0,
+  stage: "",
+  remoteVersion: "",
+  pendingFiles: 0,
+  error: "",
+};
 
 export async function invoke<C extends keyof Commands>(
   command: C,
@@ -381,9 +422,60 @@ async function previewInvoke(
     case "save_settings": {
       const settings = (args as { settings: Settings }).settings;
       mock.settings = { ...mock.settings, ...settings };
-      if (settings.installRoot) mock.installRoot = settings.installRoot;
+      if (settings.distribution === "global")
+        mock.installRoot =
+          settings.globalInstallRoot || "~/Games/Neverness To Everness Global";
+      else if (settings.installRoot) mock.installRoot = settings.installRoot;
+      mock.launcherRoot = joinPath(
+        mock.installRoot,
+        settings.distribution === "global" ? "NTEGlobal" : "NTELauncher",
+      );
       return clone(mock);
     }
+    case "game_download_status":
+      return clone(mockDownload);
+    case "game_download_start": {
+      const { mode } = args as CommandArgs["game_download_start"];
+      Object.assign(mockDownload, {
+        phase: mode === "check" ? "needs-update" : "game",
+        distribution: mock.settings.distribution,
+        installRoot: mock.installRoot,
+        currentFile:
+          mode === "check" ? "" : "Client/WindowsNoEditor/example.pak",
+        currentFileBytes: mode === "check" ? 0 : 6_000_000,
+        completedFiles: 0,
+        totalFiles: 2,
+        downloadedBytes: 0,
+        totalBytes: 12_000_000,
+        patchFiles: 1,
+        patchBytes: 10_000_000,
+        fullFiles: 1,
+        fullBytes: 2_000_000,
+        stage: mode === "check" ? "" : "download",
+        remoteVersion: "1.4.17",
+        pendingFiles: 2,
+        error: "",
+      });
+      if (mode === "apply") {
+        window.setTimeout(
+          () =>
+            Object.assign(mockDownload, {
+              phase: "ready",
+              completedFiles: 2,
+              downloadedBytes: 12_000_000,
+              pendingFiles: 0,
+              currentFile: "",
+              currentFileBytes: 0,
+              stage: "",
+            }),
+          1400,
+        );
+      }
+      return clone(mockDownload);
+    }
+    case "game_download_cancel":
+      mockDownload.phase = "cancelled";
+      return clone(mockDownload);
     case "open_url":
       return null;
     case "launch_official":

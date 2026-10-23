@@ -164,6 +164,29 @@ fn detects_the_launcher_from_settings_environment_and_seeds() {
 }
 
 #[test]
+fn global_install_uses_its_own_root_and_game_id() {
+    let install = TempDir::new("detect-global");
+    install.write_text("NTELauncher/Config/Config.ini", "[General]\nGameID=1289\n");
+    install.write_text("NTEGlobal/Config/Config.ini", "[General]\nGameID=3000001\n");
+    let settings = Settings {
+        install_root: Some(install.path().display().to_string()),
+        global_install_root: Some(install.path().display().to_string()),
+        distribution: Distribution::Global,
+        ..Default::default()
+    };
+    assert_eq!(
+        detect_launcher_root(&settings),
+        Some(install.join("NTEGlobal"))
+    );
+    assert_eq!(selected_install_root(&settings), install.path());
+    install.write_text("NTEGlobal/Config/Config.ini", "[General]\nGameID=1289\n");
+    assert_eq!(
+        normalize_launcher_root_for(install.path(), Distribution::Global),
+        None
+    );
+}
+
+#[test]
 fn detects_the_chinese_home_seed() {
     let mut env = EnvGuard::new();
     let home = TempDir::new("detect-home-cn");

@@ -7,15 +7,19 @@ import type {
   Bootstrap,
   CheckResult,
   GameStatus,
+  DownloadStatus,
   Settings,
 } from "../../src/types/launcher";
 
 const backend = vi.hoisted(() => ({
   native: true,
   unlisten: vi.fn(),
+  downloadUnlisten: vi.fn(),
   stopResize: vi.fn(),
   invoke: vi.fn(),
   handler: (_status: GameStatus) => {},
+  downloadHandler: (_status: DownloadStatus) => {},
+  downloadStatus: {} as DownloadStatus,
   data: {} as Bootstrap,
   result: {} as CheckResult,
   status: {} as GameStatus,
@@ -29,6 +33,10 @@ vi.mock("../../src/core/api", () => ({
   listenGameState: (handler: (status: GameStatus) => void) => {
     backend.handler = handler;
     return backend.unlisten;
+  },
+  listenDownloadState: (handler: (status: DownloadStatus) => void) => {
+    backend.downloadHandler = handler;
+    return backend.downloadUnlisten;
   },
 }));
 vi.mock("@tauri-apps/api/window", () => ({
@@ -51,10 +59,30 @@ beforeEach(() => {
   } as unknown as CanvasRenderingContext2D);
   backend.native = true;
   backend.unlisten.mockClear();
+  backend.downloadUnlisten.mockClear();
   backend.stopResize.mockClear();
   backend.data = bootstrap();
   backend.result = check();
   backend.status = session();
+  backend.downloadStatus = {
+    phase: "idle",
+    distribution: "cn",
+    installRoot: "/game",
+    currentFile: "",
+    currentFileBytes: 0,
+    completedFiles: 0,
+    totalFiles: 0,
+    downloadedBytes: 0,
+    totalBytes: 0,
+    patchFiles: 0,
+    patchBytes: 0,
+    fullFiles: 0,
+    fullBytes: 0,
+    stage: "",
+    remoteVersion: "",
+    pendingFiles: 0,
+    error: "",
+  };
   backend.invoke
     .mockReset()
     .mockImplementation(
@@ -66,6 +94,22 @@ beforeEach(() => {
             return structuredClone(backend.result);
           case "game_status":
             return structuredClone(backend.status);
+          case "game_download_status":
+            return structuredClone(backend.downloadStatus);
+          case "game_download_start":
+            backend.downloadStatus = {
+              ...backend.downloadStatus,
+              phase: "checking",
+              distribution: backend.data.settings.distribution,
+              installRoot: backend.data.settings.globalInstallRoot || "/game",
+            };
+            return structuredClone(backend.downloadStatus);
+          case "game_download_cancel":
+            backend.downloadStatus = {
+              ...backend.downloadStatus,
+              phase: "cancelled",
+            };
+            return structuredClone(backend.downloadStatus);
           case "save_settings":
             backend.data.settings = { ...args!.settings };
             return structuredClone(backend.data);
@@ -208,6 +252,8 @@ describe("启动与设置", () => {
     expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
       settings: {
         installRoot: "/new",
+        globalInstallRoot: null,
+        distribution: "cn",
         bridgeRoot: null,
         prefix: "/prefix2",
         protonPath: "/proton2",
@@ -246,7 +292,74 @@ describe("启动与设置", () => {
   });
 });
 
+describe("下载大小显示", () => {
+  it("按 B、KiB、MiB、GiB 格式化并处理零值", async () => {
+    const c = await boot();
+    expect(c.formatSize(0)).toBe("0 B");
+    expect(c.formatSize(1024)).toBe("1.0 KiB");
+    expect(c.formatSize(1536)).toBe("1.5 KiB");
+    expect(c.formatSize(330 * 1024 * 1024)).toBe("330 MiB");
+    expect(c.formatSize(3.4 * 1024 * 1024 * 1024)).toBe("3.4 GiB");
+  });
+});
+
 describe("更新检查", () => {
+  it("为国际服保存独立目录并展示可暂停的下载任务", async () => {
+    const c = await boot();
+    c.form.distribution = "global";
+    c.form.globalInstallRoot = "/games/global";
+    await c.startGameDownload("apply", true);
+    expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
+      settings: expect.objectContaining({
+        distribution: "global",
+        globalInstallRoot: "/games/global",
+      }),
+    });
+    expect(backend.invoke).toHaveBeenCalledWith("game_download_start", {
+      mode: "apply",
+      full: true,
+    });
+    expect(c.state.download?.phase).toBe("checking");
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "game",
+      currentFile: "Client/data.pak",
+      currentFileBytes: 300 * 1024 * 1024,
+      downloadedBytes: 15,
+      totalBytes: 10,
+      patchBytes: 6,
+      fullBytes: 4,
+      completedFiles: 1,
+      totalFiles: 2,
+      pendingFiles: 2,
+      stage: "patch",
+    });
+    await nextTick();
+    // 下载量超过计划量时用文件数表示进度，避免进度条回退或超过 100%。
+    expect(c.downloadView.value.progress).toBe(50);
+    expect(c.downloadView.value.sizeText).toBe("本次需下载 10 B");
+    expect(c.downloadView.value.stageText).toBe("应用补丁");
+    expect(c.downloadView.value.splitText).toBe("补丁 6 B / 完整文件 4 B");
+    expect(document.body.textContent).toContain("本次需下载 10 B");
+    expect(document.body.textContent).toContain("补丁 6 B / 完整文件 4 B");
+    expect(document.body.textContent).toContain("正在应用补丁");
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "game",
+      downloadedBytes: 8,
+      totalBytes: 10,
+      completedFiles: 0,
+      totalFiles: 2,
+      pendingFiles: 2,
+    });
+    await nextTick();
+    expect(c.downloadView.value.progress).toBe(80);
+    expect(c.downloadView.value.downloadedText).toBe("8 B / 10 B");
+    expect(button("download-install-root").disabled).toBe(true);
+    await c.cancelGameDownload();
+    expect(backend.invoke).toHaveBeenCalledWith("game_download_cancel");
+  });
+
   it.each([
     [
       check({
@@ -710,6 +823,8 @@ it("组件事件和双向绑定将用户操作传给控制器", async () => {
   await wrapper!.find("#check-btn").trigger("click");
   await flushPromises();
   expect(c.state.page).toBe("update");
+  backend.downloadHandler({ ...backend.downloadStatus, phase: "ready" });
+  await flushPromises();
   await wrapper!.find('[data-page="update"]').trigger("click");
   await wrapper!.find("#launch-btn").trigger("click");
   await vi.advanceTimersByTimeAsync(900);
@@ -779,6 +894,7 @@ it("组件卸载时释放原生订阅、视频 URL、定时器和全局事件", 
   wrapper!.unmount();
   wrapper = undefined;
   expect(backend.unlisten).toHaveBeenCalledOnce();
+  expect(backend.downloadUnlisten).toHaveBeenCalledOnce();
   expect(backend.stopResize).toHaveBeenCalledOnce();
   expect(revoke).toHaveBeenCalledWith(url);
   expect(vi.getTimerCount()).toBe(0);
