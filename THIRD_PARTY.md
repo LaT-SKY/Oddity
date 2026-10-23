@@ -24,6 +24,7 @@ Oddity 的源代码以 [GPL-3.0-or-later](LICENSE) 授权。下列组件保留�
 ## Rust 依赖
 
 依赖的许可证、版本与来源由 `cargo deny check` 在 CI 中校验，允许的许可证列表见 [`launcher/deny.toml`](launcher/deny.toml)。
+游戏差分补丁使用固定提交的 [hdiffpatch-rs](https://github.com/TwintailTeam/hdiffpatch-rs)（MIT）；具体提交见 [`launcher/Cargo.lock`](launcher/Cargo.lock)。
 
 ## 美术与商标
 

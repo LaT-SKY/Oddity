@@ -159,11 +159,17 @@ fn game_check(launcher: &LauncherConfig, args: &[String]) -> Result<()> {
         plan.total_bytes()
     );
     for item in &plan.items {
-        let patch = item
-            .patch
-            .as_ref()
-            .map(|p| format!(" patch={}.{}", p.md5, p.size))
-            .unwrap_or_default();
+        let patch = if item.patches.is_empty() {
+            String::new()
+        } else {
+            let steps = item
+                .patches
+                .iter()
+                .map(|patch| format!("{}.{}", patch.md5, patch.size))
+                .collect::<Vec<_>>()
+                .join("+");
+            format!(" patch={steps}")
+        };
         println!(
             "  {:<9} {:>12}  {}{}",
             item.reason.as_str(),

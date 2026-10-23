@@ -129,11 +129,10 @@ cargo build --release -p nte-cli
 ./target/release/nte-cli game-apply --root "$HOME/Games/Neverness To Everness/NTELauncher" --dry-run
 ```
 
-实际应用差分补丁前需要准备 `hpatchz`（HDiffPatch）：
+应用资源更新时会使用内置 HDiff 实现（HDIFF13、HDIFFSF20、HDIFFW26），无需安装外部 `hpatchz`：
 
 ```bash
-NTE_HPATCHZ=/path/to/hpatchz \
-  ./target/release/nte-cli game-apply --root "$HOME/Games/Neverness To Everness/NTELauncher"
+./target/release/nte-cli game-apply --root "$HOME/Games/Neverness To Everness/NTELauncher"
 ```
 
 不确定时，先用 `--dry-run` 查看将要下载的文件。

@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::fs;
 use std::time::UNIX_EPOCH;
 
@@ -14,19 +15,35 @@ pub fn update_after_apply(
     config: &GameUpdateConfig,
     plan: &UpdatePlan,
     successful_paths: &[String],
+    bump_version: bool,
 ) -> Result<()> {
     if successful_paths.is_empty() {
         return Ok(());
     }
     let mut manifest =
         crate::game::check::load_local_ledger(config)?.unwrap_or_else(GameManifest::default);
-    manifest.version = plan.remote_version.clone();
-    if !plan.remote_tag.is_empty() {
-        manifest.tag = plan.remote_tag.clone();
+    let completed: BTreeSet<_> = successful_paths.iter().map(String::as_str).collect();
+    if bump_version
+        && plan.unverified.is_empty()
+        && plan
+            .items
+            .iter()
+            .all(|item| completed.contains(item.path.as_str()))
+    {
+        manifest.version = plan.remote_version.clone();
+        if !plan.remote_tag.is_empty() {
+            manifest.tag = plan.remote_tag.clone();
+        }
     }
 
     for path in successful_paths {
-        let Some(item) = plan.items.iter().find(|i| &i.path == path) else {
+        let Some(item) = plan
+            .items
+            .iter()
+            .map(|item| &item.kind)
+            .chain(&plan.verified)
+            .find(|kind| kind.path() == path)
+        else {
             continue;
         };
         let target = join_install_path(&config.install_root, path);
@@ -35,18 +52,18 @@ pub fn update_after_apply(
             .and_then(|m| m.modified().ok())
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map(|d| d.as_secs());
-        let blocks = match &item.kind {
+        let blocks = match item {
             UpdateKind::Res { res } => res.blocks.clone(),
             UpdateKind::PakEntry { .. } => Vec::new(),
         };
-        let check = match &item.kind {
+        let check = match item {
             UpdateKind::Res { res } => res.check,
             UpdateKind::PakEntry { entry, .. } => entry.check,
         };
         let fresh = ResEntry {
             filename: path.clone(),
-            filesize: item.size,
-            md5: item.md5.clone(),
+            filesize: item.size(),
+            md5: item.md5().into(),
             timestamp,
             check,
             blocks,
@@ -56,8 +73,8 @@ pub fn update_after_apply(
             // the root ledger; the official parser accepts root Res entries.
             manifest.res.push(ResEntry {
                 filename: path.clone(),
-                filesize: item.size,
-                md5: item.md5.clone(),
+                filesize: item.size(),
+                md5: item.md5().into(),
                 timestamp,
                 check,
                 blocks: Vec::new(),
@@ -201,7 +218,7 @@ mod tests {
                     blocks,
                 },
             },
-            patch: None,
+            patches: Vec::new(),
             download_size: size,
         }
     }
@@ -236,9 +253,37 @@ mod tests {
             &config,
             &plan_with(vec![res_item("data/a.bin", "aa", 1, false, Vec::new())]),
             &[],
+            true,
         )
         .expect("update");
         assert!(!config.patcher_dir.join("ResList.xml").exists());
+    }
+
+    #[test]
+    fn partial_apply_keeps_the_installed_version() {
+        let dir = TempDir::new("ledger-partial");
+        let config = config_for(&dir);
+        write_ledger(
+            &config,
+            "<ResList version=\"1.4.15\" tag=\"old\"><Res filename=\"data/a.bin\" filesize=\"3\" md5=\"00\"/></ResList>",
+        );
+        dir.write("install/data/a.bin", b"new");
+        let plan = plan_with(vec![
+            res_item(
+                "data/a.bin",
+                &crate::update::md5_bytes(b"new"),
+                3,
+                false,
+                Vec::new(),
+            ),
+            res_item("data/b.bin", "bb", 3, false, Vec::new()),
+        ]);
+        update_after_apply(&config, &plan, &["data/a.bin".into()], true).expect("update");
+
+        let manifest = read_ledger(&config);
+        assert_eq!(manifest.version, "1.4.15");
+        assert_eq!(manifest.tag, "old");
+        assert_eq!(manifest.res[0].filename, "data/a.bin");
     }
 
     #[test]
@@ -278,6 +323,7 @@ mod tests {
                 // 计划里没有的路径会被忽略
                 "data/unknown.bin".to_string(),
             ],
+            true,
         )
         .expect("update");
 
@@ -323,6 +369,7 @@ mod tests {
             &config,
             &plan_with(vec![res_item("data/base.bin", &md5, 4, false, Vec::new())]),
             &["data/base.bin".to_string()],
+            true,
         )
         .expect("update");
 
@@ -356,11 +403,12 @@ mod tests {
                     check: true,
                 },
             },
-            patch: None,
+            patches: Vec::new(),
             download_size: 5,
         };
 
-        update_after_apply(&config, &plan_with(vec![item]), &[path.to_string()]).expect("update");
+        update_after_apply(&config, &plan_with(vec![item]), &[path.to_string()], true)
+            .expect("update");
         let manifest = read_ledger(&config);
         assert_eq!(manifest.res.len(), 1);
         assert_eq!(manifest.res[0].filename, path);
@@ -380,6 +428,7 @@ mod tests {
             &config,
             &plan_with(vec![res_item(name, "aa", 1, false, Vec::new())]),
             &[name.to_string()],
+            true,
         )
         .expect("update");
         let manifest = read_ledger(&config);

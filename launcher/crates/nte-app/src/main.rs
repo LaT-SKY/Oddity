@@ -1,9 +1,7 @@
 //! Oddity native Linux launcher shell.
 //!
-//! Tauri 2 host for the Vue UI built into `launcher/ui/dist`. The launcher deliberately keeps
-//! the official Windows launcher + game on the verified Proton bridge for v1:
-//! our UI owns update/check/diagnostics/experience, the official components own
-//! login and resource patching.
+//! Tauri 2 宿主，内嵌 Vue 界面。nte-core 负责官方文件安装和资源更新，
+//! 官方 Windows 组件通过 Proton 完成登录与游戏启动。
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -24,17 +22,21 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent};
 
 use nte_core::bulletin::{self, BulletinFeed};
 use nte_core::config::{Ini, LauncherConfig};
+use nte_core::distribution::Distribution;
 use nte_core::manifest::Manifest;
 use nte_core::{update, version};
 
 mod attendance_commands;
+mod download_commands;
 
 const APP_IDENTIFIER: &str = "io.github.oddity.Launcher";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 struct Settings {
+    distribution: Distribution,
     install_root: Option<String>,
+    global_install_root: Option<String>,
     bridge_root: Option<String>,
     prefix: Option<String>,
     proton_path: Option<String>,
@@ -49,7 +51,9 @@ struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            distribution: Distribution::Cn,
             install_root: None,
+            global_install_root: None,
             bridge_root: None,
             prefix: None,
             proton_path: None,
@@ -521,11 +525,66 @@ fn normalize_launcher_root(path: &Path) -> Option<PathBuf> {
     None
 }
 
+fn configured_install_root(settings: &Settings) -> Option<&str> {
+    match settings.distribution {
+        Distribution::Cn => settings.install_root.as_deref(),
+        Distribution::Global => settings.global_install_root.as_deref(),
+    }
+}
+
+fn default_install_root(distribution: Distribution) -> PathBuf {
+    home_dir()
+        .join("Games")
+        .join(distribution.default_install_name())
+}
+
+fn selected_install_root(settings: &Settings) -> PathBuf {
+    let path = configured_install_root(settings)
+        .map(expand_path)
+        .unwrap_or_else(|| default_install_root(settings.distribution));
+    if path
+        .file_name()
+        .is_some_and(|name| name == settings.distribution.launcher_dir())
+    {
+        path.parent().unwrap_or(&path).to_path_buf()
+    } else {
+        path
+    }
+}
+
+fn normalize_launcher_root_for(path: &Path, distribution: Distribution) -> Option<PathBuf> {
+    let root = if path.join("Config").join("Config.ini").is_file() {
+        path.to_path_buf()
+    } else {
+        let nested = path.join(distribution.launcher_dir());
+        if !nested.join("Config").join("Config.ini").is_file() {
+            return None;
+        }
+        nested
+    };
+    let game_id = match LauncherConfig::load(&root) {
+        Ok(config) => config.game_id,
+        Err(_) => return Some(root),
+    };
+    let expected = match distribution {
+        Distribution::Cn => 1289,
+        Distribution::Global => 3000001,
+    };
+    (game_id == 0 || game_id == expected).then_some(root)
+}
+
 fn detect_launcher_root(settings: &Settings) -> Option<PathBuf> {
-    if let Some(raw) = &settings.install_root {
-        if let Some(root) = normalize_launcher_root(&expand_path(raw)) {
+    if let Some(raw) = configured_install_root(settings) {
+        if let Some(root) = normalize_launcher_root_for(&expand_path(raw), settings.distribution) {
             return Some(root);
         }
+    }
+
+    if settings.distribution == Distribution::Global {
+        return normalize_launcher_root_for(
+            &default_install_root(Distribution::Global),
+            Distribution::Global,
+        );
     }
 
     for key in ["NTE_ROOT", "NTE_INSTALL"] {
@@ -581,6 +640,12 @@ fn detect_launcher_root(settings: &Settings) -> Option<PathBuf> {
 }
 
 fn bridge_root_for(settings: &Settings, launcher_root: &Path) -> PathBuf {
+    if settings.distribution == Distribution::Global {
+        return launcher_root
+            .parent()
+            .unwrap_or(launcher_root)
+            .to_path_buf();
+    }
     if let Some(raw) = &settings.bridge_root {
         let p = expand_path(raw);
         if p.join("NTELauncher").join("NTEGame.exe").is_file() {
@@ -764,7 +829,7 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
     let install_root = launcher_root
         .as_ref()
         .and_then(|p| p.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| PathBuf::from(""));
+        .unwrap_or_else(|| selected_install_root(settings));
     let bridge_root = launcher_root
         .as_ref()
         .map(|p| bridge_root_for(settings, p))
@@ -787,7 +852,7 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
             Err(e) => error = Some(format!("读取启动器配置失败：{e}")),
         }
     } else {
-        error = Some("尚未找到《异环》启动器安装目录。请到设置里指定安装路径。".to_string());
+        error = Some("尚未找到所选游戏地区的游戏安装. 可在游戏更新页开始安装.".to_string());
     }
 
     let mut game_version = launcher_root
@@ -795,7 +860,7 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
         .map(|p| game_version_for(p))
         .unwrap_or_default();
     if let Some(root) = &launcher_root {
-        let bridge = bridge_root_for(settings, root).join("NTELauncher");
+        let bridge = bridge_root_for(settings, root).join(settings.distribution.launcher_dir());
         if bridge.is_dir() {
             let bridge_version = game_version_for(&bridge);
             if nte_core::version::compare(&bridge_version, &game_version)
@@ -819,8 +884,8 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
     let proton = detect_proton(settings);
     let umu = which("umu-run");
     let bridge_ready = bridge_root
-        .join("NTELauncher")
-        .join("NTEGame.exe")
+        .join(settings.distribution.launcher_dir())
+        .join(settings.distribution.client_exe())
         .is_file();
 
     let mut checks = Vec::new();
@@ -981,7 +1046,15 @@ async fn fetch_bulletins() -> Result<BulletinFeed, String> {
 }
 
 #[tauri::command]
-fn save_settings(state: State<AppState>, settings: Settings) -> Result<Bootstrap, String> {
+fn save_settings(
+    state: State<AppState>,
+    downloads: State<download_commands::DownloadManager>,
+    settings: Settings,
+) -> Result<Bootstrap, String> {
+    let guard = downloads.inner.lock().map_err(|error| error.to_string())?;
+    if download_commands::blocks_changes(&guard.status) {
+        return Err("游戏资源任务正在进行，暂时无法修改设置".into());
+    }
     let mut next = settings;
     if !matches!(
         next.launch_mode.as_str(),
@@ -999,6 +1072,7 @@ fn save_settings(state: State<AppState>, settings: Settings) -> Result<Bootstrap
     if let Ok(mut current) = state.settings.lock() {
         *current = next.clone();
     }
+    drop(guard);
     Ok(bootstrap_impl(&next))
 }
 
@@ -1260,7 +1334,9 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
         .map(Path::to_path_buf)
         .ok_or_else(|| "安装目录结构异常".to_string())?;
     let bridge_root = bridge_root_for(settings, &launcher_root);
-    let bridge_exe = bridge_root.join("NTELauncher").join("NTEGame.exe");
+    let bridge_exe = bridge_root
+        .join(settings.distribution.launcher_dir())
+        .join(settings.distribution.client_exe());
     let direct_exe = game_exe_for(&launcher_root);
     let prefix = settings
         .prefix
@@ -1300,7 +1376,7 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
         let official = if bridge_exe.is_file() {
             bridge_exe
         } else {
-            launcher_root.join("NTEGame.exe")
+            launcher_root.join(settings.distribution.client_exe())
         };
         if !official.is_file() {
             return Err(format!("官方启动器不存在：{}", official.display()));
@@ -1310,7 +1386,7 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
         let win_cwd = windows_path(
             official
                 .parent()
-                .ok_or_else(|| "NTEGame.exe 没有父目录".to_string())?,
+                .ok_or_else(|| "官方启动器没有父目录".to_string())?,
         );
         (
             "background".to_string(),
@@ -1324,7 +1400,7 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
         let exe = if bridge_exe.is_file() {
             bridge_exe
         } else {
-            launcher_root.join("NTEGame.exe")
+            launcher_root.join(settings.distribution.client_exe())
         };
         if !exe.is_file() {
             return Err(format!("官方启动器不存在：{}", exe.display()));
@@ -1492,6 +1568,11 @@ async fn launch_official(
         .map_err(|e| e.to_string())?;
 
     {
+        let downloads = app.state::<download_commands::DownloadManager>();
+        let inner = downloads.inner.lock().map_err(|error| error.to_string())?;
+        if download_commands::blocks_changes(&inner.status) {
+            return Err("游戏资源任务正在进行，暂时无法启动游戏".into());
+        }
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;
         if tracker.starting {
             return Err("游戏正在启动，请稍候。".to_string());
@@ -1757,6 +1838,7 @@ fn main() {
             settings: Mutex::new(settings),
             game: Mutex::new(GameTracker::default()),
         })
+        .manage(download_commands::DownloadManager::default())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let minimize = window
@@ -1797,6 +1879,9 @@ fn main() {
             play_hero_video,
             bootstrap,
             check_update,
+            download_commands::game_download_status,
+            download_commands::game_download_start,
+            download_commands::game_download_cancel,
             fetch_bulletins,
             save_settings,
             open_url,

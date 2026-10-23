@@ -20,7 +20,7 @@ static ENV_LOCK: Mutex<()> = Mutex::new(());
 /// 独占进程环境变量，并在离开作用域时恢复原值。
 ///
 /// 互斥锁只保证并行测试不互相踩，恢复原值才能保证测试结束后进程环境不变，
-/// 也不会把使用者自己设置的 `NTE_HPATCHZ` 之类清掉。
+/// 也不会清除使用者原有的环境变量。
 pub struct EnvGuard {
     saved: Vec<(&'static str, Option<OsString>)>,
     _lock: MutexGuard<'static, ()>,
@@ -39,11 +39,6 @@ impl EnvGuard {
     pub fn set(&mut self, key: &'static str, value: impl AsRef<OsStr>) {
         self.remember(key);
         std::env::set_var(key, value);
-    }
-
-    pub fn remove(&mut self, key: &'static str) {
-        self.remember(key);
-        std::env::remove_var(key);
     }
 
     /// 同一个变量只记第一次的原始值，之后覆盖都还原到它。
@@ -125,6 +120,7 @@ struct Route {
 struct ServerState {
     routes: HashMap<String, Route>,
     targets: Vec<String>,
+    ranges: Vec<String>,
 }
 
 /// 只服务已注册路径的回环 HTTP 服务。
@@ -184,6 +180,11 @@ impl HttpServer {
     /// 记录到的请求目标（含查询串），按到达顺序排列。
     pub fn targets(&self) -> Vec<String> {
         self.state.lock().expect("锁定服务状态").targets.clone()
+    }
+
+    /// 记录到的 Range 请求头，与 `targets` 一一对应；没有 Range 时为空串。
+    pub fn ranges(&self) -> Vec<String> {
+        self.state.lock().expect("锁定服务状态").ranges.clone()
     }
 
     /// 某个路径被请求的次数。
@@ -254,6 +255,7 @@ fn serve(mut stream: TcpStream, state: &Arc<Mutex<ServerState>>) -> std::io::Res
     let route = {
         let mut state = state.lock().expect("锁定服务状态");
         state.targets.push(target);
+        state.ranges.push(range.clone().unwrap_or_default());
         state.routes.get(&path).cloned()
     };
 
@@ -320,7 +322,7 @@ fn write_simple(stream: &mut TcpStream, status: u16, body: &[u8]) -> std::io::Re
     stream.flush()
 }
 
-/// 把可执行脚本写到临时目录，用于替代外部命令（例如 hpatchz）。
+/// 把可执行脚本写到临时目录，用于测试外部命令调用。
 pub fn write_script(dir: &Path, name: &str, body: &str) -> PathBuf {
     use std::os::unix::fs::PermissionsExt;
     let path = dir.join(name);

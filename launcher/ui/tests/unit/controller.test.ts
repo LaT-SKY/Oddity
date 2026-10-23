@@ -7,15 +7,21 @@ import type {
   Bootstrap,
   CheckResult,
   GameStatus,
+  DownloadStatus,
   Settings,
 } from "../../src/types/launcher";
 
 const backend = vi.hoisted(() => ({
   native: true,
   unlisten: vi.fn(),
+  downloadUnlisten: vi.fn(),
   stopResize: vi.fn(),
   invoke: vi.fn(),
   handler: (_status: GameStatus) => {},
+  downloadHandler: (_status: DownloadStatus) => {},
+  downloadStatus: {} as DownloadStatus,
+  startStatus: null as DownloadStatus | null,
+  startFail: false,
   data: {} as Bootstrap,
   result: {} as CheckResult,
   status: {} as GameStatus,
@@ -29,6 +35,10 @@ vi.mock("../../src/core/api", () => ({
   listenGameState: (handler: (status: GameStatus) => void) => {
     backend.handler = handler;
     return backend.unlisten;
+  },
+  listenDownloadState: (handler: (status: DownloadStatus) => void) => {
+    backend.downloadHandler = handler;
+    return backend.downloadUnlisten;
   },
 }));
 vi.mock("@tauri-apps/api/window", () => ({
@@ -51,14 +61,43 @@ beforeEach(() => {
   } as unknown as CanvasRenderingContext2D);
   backend.native = true;
   backend.unlisten.mockClear();
+  backend.downloadUnlisten.mockClear();
   backend.stopResize.mockClear();
   backend.data = bootstrap();
   backend.result = check();
   backend.status = session();
+  backend.downloadStatus = {
+    mode: "check",
+    phase: "idle",
+    distribution: "cn",
+    installRoot: "/game",
+    installed: true,
+    full: false,
+    unverifiedFiles: 0,
+    currentFile: "",
+    currentFileBytes: 0,
+    completedFiles: 0,
+    totalFiles: 0,
+    downloadedBytes: 0,
+    totalBytes: 0,
+    patchFiles: 0,
+    patchBytes: 0,
+    fullFiles: 0,
+    fullBytes: 0,
+    stage: "",
+    remoteVersion: "",
+    pendingFiles: 0,
+    error: "",
+  };
+  backend.startStatus = structuredClone(backend.downloadStatus);
+  backend.startFail = false;
   backend.invoke
     .mockReset()
     .mockImplementation(
-      async (command: string, args?: { settings: Settings }) => {
+      async (
+        command: string,
+        args?: { settings: Settings; mode: "check" | "apply" },
+      ) => {
         switch (command) {
           case "bootstrap":
             return structuredClone(backend.data);
@@ -66,8 +105,40 @@ beforeEach(() => {
             return structuredClone(backend.result);
           case "game_status":
             return structuredClone(backend.status);
+          case "game_download_status":
+            return structuredClone(backend.downloadStatus);
+          case "game_download_start": {
+            if (backend.startFail) throw new Error("quick check offline");
+            if (backend.startStatus) {
+              backend.downloadStatus = structuredClone(backend.startStatus);
+              return structuredClone(backend.downloadStatus);
+            }
+            backend.downloadStatus = {
+              ...backend.downloadStatus,
+              mode: args!.mode,
+              phase: "checking",
+              distribution: backend.data.settings.distribution,
+              installRoot:
+                backend.data.settings.distribution === "global"
+                  ? backend.data.settings.globalInstallRoot ||
+                    backend.data.installRoot
+                  : backend.data.settings.installRoot ||
+                    backend.data.installRoot,
+            };
+            return structuredClone(backend.downloadStatus);
+          }
+          case "game_download_cancel":
+            backend.downloadStatus = {
+              ...backend.downloadStatus,
+              phase: "cancelled",
+            };
+            return structuredClone(backend.downloadStatus);
           case "save_settings":
             backend.data.settings = { ...args!.settings };
+            backend.data.installRoot =
+              args!.settings.distribution === "global"
+                ? args!.settings.globalInstallRoot || "/games/global"
+                : args!.settings.installRoot || "/game";
             return structuredClone(backend.data);
           case "launch_official":
             backend.status = session({ running: true, pid: 123 });
@@ -103,17 +174,26 @@ afterEach(() => {
     target.removeEventListener(type, callback, options);
 });
 
-async function boot() {
+async function boot(
+  beforeCheck?: (
+    controller: typeof import("../../src/core/controller"),
+  ) => void,
+) {
   const controller = await import("../../src/core/controller");
   const { default: App } = await import("../../src/App.vue");
   wrapper = mount(App, { attachTo: document.body });
   await flushPromises();
+  beforeCheck?.(controller);
   await vi.advanceTimersByTimeAsync(1000);
   await flushPromises();
+  backend.startStatus = null;
+  backend.startFail = false;
   return controller;
 }
 const text = (id: string) => document.getElementById(id)?.textContent;
 const button = (id: string) => document.getElementById(id) as HTMLButtonElement;
+const primary = () => wrapper!.find("#game-download-primary");
+const primaryText = () => primary().find(".btn__text").text();
 const key = (value: string, options: KeyboardEventInit = {}) =>
   document.dispatchEvent(
     new KeyboardEvent("keydown", {
@@ -208,6 +288,8 @@ describe("启动与设置", () => {
     expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
       settings: {
         installRoot: "/new",
+        globalInstallRoot: null,
+        distribution: "cn",
         bridgeRoot: null,
         prefix: "/prefix2",
         protonPath: "/proton2",
@@ -246,7 +328,443 @@ describe("启动与设置", () => {
   });
 });
 
+describe("下载大小显示", () => {
+  it("按 B、KiB、MiB、GiB 格式化并处理零值", async () => {
+    const c = await boot();
+    expect(c.formatSize(0)).toBe("0 B");
+    expect(c.formatSize(1024)).toBe("1.0 KiB");
+    expect(c.formatSize(1536)).toBe("1.5 KiB");
+    expect(c.formatSize(330 * 1024 * 1024)).toBe("330 MiB");
+    expect(c.formatSize(3.4 * 1024 * 1024 * 1024)).toBe("3.4 GiB");
+  });
+});
+
 describe("更新检查", () => {
+  it("启动检查不持久化探测路径或尚未保存的表单", async () => {
+    const c = await boot((controller) => {
+      expect(controller.form.prefix).toBe("/prefix");
+      controller.form.prefix = "/draft-prefix";
+      controller.form.protonPath = "/draft-proton";
+    });
+    expect(backend.invoke).not.toHaveBeenCalledWith(
+      "save_settings",
+      expect.anything(),
+    );
+    expect(backend.data.settings.prefix).toBeNull();
+    expect(backend.data.settings.protonPath).toBeNull();
+    expect(c.form.prefix).toBe("/draft-prefix");
+    expect(c.form.protonPath).toBe("/draft-proton");
+  });
+
+  it.each(["failed", "cancelled", "ready"] as const)(
+    "开始响应不能覆盖先收到的 %s 事件",
+    async (phase) => {
+      const c = await boot();
+      const original = backend.invoke.getMockImplementation()!;
+      let resolve!: (status: DownloadStatus) => void;
+      backend.invoke.mockImplementation((command, args) =>
+        command === "game_download_start"
+          ? new Promise<DownloadStatus>((done) => {
+              resolve = done;
+            })
+          : original(command, args),
+      );
+      const pending = c.startGameDownload("check");
+      await flushPromises();
+      backend.downloadHandler({ ...backend.downloadStatus, phase });
+      resolve({ ...backend.downloadStatus, phase: "checking" });
+      await pending;
+      expect(c.state.download?.phase).toBe(phase);
+      expect(c.downloadBusy()).toBe(false);
+    },
+  );
+
+  it("取消响应不能覆盖先收到的终止事件", async () => {
+    const c = await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      mode: "apply",
+      phase: "game",
+    });
+    let resolve!: (status: DownloadStatus) => void;
+    backend.invoke.mockImplementationOnce(
+      () =>
+        new Promise<DownloadStatus>((done) => {
+          resolve = done;
+        }),
+    );
+    const pending = c.cancelGameDownload();
+    backend.downloadHandler({ ...backend.downloadStatus, phase: "cancelled" });
+    resolve({ ...backend.downloadStatus, mode: "apply", phase: "game" });
+    await pending;
+    expect(c.state.download?.phase).toBe("cancelled");
+    expect(c.downloadBusy()).toBe(false);
+  });
+
+  it("就绪后的环境刷新保留等待期间的设置编辑和主题", async () => {
+    const c = await boot();
+    let resolve!: (data: Bootstrap) => void;
+    backend.invoke.mockImplementationOnce(
+      () =>
+        new Promise<Bootstrap>((done) => {
+          resolve = done;
+        }),
+    );
+    backend.downloadHandler({ ...backend.downloadStatus, phase: "ready" });
+    c.form.installRoot = "/unsaved/game";
+    c.form.prefix = "/unsaved/prefix";
+    c.applyTheme("dark");
+    resolve(bootstrap({ gameVersion: "2.0" }));
+    await flushPromises();
+    expect(c.state.bootstrap?.gameVersion).toBe("2.0");
+    expect(c.form.installRoot).toBe("/unsaved/game");
+    expect(c.form.prefix).toBe("/unsaved/prefix");
+    expect(c.form.theme).toBe("dark");
+    expect(primaryText()).toBe("检查资源");
+  });
+
+  it("就绪刷新不能覆盖在请求期间保存的新地区", async () => {
+    const c = await boot();
+    let resolve!: (data: Bootstrap) => void;
+    backend.invoke.mockImplementationOnce(
+      () =>
+        new Promise<Bootstrap>((done) => {
+          resolve = done;
+        }),
+    );
+    backend.downloadHandler({ ...backend.downloadStatus, phase: "ready" });
+    c.form.distribution = "global";
+    await c.saveSettings();
+    resolve(bootstrap());
+    await flushPromises();
+    expect(c.state.bootstrap?.settings.distribution).toBe("global");
+    expect(c.form.distribution).toBe("global");
+  });
+
+  it("只读检查可取消且不阻止启动和保存, 安装检查仍阻止启动", async () => {
+    const c = await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      mode: "check",
+      phase: "checking",
+    });
+    await nextTick();
+    expect(document.body.textContent).toContain("取消检查");
+    expect(c.launchView.value.busy).toBe(false);
+    expect(await c.saveSettings()).toBe(true);
+    c.handleLaunchAction();
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("launch_official");
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      mode: "apply",
+      phase: "checking",
+    });
+    expect(c.launchView.value.busy).toBe(true);
+  });
+
+  it("首页更新提示使用已保存地区", async () => {
+    const c = await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+    });
+    c.form.distribution = "global";
+    expect(c.homeDownloadNotice.value.visible).toBe(true);
+    expect(c.launchView.value.label).toBe("更新游戏");
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      distribution: "global",
+      phase: "needs-update",
+    });
+    expect(c.homeDownloadNotice.value.visible).toBe(false);
+    expect(c.launchView.value.label).toBe("启动游戏");
+  });
+
+  it("为国际服保存独立目录并展示可暂停的下载任务", async () => {
+    const c = await boot();
+    c.form.distribution = "global";
+    c.form.globalInstallRoot = "/games/global";
+    await c.startGameDownload("apply", true);
+    expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
+      settings: expect.objectContaining({
+        distribution: "global",
+        globalInstallRoot: "/games/global",
+      }),
+    });
+    expect(backend.invoke).toHaveBeenCalledWith("game_download_start", {
+      mode: "apply",
+      full: true,
+    });
+    expect(c.state.download?.phase).toBe("checking");
+    expect(document.body.textContent).not.toContain("暂停下载");
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "game",
+      currentFile: "Client/data.pak",
+      currentFileBytes: 300 * 1024 * 1024,
+      downloadedBytes: 15,
+      totalBytes: 10,
+      patchBytes: 6,
+      fullBytes: 4,
+      completedFiles: 1,
+      totalFiles: 2,
+      pendingFiles: 2,
+      stage: "patch",
+    });
+    await nextTick();
+    expect(document.body.textContent).toContain("暂停下载");
+    expect(c.downloadView.value.progress).toBe(50);
+    expect(c.downloadView.value.sizeText).toBe("本次需下载 10 B");
+    expect(c.downloadView.value.stageText).toBe("应用补丁");
+    expect(c.downloadView.value.splitText).toBe("补丁 6 B / 完整文件 4 B");
+    expect(document.body.textContent).toContain("本次需下载 10 B");
+    expect(document.body.textContent).toContain("补丁 6 B / 完整文件 4 B");
+    expect(document.body.textContent).toContain("正在应用补丁");
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "game",
+      downloadedBytes: 8,
+      totalBytes: 10,
+      completedFiles: 0,
+      totalFiles: 2,
+      pendingFiles: 2,
+    });
+    await nextTick();
+    expect(c.downloadView.value.progress).toBe(0);
+    expect(c.downloadView.value.downloadedText).toBe("8 B / 10 B");
+    expect(button("download-install-root").disabled).toBe(true);
+    await c.cancelGameDownload();
+    expect(backend.invoke).toHaveBeenCalledWith("game_download_cancel");
+  });
+
+  it("主按钮按检查结果显示检查通过、安装或更新", async () => {
+    const c = await boot();
+    expect(primaryText()).toBe("检查资源");
+    await primary().trigger("click");
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("game_download_start", {
+      mode: "check",
+      full: false,
+    });
+    expect(document.body.textContent).not.toContain("暂停下载");
+
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      installed: true,
+      pendingFiles: 1,
+      totalFiles: 1,
+    });
+    await flushPromises();
+    expect(primaryText()).toBe("更新游戏");
+    c.state.game = "running";
+    await nextTick();
+    expect(button("game-download-primary").disabled).toBe(true);
+    c.state.game = "idle";
+    await nextTick();
+    expect(button("game-download-primary").disabled).toBe(false);
+    await primary().trigger("click");
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenLastCalledWith("game_download_start", {
+      mode: "apply",
+      full: false,
+    });
+    expect(document.body.textContent).not.toContain("暂停下载");
+
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      installed: false,
+      pendingFiles: 1,
+      totalFiles: 1,
+    });
+    await flushPromises();
+    expect(primaryText()).toBe("安装游戏");
+
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "ready",
+      installed: true,
+      pendingFiles: 0,
+      totalFiles: 1,
+    });
+    await flushPromises();
+    expect(primaryText()).toBe("检查通过");
+    expect(button("game-download-primary").disabled).toBe(false);
+    expect(
+      button("game-download-primary").classList.contains("is-passed"),
+    ).toBe(true);
+    expect(document.body.textContent).not.toContain("暂停下载");
+
+    // 安装目录改变后，旧结果不再适用。
+    c.form.installRoot = "/other";
+    await flushPromises();
+    expect(primaryText()).toBe("检查资源");
+
+    // 新目录开始检查时应立即显示检查中，而不是沿用旧结果。
+    await primary().trigger("click");
+    await flushPromises();
+    expect(primaryText()).toBe("正在检查");
+    expect(text("game-download-state-title")).toBe("正在检查游戏资源");
+  });
+
+  it("首次安装只显示启动器文件体积并说明后续检查", async () => {
+    const c = await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-install",
+      installed: false,
+      pendingFiles: 683,
+      totalFiles: 683,
+      totalBytes: 274636864,
+    });
+    await flushPromises();
+    expect(c.downloadView.value.title).toBe("需要安装启动器文件");
+    expect(c.downloadView.value.detail).toBe(
+      "启动器文件尚未安装, 完成后将继续检查游戏资源",
+    );
+    expect(c.downloadView.value.sizeText).toBe("启动器文件 262 MiB");
+    expect(primaryText()).toBe("安装游戏");
+    expect(document.body.textContent).toContain("启动器文件 262 MiB");
+    expect(document.body.textContent).not.toContain("本次需下载 262 MiB");
+  });
+
+  it("启动时静默快速检查并在发现小版本更新时更新入口", async () => {
+    backend.startStatus = {
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      installed: true,
+      pendingFiles: 2,
+      totalFiles: 2,
+      totalBytes: 2048,
+    };
+    const c = await boot();
+    expect(backend.invoke).toHaveBeenCalledWith("game_download_start", {
+      mode: "check",
+      full: false,
+    });
+    expect(c.state.download?.phase).toBe("needs-update");
+    expect(c.launchView.value.label).toBe("更新游戏");
+    expect(primaryText()).toBe("更新游戏");
+    expect(text("toast")?.trim()).toBe("");
+  });
+
+  it("未安装游戏时启动不执行资源检查", async () => {
+    backend.data = bootstrap({ gameExists: false });
+    const c = await boot();
+    expect(backend.invoke).not.toHaveBeenCalledWith("game_download_start", {
+      mode: "check",
+      full: false,
+    });
+    expect(c.state.download?.phase ?? "idle").toBe("idle");
+  });
+
+  it("启动时的快速检查失败保持静默", async () => {
+    backend.startFail = true;
+    const c = await boot();
+    expect(c.state.download?.phase ?? "idle").toBe("idle");
+    expect(text("toast")?.trim()).toBe("");
+  });
+
+  it("完整校验发现损坏后，主按钮继续提交完整校验", async () => {
+    const c = await boot();
+    await wrapper!
+      .findAll("#page-update button")
+      .find((item) => item.text() === "完整校验")!
+      .trigger("click");
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("game_download_start", {
+      mode: "check",
+      full: true,
+    });
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      full: true,
+      pendingFiles: 1,
+      totalFiles: 1,
+    });
+    await nextTick();
+    expect(primaryText()).toBe("更新游戏");
+    await primary().trigger("click");
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenLastCalledWith("game_download_start", {
+      mode: "apply",
+      full: true,
+    });
+    expect(c.state.download?.phase).toBe("checking");
+  });
+
+  it("未知大文件显示待验证提示，并阻止首页直接启动游戏", async () => {
+    const c = await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-verify",
+      unverifiedFiles: 2,
+    });
+    await nextTick();
+    expect(c.downloadView.value.title).toBe("存在尚未验证的游戏资源");
+    expect(c.downloadView.value.detail).toContain("2 个文件尚未验证");
+    expect(c.launchView.value.label).toBe("更新游戏");
+    c.handleLaunchAction();
+    expect(c.state.page).toBe("update");
+    expect(backend.invoke).not.toHaveBeenCalledWith("launch_official");
+  });
+
+  it("检查通过后主按钮显示通过状态", async () => {
+    await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "ready",
+      full: true,
+    });
+    await flushPromises();
+    expect(primaryText()).toBe("检查通过");
+    expect(button("game-download-primary").disabled).toBe(false);
+    expect(
+      button("game-download-primary").classList.contains("is-passed"),
+    ).toBe(true);
+  });
+
+  it("下载按字节推进, 校验和写入阶段按完成文件数显示", async () => {
+    const c = await boot();
+    const status: DownloadStatus = {
+      ...backend.downloadStatus,
+      phase: "game",
+      completedFiles: 1,
+      totalFiles: 2,
+      totalBytes: 100,
+      downloadedBytes: 100,
+      stage: "patch",
+    };
+    backend.downloadHandler(status);
+    expect(c.downloadView.value.progress).toBe(50);
+    backend.downloadHandler({ ...status, downloadedBytes: 101 });
+    expect(c.downloadView.value.progress).toBe(50);
+    backend.downloadHandler({
+      ...status,
+      downloadedBytes: 80,
+      stage: "download",
+    });
+    expect(c.downloadView.value.progress).toBe(80);
+    backend.downloadHandler({
+      ...status,
+      downloadedBytes: 150,
+      stage: "download",
+    });
+    expect(c.downloadView.value.progress).toBe(99);
+    backend.downloadHandler({ ...status, completedFiles: 2, stage: "install" });
+    expect(c.downloadView.value.progress).toBeLessThan(100);
+    backend.downloadHandler({
+      ...status,
+      phase: "ready",
+      completedFiles: 2,
+      stage: "",
+    });
+    expect(c.downloadView.value.progress).toBe(100);
+  });
+
   it.each([
     [
       check({
@@ -710,6 +1228,8 @@ it("组件事件和双向绑定将用户操作传给控制器", async () => {
   await wrapper!.find("#check-btn").trigger("click");
   await flushPromises();
   expect(c.state.page).toBe("update");
+  backend.downloadHandler({ ...backend.downloadStatus, phase: "ready" });
+  await flushPromises();
   await wrapper!.find('[data-page="update"]').trigger("click");
   await wrapper!.find("#launch-btn").trigger("click");
   await vi.advanceTimersByTimeAsync(900);
@@ -779,6 +1299,7 @@ it("组件卸载时释放原生订阅、视频 URL、定时器和全局事件", 
   wrapper!.unmount();
   wrapper = undefined;
   expect(backend.unlisten).toHaveBeenCalledOnce();
+  expect(backend.downloadUnlisten).toHaveBeenCalledOnce();
   expect(backend.stopResize).toHaveBeenCalledOnce();
   expect(revoke).toHaveBeenCalledWith(url);
   expect(vi.getTimerCount()).toBe(0);
@@ -796,8 +1317,10 @@ it("卸载后返回的初始化快照不会重新触发界面或入场", async (
   });
   const invoke = backend.invoke.getMockImplementation()!;
   backend.invoke.mockImplementation(
-    (command: string, args?: { settings: Settings }) =>
-      command === "bootstrap" ? pending : invoke(command, args),
+    (
+      command: string,
+      args?: { settings: Settings; mode: "check" | "apply" },
+    ) => (command === "bootstrap" ? pending : invoke(command, args)),
   );
   const c = await boot();
   wrapper!.unmount();

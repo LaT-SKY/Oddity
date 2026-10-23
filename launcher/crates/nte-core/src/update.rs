@@ -1,5 +1,5 @@
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use md5::{Digest, Md5};
@@ -40,10 +40,17 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 pub fn md5_file(path: &Path) -> Result<String> {
+    md5_file_cancellable(path, &|| false)
+}
+
+pub fn md5_file_cancellable(path: &Path, cancelled: &dyn Fn() -> bool) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let mut h = Md5::new();
     let mut buf = vec![0u8; 1024 * 1024];
     loop {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         let n = file.read(&mut buf)?;
         if n == 0 {
             break;
@@ -54,8 +61,20 @@ pub fn md5_file(path: &Path) -> Result<String> {
 }
 
 pub fn check(root: &Path, manifest: &Manifest, quick: bool) -> Result<CheckReport> {
+    check_cancellable(root, manifest, quick, &|| false)
+}
+
+pub fn check_cancellable(
+    root: &Path,
+    manifest: &Manifest,
+    quick: bool,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<CheckReport> {
     let mut report = CheckReport::default();
     for f in &manifest.files {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         report.checked += 1;
         let rel = f
             .path
@@ -73,11 +92,11 @@ pub fn check(root: &Path, manifest: &Manifest, quick: bool) -> Result<CheckRepor
             report.changed.push(f.clone());
             continue;
         }
-        if quick {
+        if quick || f.size == 0 {
             report.ok += 1;
             continue;
         }
-        let sum = md5_file(&local)?;
+        let sum = md5_file_cancellable(&local, cancelled)?;
         if !sum.eq_ignore_ascii_case(&f.checksum) {
             report.changed.push(f.clone());
         } else {
@@ -172,11 +191,194 @@ pub fn apply_file(root: &Path, zip_base: &str, f: &ManifestFile) -> Result<usize
     Ok(zip_bytes.len())
 }
 
+fn safe_relative_path(value: &str) -> Result<PathBuf> {
+    let normalized = value.trim_start_matches('/').replace('\\', "/");
+    let mut path = PathBuf::new();
+    for part in normalized.split('/') {
+        if part.is_empty() || part == "." || part == ".." || part.contains(':') {
+            return Err(Error::Parse(format!("无效的清单路径: {value}")));
+        }
+        path.push(part);
+    }
+    if path.as_os_str().is_empty() {
+        return Err(Error::Parse("清单路径为空".into()));
+    }
+    Ok(path)
+}
+
+fn ensure_no_symlink(root: &Path, relative: &Path) -> Result<()> {
+    let mut current = root.to_path_buf();
+    for part in relative.components() {
+        current.push(part);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(Error::Integrity(format!(
+                    "安装路径包含符号链接: {}",
+                    current.display()
+                )));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(Error::Io(error)),
+        }
+    }
+    Ok(())
+}
+
+/// Download a launcher ZIP into a persistent staging file, then verify and install it.
+pub fn apply_file_resumable(
+    root: &Path,
+    zip_bases: &[String],
+    file: &ManifestFile,
+    on_bytes: &mut dyn FnMut(u64),
+    cancelled: &dyn Fn() -> bool,
+) -> Result<u64> {
+    let relative = safe_relative_path(&file.path)?;
+    ensure_no_symlink(root, &relative)?;
+    let key = file
+        .zip_checksum
+        .clone()
+        .filter(|value| value.len() == 32 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .unwrap_or_else(|| md5_bytes(file.path.as_bytes()));
+    let staging = root.join(".oddity-downloads").join("launcher");
+    fs::create_dir_all(&staging)?;
+    let part = staging.join(format!("{key}.part"));
+    if let Some(size) = file.zip_size {
+        if part.is_file() && fs::metadata(&part)?.len() > size {
+            fs::remove_file(&part)?;
+        }
+    }
+    let mut downloaded = 0;
+    let mut verified = false;
+    for base in zip_bases {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        if part.is_file() {
+            let length = fs::metadata(&part)?.len();
+            if file.zip_size == Some(length) {
+                if file.zip_checksum.as_ref().is_some_and(|checksum| {
+                    md5_file(&part).is_ok_and(|hash| hash.eq_ignore_ascii_case(checksum))
+                }) {
+                    verified = true;
+                    break;
+                }
+                fs::remove_file(&part)?;
+            }
+        }
+        let existing = part.metadata().map(|metadata| metadata.len()).unwrap_or(0);
+        let url = format!(
+            "{}/{}.zip",
+            base.trim_end_matches('/'),
+            file.path.trim_start_matches('/')
+        );
+        let mut request = ureq::get(&url)
+            .header("User-Agent", USER_AGENT)
+            .config()
+            .timeout_global(Some(std::time::Duration::from_secs(120)))
+            .build();
+        if existing > 0 {
+            request = request.header("Range", format!("bytes={existing}-"));
+        }
+        let mut response = match request.call() {
+            Ok(response) => response,
+            Err(_) => continue,
+        };
+        let append = existing > 0 && response.status().as_u16() == 206;
+        let mut output = if append {
+            fs::OpenOptions::new().append(true).open(&part)?
+        } else {
+            fs::File::create(&part)?
+        };
+        let mut buffer = [0u8; 1024 * 1024];
+        let mut reader = response.body_mut().as_reader();
+        loop {
+            if cancelled() {
+                output.flush()?;
+                return Err(Error::Cancelled);
+            }
+            let read = match reader.read(&mut buffer) {
+                Ok(read) => read,
+                Err(_) => break,
+            };
+            if read == 0 {
+                break;
+            }
+            output.write_all(&buffer[..read])?;
+            downloaded += read as u64;
+            on_bytes(read as u64);
+        }
+        output.flush()?;
+        let size_ok = file
+            .zip_size
+            .is_none_or(|size| fs::metadata(&part).is_ok_and(|metadata| metadata.len() == size));
+        let hash_ok = file.zip_checksum.as_ref().is_none_or(|checksum| {
+            md5_file(&part).is_ok_and(|hash| hash.eq_ignore_ascii_case(checksum))
+        });
+        if size_ok && hash_ok {
+            verified = true;
+            break;
+        }
+        if file
+            .zip_size
+            .is_some_and(|size| fs::metadata(&part).is_ok_and(|metadata| metadata.len() >= size))
+        {
+            fs::remove_file(&part)?;
+        }
+    }
+    if !verified {
+        return Err(Error::Integrity(format!(
+            "启动器文件下载或校验失败: {}",
+            file.path
+        )));
+    }
+    let archive_file = fs::File::open(&part)?;
+    let mut archive = zip::ZipArchive::new(archive_file)
+        .map_err(|error| Error::Parse(format!("ZIP {}: {error}", file.path)))?;
+    if archive.len() != 1 {
+        return Err(Error::Parse(format!("ZIP 条目数量错误: {}", file.path)));
+    }
+    let entry = archive
+        .by_index(0)
+        .map_err(|error| Error::Parse(format!("ZIP {}: {error}", file.path)))?;
+    let destination = root.join(&relative);
+    if let Some(parent) = destination.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let temporary = destination.with_extension("oddity-new");
+    if temporary.exists() {
+        fs::remove_file(&temporary)?;
+    }
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temporary)?;
+    let written = std::io::copy(&mut entry.take(file.size.saturating_add(1)), &mut output)?;
+    output.sync_all()?;
+    if written != file.size {
+        fs::remove_file(&temporary).ok();
+        return Err(Error::Integrity(format!(
+            "启动器文件大小不符: {}",
+            file.path
+        )));
+    }
+    // 官方清单中可能有零字节占位文件，ZIP 校验仍需通过。
+    if file.size != 0 && !md5_file(&temporary)?.eq_ignore_ascii_case(&file.checksum) {
+        fs::remove_file(&temporary).ok();
+        return Err(Error::Integrity(format!(
+            "启动器文件哈希不符: {}",
+            file.path
+        )));
+    }
+    fs::rename(&temporary, &destination)?;
+    fs::remove_file(&part).ok();
+    Ok(downloaded)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::testing::{HttpServer, TempDir};
-    use std::io::Write as _;
 
     fn manifest_file(path: &str, checksum: &str, size: u64) -> ManifestFile {
         ManifestFile {
@@ -220,6 +422,20 @@ mod tests {
     fn md5_matches_known_vectors() {
         assert_eq!(md5_bytes(b""), "d41d8cd98f00b204e9800998ecf8427e");
         assert_eq!(md5_bytes(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
+    }
+
+    #[test]
+    fn hashing_can_be_cancelled_between_read_blocks() {
+        let dir = TempDir::new("hash-cancel");
+        dir.write("large.bin", vec![7; 4 * 1024 * 1024]);
+        let reads = std::cell::Cell::new(0);
+        let error = md5_file_cancellable(&dir.join("large.bin"), &|| {
+            reads.set(reads.get() + 1);
+            reads.get() > 2
+        })
+        .unwrap_err();
+        assert!(matches!(error, Error::Cancelled));
+        assert_eq!(reads.get(), 3);
     }
 
     #[test]
@@ -284,6 +500,101 @@ mod tests {
             apply_file(dir.path(), &format!("{}/files/", server.base()), &file).expect("apply");
         assert_eq!(written, zip.len());
         assert_eq!(dir.read("nested/file.txt"), content);
+    }
+
+    #[test]
+    fn resumable_file_uses_verified_part_and_installs_atomically() {
+        let dir = TempDir::new("apply-resume");
+        let content = b"verified launcher file";
+        let zip = zip_one("file.bin", content);
+        let zip_md5 = md5_bytes(&zip);
+        let file = ManifestFile {
+            path: "/file.bin".into(),
+            checksum: md5_bytes(content),
+            size: content.len() as u64,
+            zip_checksum: Some(zip_md5.clone()),
+            zip_size: Some(zip.len() as u64),
+        };
+        let part = format!(".oddity-downloads/launcher/{zip_md5}.part");
+        dir.write(&part, &zip[..zip.len() / 2]);
+        let server = HttpServer::start();
+        server.route("/files/file.bin.zip", &zip);
+        let mut observed = 0;
+        let bytes = apply_file_resumable(
+            dir.path(),
+            &[format!("{}/files", server.base())],
+            &file,
+            &mut |amount| observed += amount,
+            &|| false,
+        )
+        .expect("resume launcher file");
+        assert_eq!(bytes, (zip.len() - zip.len() / 2) as u64);
+        assert_eq!(observed, bytes);
+        assert_eq!(dir.read("file.bin"), content);
+        assert!(!dir.is_file(&part));
+        assert!(!dir.is_file("file.oddity-new"));
+    }
+
+    #[test]
+    fn resumable_file_replaces_a_corrupt_complete_part() {
+        let dir = TempDir::new("apply-corrupt-part");
+        let content = b"fresh content";
+        let zip = zip_one("file.bin", content);
+        let zip_md5 = md5_bytes(&zip);
+        let file = ManifestFile {
+            path: "/file.bin".into(),
+            checksum: md5_bytes(content),
+            size: content.len() as u64,
+            zip_checksum: Some(zip_md5.clone()),
+            zip_size: Some(zip.len() as u64),
+        };
+        let part = format!(".oddity-downloads/launcher/{zip_md5}.part");
+        dir.write(&part, vec![0; zip.len()]);
+        let server = HttpServer::start();
+        server.route("/files/file.bin.zip", &zip);
+        apply_file_resumable(
+            dir.path(),
+            &[format!("{}/files", server.base())],
+            &file,
+            &mut |_| {},
+            &|| false,
+        )
+        .expect("redownload corrupt part");
+        assert_eq!(dir.read("file.bin"), content);
+    }
+
+    #[test]
+    fn cancelled_launcher_transfer_keeps_a_reusable_part() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let dir = TempDir::new("apply-cancel-part");
+        let content = b"keep this content";
+        let zip = zip_one("file.bin", content);
+        let zip_md5 = md5_bytes(&zip);
+        let file = ManifestFile {
+            path: "/file.bin".into(),
+            checksum: md5_bytes(content),
+            size: content.len() as u64,
+            zip_checksum: Some(zip_md5.clone()),
+            zip_size: Some(zip.len() as u64),
+        };
+        let server = HttpServer::start();
+        server.route("/files/file.bin.zip", &zip);
+        let stopped = AtomicBool::new(false);
+        let bases = [format!("{}/files", server.base())];
+        let result = apply_file_resumable(
+            dir.path(),
+            &bases,
+            &file,
+            &mut |_| stopped.store(true, Ordering::Relaxed),
+            &|| stopped.load(Ordering::Relaxed),
+        );
+        assert!(matches!(result, Err(Error::Cancelled)));
+        assert!(!dir.is_file("file.bin"));
+        assert!(dir.is_file(format!(".oddity-downloads/launcher/{zip_md5}.part")));
+        apply_file_resumable(dir.path(), &bases, &file, &mut |_| {}, &|| false)
+            .expect("resume cancelled transfer");
+        assert_eq!(dir.read("file.bin"), content);
+        assert_eq!(server.hits("/files/file.bin.zip"), 1);
     }
 
     #[test]

@@ -5,6 +5,8 @@ use crate::*;
 fn settings_default_matches_the_ui_contract() {
     let settings = Settings::default();
     assert!(settings.install_root.is_none());
+    assert!(settings.global_install_root.is_none());
+    assert_eq!(settings.distribution, Distribution::Cn);
     assert!(settings.bridge_root.is_none());
     assert!(settings.prefix.is_none());
     assert!(settings.proton_path.is_none());
@@ -28,6 +30,8 @@ fn settings_round_trip_through_the_config_dir() {
 
     let settings = Settings {
         install_root: Some("/games/nte".to_string()),
+        global_install_root: Some("/games/nte-global".to_string()),
+        distribution: Distribution::Global,
         bridge_root: None,
         prefix: Some("~/prefix".to_string()),
         proton_path: Some("/opt/proton".to_string()),
@@ -48,6 +52,11 @@ fn settings_round_trip_through_the_config_dir() {
 
     let loaded = load_settings();
     assert_eq!(loaded.install_root.as_deref(), Some("/games/nte"));
+    assert_eq!(
+        loaded.global_install_root.as_deref(),
+        Some("/games/nte-global")
+    );
+    assert_eq!(loaded.distribution, Distribution::Global);
     assert_eq!(loaded.prefix.as_deref(), Some("~/prefix"));
     assert_eq!(loaded.proton_path.as_deref(), Some("/opt/proton"));
     assert_eq!(loaded.launch_mode, "direct");
