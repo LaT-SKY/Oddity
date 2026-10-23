@@ -228,6 +228,42 @@ pub fn apply_plan_observed_full(
         .collect();
 
     let mut report = ApplyReport::default();
+    if !plan.unverified.is_empty() {
+        report.failed = plan.unverified.len();
+        report.results = plan
+            .unverified
+            .iter()
+            .map(|item| ApplyResult {
+                path: item.path.clone(),
+                bytes: 0,
+                ok: false,
+                error: Some("资源尚未完整校验, 请先执行完整校验".into()),
+                skipped: false,
+            })
+            .collect();
+        return report;
+    }
+    if !opts.dry_run {
+        let storage_paths = [
+            config.patcher_dir.join("ResList.xml"),
+            staging.join("Res"),
+            staging.join("Patch"),
+            staging.join("Pak"),
+        ];
+        for path in storage_paths {
+            let valid = path
+                .strip_prefix(&config.install_root)
+                .map_err(|_| Error::Integrity("资源暂存目录超出安装目录".into()))
+                .and_then(|relative| {
+                    crate::paths::ensure_no_symlink(&config.install_root, relative)
+                });
+            if let Err(error) = valid {
+                report.failed = 1;
+                report.ledger_error = Some(error.to_string());
+                return report;
+            }
+        }
+    }
     if selected.is_empty() {
         report.cancelled = cancelled();
         if opts.update_ledger && !opts.dry_run && !report.cancelled && !plan.verified.is_empty() {
@@ -456,6 +492,15 @@ fn run_item(
     progress: &Progress<'_>,
     allow_ranges: bool,
 ) -> Result<()> {
+    let relative = crate::paths::relative_path(&item.path)?;
+    let check_paths = || -> Result<()> {
+        crate::paths::ensure_no_symlink(&config.install_root, &relative)?;
+        let staging_relative = staging
+            .strip_prefix(&config.install_root)
+            .map_err(|_| Error::Integrity("资源暂存目录超出安装目录".into()))?;
+        crate::paths::ensure_no_symlink(&config.install_root, staging_relative)
+    };
+    check_paths()?;
     let prepared = prepare_item(
         config,
         opts,
@@ -474,6 +519,7 @@ fn run_item(
                 if progress.cancelled() {
                     return Err(Error::Cancelled);
                 }
+                check_paths()?;
                 install_temp(&temp, target)
             });
             if installed.is_ok() {
@@ -486,6 +532,7 @@ fn run_item(
                 if progress.cancelled() {
                     return Err(Error::Cancelled);
                 }
+                check_paths()?;
                 progress.stage(ApplyStage::Patch);
                 let final_path = apply_patch_chain(item, target, staging, &patches, progress)?;
                 progress.stage(ApplyStage::Verify);
@@ -515,6 +562,7 @@ fn run_item(
                         if progress.cancelled() {
                             return Err(Error::Cancelled);
                         }
+                        check_paths()?;
                         install_temp(&temp, target)
                     });
                     if installed.is_ok() {
@@ -806,6 +854,17 @@ fn download_to_temp(
     progress: &Progress<'_>,
     allow_ranges: bool,
 ) -> Result<u64> {
+    let relative = temp
+        .strip_prefix(&config.install_root)
+        .map_err(|_| Error::Integrity("资源暂存目录超出安装目录".into()))?;
+    crate::paths::ensure_no_symlink(&config.install_root, relative)?;
+    let index = range_index_path(temp);
+    crate::paths::ensure_no_symlink(
+        &config.install_root,
+        index
+            .strip_prefix(&config.install_root)
+            .map_err(|_| Error::Integrity("资源暂存目录超出安装目录".into()))?,
+    )?;
     if let Some(parent) = temp.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -900,6 +959,17 @@ fn download_range_to_temp(
     expected_md5: &str,
     progress: &Progress<'_>,
 ) -> Result<u64> {
+    let relative = temp
+        .strip_prefix(&config.install_root)
+        .map_err(|_| Error::Integrity("资源暂存目录超出安装目录".into()))?;
+    crate::paths::ensure_no_symlink(&config.install_root, relative)?;
+    let index = range_index_path(temp);
+    crate::paths::ensure_no_symlink(
+        &config.install_root,
+        index
+            .strip_prefix(&config.install_root)
+            .map_err(|_| Error::Integrity("资源暂存目录超出安装目录".into()))?,
+    )?;
     if let Some(parent) = temp.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -1631,6 +1701,35 @@ mod tests {
             size,
             path_tag(path)
         ))
+    }
+
+    #[test]
+    fn resource_install_rejects_symlinks_and_traversal_before_download() {
+        let dir = TempDir::new("resource-path-boundary");
+        let outside = TempDir::new("resource-outside");
+        let config = config_for(&dir);
+        fs::create_dir_all(&config.install_root).unwrap();
+        std::os::unix::fs::symlink(outside.path(), config.install_root.join("data")).unwrap();
+        outside.write("victim.bin", b"kept");
+        for path in ["data/victim.bin", "../victim.bin"] {
+            let plan = plan_of(vec![res_item(path, &crate::update::md5_bytes(b"good"), 4)]);
+            let report = apply_plan(&config, &plan, &ApplyOptions::default());
+            assert_eq!(report.failed, 1);
+            assert_eq!(report.downloaded_bytes, 0);
+            assert_eq!(outside.read("victim.bin"), b"kept");
+        }
+    }
+
+    #[test]
+    fn apply_refuses_unverified_plans_without_mutation() {
+        let dir = TempDir::new("apply-unverified");
+        let config = config_for(&dir);
+        let mut plan = plan_of(Vec::new());
+        plan.unverified.push(res_item("data/unknown.bin", "aa", 4));
+        let report = apply_plan(&config, &plan, &ApplyOptions::default());
+        assert_eq!(report.failed, 1);
+        assert!(!report.results[0].ok);
+        assert!(!config.patcher_dir.exists());
     }
 
     #[test]

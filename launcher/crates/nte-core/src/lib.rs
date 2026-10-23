@@ -14,6 +14,7 @@ pub mod game;
 pub mod install;
 pub mod launch;
 pub mod manifest;
+mod paths;
 pub mod update;
 pub mod version;
 

@@ -656,8 +656,12 @@ pub fn load_local_ledger(config: &GameUpdateConfig) -> Result<Option<LocalManife
         return Ok(None);
     }
     let bytes = fs::read(&path)?;
-    let xml = pxml::decode_to_string(&bytes, &config.app_id)?;
-    Ok(Some(parse_res_list(&xml)?))
+    // 本地账本只是校验缓存, 损坏时按无可信记录处理。
+    match pxml::decode_to_string(&bytes, &config.app_id).and_then(|xml| parse_res_list(&xml)) {
+        Ok(manifest) => Ok(Some(manifest)),
+        Err(Error::Parse(_)) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 fn local_map(local: Option<&LocalManifest>) -> BTreeMap<String, LocalInfo> {
@@ -1450,7 +1454,7 @@ mod tests {
     }
 
     #[test]
-    fn loads_the_local_ledger_and_reports_broken_ones() {
+    fn loads_the_local_ledger_and_ignores_broken_cache() {
         let dir = TempDir::new("check-ledger-load");
         let config = config_for(&dir);
         assert!(load_local_ledger(&config).expect("ledger").is_none());
@@ -1469,7 +1473,7 @@ mod tests {
         let broken_config = config_for(&broken);
         fs::create_dir_all(&broken_config.patcher_dir).expect("create patcher dir");
         fs::write(broken_config.patcher_dir.join("ResList.xml"), b"nope").expect("write");
-        assert!(load_local_ledger(&broken_config).is_err());
+        assert!(load_local_ledger(&broken_config).unwrap().is_none());
     }
 
     #[test]

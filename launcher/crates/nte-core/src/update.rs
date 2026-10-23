@@ -7,6 +7,7 @@ use md5::{Digest, Md5};
 
 use crate::http::HttpClient;
 use crate::manifest::{Manifest, ManifestFile};
+use crate::paths::{ensure_no_symlink, relative_path as safe_relative_path};
 use crate::{Error, Result};
 
 #[derive(Debug, Default)]
@@ -113,7 +114,13 @@ fn download(url: &str) -> Result<Vec<u8>> {
 }
 
 pub fn apply_file(root: &Path, zip_base: &str, f: &ManifestFile) -> Result<usize> {
-    let url = format!("{}{}.zip", zip_base.trim_end_matches('/'), f.path);
+    let relative = safe_relative_path(&f.path)?;
+    ensure_no_symlink(root, &relative)?;
+    let url = format!(
+        "{}/{}.zip",
+        zip_base.trim_end_matches('/'),
+        f.path.trim_start_matches('/')
+    );
     let zip_bytes = download(&url)?;
     if let Some(expect) = &f.zip_checksum {
         let got = md5_bytes(&zip_bytes);
@@ -166,52 +173,30 @@ pub fn apply_file(root: &Path, zip_base: &str, f: &ManifestFile) -> Result<usize
             f.path, f.checksum
         )));
     }
-    let rel = f
-        .path
-        .trim_start_matches('/')
-        .replace('/', std::path::MAIN_SEPARATOR_STR);
-    let dest: PathBuf = root.join(rel);
+    ensure_no_symlink(root, &relative)?;
+    let dest: PathBuf = root.join(relative);
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)?;
     }
-    let tmp = dest.with_extension("nte-new");
-    fs::write(&tmp, &content)?;
+    let mut temporary = dest.as_os_str().to_os_string();
+    temporary.push(".oddity-new");
+    let tmp = PathBuf::from(temporary);
+    ensure_no_symlink(
+        root,
+        tmp.strip_prefix(root)
+            .map_err(|_| Error::Integrity("无效的安装目录".into()))?,
+    )?;
+    if tmp.exists() {
+        fs::remove_file(&tmp)?;
+    }
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)?;
+    output.write_all(&content)?;
+    output.sync_all()?;
     fs::rename(&tmp, &dest)?;
     Ok(zip_bytes.len())
-}
-
-fn safe_relative_path(value: &str) -> Result<PathBuf> {
-    let normalized = value.trim_start_matches('/').replace('\\', "/");
-    let mut path = PathBuf::new();
-    for part in normalized.split('/') {
-        if part.is_empty() || part == "." || part == ".." || part.contains(':') {
-            return Err(Error::Parse(format!("无效的清单路径: {value}")));
-        }
-        path.push(part);
-    }
-    if path.as_os_str().is_empty() {
-        return Err(Error::Parse("清单路径为空".into()));
-    }
-    Ok(path)
-}
-
-fn ensure_no_symlink(root: &Path, relative: &Path) -> Result<()> {
-    let mut current = root.to_path_buf();
-    for part in relative.components() {
-        current.push(part);
-        match fs::symlink_metadata(&current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(Error::Integrity(format!(
-                    "安装路径包含符号链接: {}",
-                    current.display()
-                )));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(Error::Io(error)),
-        }
-    }
-    Ok(())
 }
 
 /// Download a launcher ZIP into a persistent staging file, then verify and install it.
@@ -230,8 +215,10 @@ pub fn apply_file_resumable(
         .filter(|value| value.len() == 32 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
         .unwrap_or_else(|| md5_bytes(file.path.as_bytes()));
     let staging = root.join(".oddity-downloads").join("launcher");
+    ensure_no_symlink(root, Path::new(".oddity-downloads/launcher"))?;
     fs::create_dir_all(&staging)?;
     let part = staging.join(format!("{key}.part"));
+    ensure_no_symlink(&staging, Path::new(&format!("{key}.part")))?;
     if let Some(size) = file.zip_size {
         if part.is_file() && fs::metadata(&part)?.len() > size {
             fs::remove_file(&part)?;
@@ -326,6 +313,7 @@ pub fn apply_file_resumable(
     let entry = archive
         .by_index(0)
         .map_err(|error| Error::Parse(format!("ZIP {}: {error}", file.path)))?;
+    ensure_no_symlink(root, &relative)?;
     let destination = root.join(&relative);
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)?;
@@ -401,6 +389,25 @@ mod tests {
             writer.write_all(contents).expect("write zip entry");
         }
         writer.finish().expect("finish zip").into_inner()
+    }
+
+    #[test]
+    fn launcher_install_rejects_traversal_and_symlinks() {
+        let dir = TempDir::new("launcher-path-boundary");
+        let outside = TempDir::new("launcher-outside");
+        std::os::unix::fs::symlink(outside.path(), dir.join("data")).unwrap();
+        for path in [
+            "/../outside.bin",
+            "/data/outside.bin",
+            "data/../outside.bin",
+            "",
+        ] {
+            let file = manifest_file(path, &md5_bytes(b"good"), 4);
+            assert!(apply_file(dir.path(), "http://127.0.0.1:1", &file).is_err());
+            assert!(apply_file_resumable(dir.path(), &[], &file, &mut |_| {}, &|| false).is_err());
+        }
+        assert!(!outside.join("outside.bin").exists());
+        assert!(!dir.join("outside.bin").exists());
     }
 
     #[test]

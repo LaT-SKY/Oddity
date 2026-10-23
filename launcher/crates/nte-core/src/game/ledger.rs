@@ -20,8 +20,28 @@ pub fn update_after_apply(
     if successful_paths.is_empty() {
         return Ok(());
     }
-    let mut manifest =
-        crate::game::check::load_local_ledger(config)?.unwrap_or_else(GameManifest::default);
+    let ledger_path = config.patcher_dir.join("ResList.xml");
+    let relative = ledger_path
+        .strip_prefix(&config.install_root)
+        .map_err(|_| Error::Integrity("资源记录超出安装目录".into()))?;
+    crate::paths::ensure_no_symlink(&config.install_root, relative)?;
+    let local = crate::game::check::load_local_ledger(config)?;
+    let path = config.patcher_dir.join("ResList.xml");
+    if local.is_none() && path.is_file() {
+        // 只在写回时保留损坏账本, 只读检查不改动安装文件。
+        let stamp = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let backup = path.with_extension(format!("xml.corrupt-{stamp}"));
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(backup)?;
+        std::io::copy(&mut fs::File::open(&path)?, &mut output)?;
+        output.sync_all()?;
+    }
+    let mut manifest = local.unwrap_or_else(GameManifest::default);
     let completed: BTreeSet<_> = successful_paths.iter().map(String::as_str).collect();
     if bump_version
         && plan.unverified.is_empty()
@@ -243,6 +263,61 @@ mod tests {
         crate::game::check::load_local_ledger(config)
             .expect("load ledger")
             .expect("ledger written")
+    }
+
+    #[test]
+    fn corrupt_ledger_is_rebuilt_after_full_verification_and_preserved() {
+        use crate::game::check::{check_bundle, CheckOptions, RemoteBundle};
+        use crate::game::manifest::RemoteConfig;
+        let dir = TempDir::new("ledger-recovery");
+        let config = config_for(&dir);
+        dir.write("install/data/a.bin", b"good");
+        fs::create_dir_all(&config.patcher_dir).unwrap();
+        let path = config.patcher_dir.join("ResList.xml");
+        fs::write(&path, b"broken-ledger").unwrap();
+        let res = ResEntry {
+            filename: "data/a.bin".into(),
+            filesize: 4,
+            md5: crate::update::md5_bytes(b"good"),
+            ..Default::default()
+        };
+        let bundle = RemoteBundle {
+            config: RemoteConfig {
+                res_version: "1".into(),
+                ..Default::default()
+            },
+            manifest: GameManifest {
+                res: vec![res],
+                ..Default::default()
+            },
+            diff: None,
+        };
+        let plan = check_bundle(
+            &config,
+            &bundle,
+            CheckOptions {
+                full: true,
+                include_optional: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(plan.verified.len(), 1);
+        assert_eq!(fs::read(&path).unwrap(), b"broken-ledger");
+        assert_eq!(fs::read_dir(&config.patcher_dir).unwrap().count(), 1);
+        let report = crate::game::download::apply_plan(&config, &plan, &Default::default());
+        assert!(report.ledger_error.is_none());
+        assert_eq!(read_ledger(&config).version, "1");
+        let backup = fs::read_dir(&config.patcher_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .contains(".corrupt-")
+            })
+            .unwrap();
+        assert_eq!(fs::read(backup).unwrap(), b"broken-ledger");
     }
 
     #[test]

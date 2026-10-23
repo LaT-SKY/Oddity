@@ -17,50 +17,44 @@ pub struct Manifest {
     pub files: Vec<ManifestFile>,
 }
 
-fn attr(tag: &str, name: &str) -> Option<String> {
-    let needle = format!("{name}=\"");
-    let start = tag.find(&needle)? + needle.len();
-    let rest = &tag[start..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+fn attr(tag: &quick_xml::events::BytesStart<'_>, name: &str) -> Option<String> {
+    tag.attributes()
+        .filter_map(std::result::Result::ok)
+        .find(|attr| attr.key.as_ref() == name)
+        .and_then(|attr| {
+            quick_xml::escape::unescape(&attr.value)
+                .ok()
+                .map(|v| v.into_owned())
+        })
 }
 
 impl Manifest {
     pub fn parse(xml: &str) -> Self {
+        use quick_xml::events::Event;
         let mut m = Manifest::default();
-        if let Some(i) = xml.find("<Url ") {
-            if let Some(end) = xml[i..].find('>') {
-                let tag = &xml[i..i + end];
-                m.base_url = attr(tag, "BaseUrl");
+        let mut reader = quick_xml::Reader::from_str(xml);
+        loop {
+            match reader.read_event() {
+                Ok(Event::Start(tag) | Event::Empty(tag)) => match tag.name().as_ref() {
+                    "Url" => m.base_url = attr(&tag, "BaseUrl"),
+                    "ProductVersion" => m.product_version = attr(&tag, "Version"),
+                    "BuildInfo" => m.build_time = attr(&tag, "Time"),
+                    "File" => {
+                        if let Some(path) = attr(&tag, "Path") {
+                            m.files.push(ManifestFile {
+                                path,
+                                checksum: attr(&tag, "Checksum").unwrap_or_default(),
+                                size: attr(&tag, "Size").and_then(|s| s.parse().ok()).unwrap_or(0),
+                                zip_checksum: attr(&tag, "ZipChecksum"),
+                                zip_size: attr(&tag, "ZipSize").and_then(|s| s.parse().ok()),
+                            });
+                        }
+                    }
+                    _ => {}
+                },
+                Ok(Event::Eof) | Err(_) => break,
+                _ => {}
             }
-        }
-        if let Some(i) = xml.find("<ProductVersion") {
-            if let Some(end) = xml[i..].find('>') {
-                let tag = &xml[i..i + end];
-                m.product_version = attr(tag, "Version");
-            }
-        }
-        if let Some(i) = xml.find("<BuildInfo") {
-            if let Some(end) = xml[i..].find('>') {
-                let tag = &xml[i..i + end];
-                m.build_time = attr(tag, "Time");
-            }
-        }
-        let mut rest = xml;
-        while let Some(i) = rest.find("<File ") {
-            let tail = &rest[i..];
-            let Some(end) = tail.find("/>") else { break };
-            let tag = &tail[..end + 2];
-            if let Some(path) = attr(tag, "Path") {
-                m.files.push(ManifestFile {
-                    path,
-                    checksum: attr(tag, "Checksum").unwrap_or_default(),
-                    size: attr(tag, "Size").and_then(|s| s.parse().ok()).unwrap_or(0),
-                    zip_checksum: attr(tag, "ZipChecksum"),
-                    zip_size: attr(tag, "ZipSize").and_then(|s| s.parse().ok()),
-                });
-            }
-            rest = &tail[end + 2..];
         }
         m
     }
@@ -92,6 +86,19 @@ impl Manifest {
 mod tests {
     use super::*;
     use crate::testing::HttpServer;
+
+    #[test]
+    fn attributes_are_exact_and_independent_of_order() {
+        let manifest = Manifest::parse(
+            r#"<File ZipSize="99" ZipChecksum="ZIP" Size="4" Checksum="CONTENT" Path="/a&amp;b"/>"#,
+        );
+        let file = &manifest.files[0];
+        assert_eq!(file.size, 4);
+        assert_eq!(file.checksum, "CONTENT");
+        assert_eq!(file.zip_size, Some(99));
+        assert_eq!(file.zip_checksum.as_deref(), Some("ZIP"));
+        assert_eq!(file.path, "/a&b");
+    }
 
     #[test]
     fn parses_manifest_attributes() {

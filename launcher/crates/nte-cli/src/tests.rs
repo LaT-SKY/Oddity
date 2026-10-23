@@ -368,7 +368,11 @@ fn apply_downloads_missing_files() {
             4
         ),
     );
-    write_file(&root, "data/skip.txt", b"kept");
+    write_file(&root, "data/skip.txt", b"evil");
+    server.route(
+        "/files/data/skip.txt.zip",
+        zip_one("data/skip.txt", b"kept"),
+    );
     let config = launcher_config(&root, &server.url("/Version.ini"));
 
     apply(&config, None).expect("apply");
@@ -376,6 +380,8 @@ fn apply_downloads_missing_files() {
         fs::read(root.join("data/new.txt")).expect("read file"),
         content
     );
+
+    assert_eq!(fs::read(root.join("data/skip.txt")).unwrap(), b"kept");
 
     // --only 过滤掉不匹配的文件
     let filtered = launcher_config(&root, &server.url("/Version.ini"));
@@ -402,7 +408,7 @@ fn apply_reports_version_failures() {
         "{error:#}"
     );
 
-    // 下载失败只打印 FAIL，不返回错误
+    // 文件失败必须反馈给脚本调用方。
     server.route(
         "/Version.ini",
         format!(
@@ -414,7 +420,10 @@ fn apply_reports_version_failures() {
         "/files/AllFiles.xml",
         "<AllFiles><File Path=\"/data/gone.txt\" Checksum=\"00\" Size=\"3\"/></AllFiles>",
     );
-    apply(&config, None).expect("apply keeps going on failures");
+    assert!(apply(&config, None)
+        .unwrap_err()
+        .to_string()
+        .contains("1 launcher update file(s) failed"));
     assert!(!root.join("data/gone.txt").exists());
 }
 
@@ -585,6 +594,8 @@ fn game_apply_reports_nothing_to_do() {
 
     let launcher = install.launcher("https://cdn.test/Version.ini");
     game_apply(&launcher, &[]).expect("nothing to do");
+    let cfg = game_config(&launcher).unwrap();
+    assert!(game::check::load_local_ledger(&cfg).unwrap().is_some());
 }
 
 #[test]
@@ -662,4 +673,42 @@ fn game_apply_reports_check_failures() {
         format!("{error:#}").contains("check game resources"),
         "{error:#}"
     );
+}
+
+#[test]
+fn game_apply_verifies_unknown_files_and_repairs_corruption() {
+    let server = HttpServer::start();
+    let install = game_install("game-apply-unverified");
+    rewrite_cdn(&install.launcher_root, &server.url("/cdn"));
+    let content = vec![7u8; 21 * 1024 * 1024];
+    let md5 = update::md5_bytes(&content);
+    let path = "data/big.pak";
+    install.resource(path, &content);
+    let res_list = format!("<ResList version=\"1.4.16\"><Res filename=\"{path}\" md5=\"{md5}\" filesize=\"{}\"/></ResList>", content.len());
+    server.route(
+        "/cdn/publish_ob/Version/Windows/config.xml",
+        game_config_xml("1.4.16", &res_list, None),
+    );
+    server.route(
+        "/cdn/publish_ob/Version/Windows/version/1.4.16/ResList.bin.zip",
+        res_zip(&res_list, None),
+    );
+    let launcher = install.launcher("https://cdn.test/Version.ini");
+    game_apply(&launcher, &[]).expect("verify without download");
+    let cfg = game_config(&launcher).unwrap();
+    assert!(game::check::load_local_ledger(&cfg).unwrap().is_some());
+    assert!(!server
+        .targets()
+        .iter()
+        .any(|target| target.contains("/Res/")));
+
+    fs::remove_file(cfg.patcher_dir.join("ResList.xml")).unwrap();
+    fs::write(install.resource_path(path), vec![0u8; content.len()]).unwrap();
+    server.route(
+        format!("/cdn/publish_ob/Res/{}/{md5}.{}", &md5[..1], content.len()),
+        &content,
+    );
+    game_apply(&launcher, &[]).expect("repair unknown file");
+    assert_eq!(update::md5_file(&install.resource_path(path)).unwrap(), md5);
+    assert!(game::check::load_local_ledger(&cfg).unwrap().is_some());
 }
