@@ -852,7 +852,7 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
             Err(e) => error = Some(format!("读取启动器配置失败：{e}")),
         }
     } else {
-        error = Some("尚未找到所选区服的游戏安装。可在游戏更新页开始安装。".to_string());
+        error = Some("尚未找到所选游戏地区的游戏安装. 可在游戏更新页开始安装.".to_string());
     }
 
     let mut game_version = launcher_root
@@ -1052,7 +1052,7 @@ fn save_settings(
     settings: Settings,
 ) -> Result<Bootstrap, String> {
     let guard = downloads.inner.lock().map_err(|error| error.to_string())?;
-    if download_commands::busy(&guard.status.phase) {
+    if download_commands::blocks_changes(&guard.status) {
         return Err("游戏资源任务正在进行，暂时无法修改设置".into());
     }
     let mut next = settings;
@@ -1570,7 +1570,7 @@ async fn launch_official(
     {
         let downloads = app.state::<download_commands::DownloadManager>();
         let inner = downloads.inner.lock().map_err(|error| error.to_string())?;
-        if download_commands::busy(&inner.status.phase) {
+        if download_commands::blocks_changes(&inner.status) {
             return Err("游戏资源任务正在进行，暂时无法启动游戏".into());
         }
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;

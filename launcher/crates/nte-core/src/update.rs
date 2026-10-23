@@ -40,10 +40,17 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 pub fn md5_file(path: &Path) -> Result<String> {
+    md5_file_cancellable(path, &|| false)
+}
+
+pub fn md5_file_cancellable(path: &Path, cancelled: &dyn Fn() -> bool) -> Result<String> {
     let mut file = fs::File::open(path)?;
     let mut h = Md5::new();
     let mut buf = vec![0u8; 1024 * 1024];
     loop {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         let n = file.read(&mut buf)?;
         if n == 0 {
             break;
@@ -54,8 +61,20 @@ pub fn md5_file(path: &Path) -> Result<String> {
 }
 
 pub fn check(root: &Path, manifest: &Manifest, quick: bool) -> Result<CheckReport> {
+    check_cancellable(root, manifest, quick, &|| false)
+}
+
+pub fn check_cancellable(
+    root: &Path,
+    manifest: &Manifest,
+    quick: bool,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<CheckReport> {
     let mut report = CheckReport::default();
     for f in &manifest.files {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         report.checked += 1;
         let rel = f
             .path
@@ -77,7 +96,7 @@ pub fn check(root: &Path, manifest: &Manifest, quick: bool) -> Result<CheckRepor
             report.ok += 1;
             continue;
         }
-        let sum = md5_file(&local)?;
+        let sum = md5_file_cancellable(&local, cancelled)?;
         if !sum.eq_ignore_ascii_case(&f.checksum) {
             report.changed.push(f.clone());
         } else {
@@ -403,6 +422,20 @@ mod tests {
     fn md5_matches_known_vectors() {
         assert_eq!(md5_bytes(b""), "d41d8cd98f00b204e9800998ecf8427e");
         assert_eq!(md5_bytes(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
+    }
+
+    #[test]
+    fn hashing_can_be_cancelled_between_read_blocks() {
+        let dir = TempDir::new("hash-cancel");
+        dir.write("large.bin", vec![7; 4 * 1024 * 1024]);
+        let reads = std::cell::Cell::new(0);
+        let error = md5_file_cancellable(&dir.join("large.bin"), &|| {
+            reads.set(reads.get() + 1);
+            reads.get() > 2
+        })
+        .unwrap_err();
+        assert!(matches!(error, Error::Cancelled));
+        assert_eq!(reads.get(), 3);
     }
 
     #[test]

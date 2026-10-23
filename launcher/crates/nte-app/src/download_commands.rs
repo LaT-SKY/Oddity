@@ -1,6 +1,7 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
@@ -16,6 +17,7 @@ use crate::{game_exe_for, process_group_alive, selected_install_root, AppState, 
 #[serde(rename_all = "camelCase")]
 pub struct DownloadStatus {
     pub(crate) phase: String,
+    pub(crate) mode: String,
     distribution: String,
     install_root: String,
     /// 官方本地清单存在时视为已安装，用于区分安装与更新。
@@ -42,6 +44,7 @@ impl Default for DownloadStatus {
     fn default() -> Self {
         Self {
             phase: "idle".into(),
+            mode: "check".into(),
             distribution: "cn".into(),
             install_root: String::new(),
             installed: false,
@@ -69,6 +72,7 @@ impl Default for DownloadStatus {
 pub(crate) struct DownloadInner {
     pub(crate) status: DownloadStatus,
     cancel: Option<Arc<AtomicBool>>,
+    last_progress: Option<Instant>,
 }
 
 #[derive(Default)]
@@ -78,6 +82,10 @@ pub struct DownloadManager {
 
 pub(crate) fn busy(phase: &str) -> bool {
     matches!(phase, "checking" | "launcher" | "game")
+}
+
+pub(crate) fn blocks_changes(status: &DownloadStatus) -> bool {
+    busy(&status.phase) && status.mode == "apply"
 }
 
 fn publish<R: Runtime>(app: &AppHandle<R>, change: impl FnOnce(&mut DownloadStatus)) {
@@ -92,22 +100,44 @@ fn publish<R: Runtime>(app: &AppHandle<R>, change: impl FnOnce(&mut DownloadStat
     let _ = app.emit("game-download-state", status);
 }
 
+fn publish_bytes<R: Runtime>(app: &AppHandle<R>, bytes: u64) {
+    let manager = app.state::<DownloadManager>();
+    let status = match manager.inner.lock() {
+        Ok(mut inner) => {
+            inner.status.downloaded_bytes += bytes;
+            let now = Instant::now();
+            if inner
+                .last_progress
+                .is_some_and(|last| now.duration_since(last) < Duration::from_millis(150))
+            {
+                return;
+            }
+            inner.last_progress = Some(now);
+            inner.status.clone()
+        }
+        Err(_) => return,
+    };
+    let _ = app.emit("game-download-state", status);
+}
+
 fn check_game<R: Runtime>(
     app: &AppHandle<R>,
     settings: &Settings,
     root: &Path,
     full: bool,
+    cancel: &AtomicBool,
 ) -> Result<game::UpdatePlan, String> {
     let config =
         LauncherConfig::load(root).map_err(|error| format!("读取启动器配置失败: {error}"))?;
     let game_config = game::GameUpdateConfig::load(root, config.game_id)
         .map_err(|error| format!("读取游戏资源配置失败: {error}"))?;
-    let plan = game::check::check(
+    let plan = game::check::check_cancellable(
         &game_config,
         CheckOptions {
             full,
             include_optional: false,
         },
+        &|| cancel.load(Ordering::Relaxed),
     )
     .map_err(|error| format!("检查游戏资源失败: {error}"))?;
     let patch_files = plan.items.iter().filter(|item| item.has_patch()).count();
@@ -141,7 +171,10 @@ fn run_task<R: Runtime>(
     cancel: &AtomicBool,
 ) -> Result<(), String> {
     let install_root = selected_install_root(settings);
-    let launcher_plan = install::plan_launcher(settings.distribution, &install_root, full)
+    let launcher_plan =
+        install::plan_launcher_cancellable(settings.distribution, &install_root, full, &|| {
+            cancel.load(Ordering::Relaxed)
+        })
         .map_err(|error| format!("检查启动器文件失败: {error}"))?;
     run_plan(app, settings, mode, full, cancel, launcher_plan)
 }
@@ -184,7 +217,7 @@ fn run_plan<R: Runtime>(
                 status.completed_files = index;
             });
             let mut progress = |bytes| {
-                publish(app, |status| status.downloaded_bytes += bytes);
+                publish_bytes(app, bytes);
             };
             match update::apply_file_resumable(
                 &launcher_plan.root,
@@ -221,11 +254,11 @@ fn run_plan<R: Runtime>(
         status.full_bytes = 0;
         status.stage.clear();
     });
-    let mut plan = check_game(app, settings, &launcher_plan.root, full)?;
+    let mut plan = check_game(app, settings, &launcher_plan.root, full, cancel)?;
     // 应用任务必须先确认未知资源，不能把仅大小相符的大文件视为已校验。
     if mode == "apply" && !plan.unverified.is_empty() && !cancel.load(Ordering::Relaxed) {
         publish(app, |status| status.full = true);
-        plan = check_game(app, settings, &launcher_plan.root, true)?;
+        plan = check_game(app, settings, &launcher_plan.root, true, cancel)?;
     }
     if cancel.load(Ordering::Relaxed) {
         publish(app, |status| status.phase = "cancelled".into());
@@ -267,7 +300,7 @@ fn run_plan<R: Runtime>(
         });
     };
     let mut on_bytes = |_: &str, bytes: u64| {
-        publish(app, |status| status.downloaded_bytes += bytes);
+        publish_bytes(app, bytes);
     };
     let mut on_stage = |path: &str, stage: game::download::ApplyStage| {
         publish(app, |status| {
@@ -360,11 +393,25 @@ fn prepare_task(
         if busy(&inner.status.phase) {
             return Err("游戏资源任务正在进行".into());
         }
-        let settings = state
+        let mut settings = state
             .settings
             .lock()
             .map_err(|error| error.to_string())?
             .clone();
+        // 未配置目录时沿用环境探测结果, 只用于本轮任务。
+        if crate::configured_install_root(&settings).is_none() {
+            if let Some(root) = crate::detect_launcher_root(&settings)
+                .and_then(|root| root.parent().map(Path::to_path_buf))
+            {
+                let root = Some(root.display().to_string());
+                match settings.distribution {
+                    nte_core::distribution::Distribution::Cn => settings.install_root = root,
+                    nte_core::distribution::Distribution::Global => {
+                        settings.global_install_root = root
+                    }
+                }
+            }
+        }
         if mode == "apply" {
             let game = state.game.lock().map_err(|error| error.to_string())?;
             if game.starting
@@ -388,8 +435,10 @@ fn prepare_task(
                 && inner.status.distribution == settings.distribution.as_str()
                 && inner.status.install_root == install_root);
         inner.cancel = Some(cancel.clone());
+        inner.last_progress = None;
         inner.status = DownloadStatus {
             phase: "checking".into(),
+            mode: mode.into(),
             distribution: settings.distribution.as_str().into(),
             install_root,
             installed,
@@ -416,8 +465,17 @@ pub fn game_download_start<R: Runtime>(
         let result = run_task(&app, &settings, &mode, full, &cancel);
         if let Err(error) = result {
             publish(&app, |status| {
-                status.phase = "failed".into();
-                status.error = error;
+                status.phase = if cancel.load(Ordering::Relaxed) {
+                    "cancelled"
+                } else {
+                    "failed"
+                }
+                .into();
+                status.error = if cancel.load(Ordering::Relaxed) {
+                    String::new()
+                } else {
+                    error
+                };
                 status.stage.clear();
             });
         }

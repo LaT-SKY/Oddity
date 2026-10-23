@@ -100,13 +100,13 @@ test("导航、更新、设置、快捷键与启动关闭流程", async ({ page 
   expect(errors).toEqual([]);
 });
 
-test("启动快速检查后更新，并在完成后显示检查通过", async ({ page }) => {
+test("预览模式完整校验发现资源损坏并完成修复", async ({ page }) => {
   await page.goto("/#update");
   const update = page.locator("#page-update");
   const primary = update.locator("#game-download-primary");
-  // 启动后的自动快速检查没有发现更新。
+  // 预览资源大小一致, 快速检查显示就绪。
   await expect(primary).toHaveText("检查通过");
-  // 再用完整校验模拟发现一个小版本更新。
+  // 完整校验暴露模拟的内容损坏。
   await update.getByRole("button", { name: "完整校验", exact: true }).click();
   await expect(
     update.getByRole("heading", { name: "发现待下载的游戏资源" }),

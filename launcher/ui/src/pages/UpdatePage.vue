@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed } from "vue";
 import BaseSelect from "../components/BaseSelect.vue";
 import {
   state,
@@ -31,6 +31,9 @@ const statusMatches = computed(
   () => state.download?.distribution === form.distribution,
 );
 const active = computed(() => downloadBusy());
+const cancellable = computed(() =>
+  ["checking", "launcher", "game"].includes(state.download?.phase || ""),
+);
 const phase = computed<DownloadPhase>(() =>
   statusMatches.value && state.download ? state.download.phase : "idle",
 );
@@ -47,24 +50,27 @@ const needsFullRepair = computed(
     Boolean(state.download?.full || state.download?.unverifiedFiles),
 );
 
-// 检查结果只对提交时的目录有效，地区或目录改变后需要重新检查。
-const checkedFor = ref<{ distribution: string; root: string } | null>(null);
-watch(
-  () => state.download,
-  (status) => {
-    // 任何非 idle 状态都归属于当前提交的地区和目录。
-    checkedFor.value =
-      status && status.phase !== "idle"
-        ? { distribution: status.distribution, root: currentRoot.value }
-        : null;
-  },
-  { immediate: true },
-);
+const resolvedRoot = computed(() => {
+  const data = state.bootstrap;
+  const root = currentRoot.value.trim();
+  const saved =
+    form.distribution === "cn"
+      ? data?.settings.installRoot
+      : data?.settings.globalInstallRoot;
+  return data?.settings.distribution === form.distribution &&
+    root === (saved || data.installRoot)
+    ? data.installRoot
+    : root;
+});
+
+// 检查结果只对后端实际使用的地区和目录有效。
 const stale = computed(
   () =>
-    checkedFor.value !== null &&
-    (checkedFor.value.distribution !== form.distribution ||
-      checkedFor.value.root !== currentRoot.value),
+    state.download &&
+    state.download.phase !== "idle" &&
+    (state.download.distribution !== form.distribution ||
+      state.download.installRoot.replace(/\/+$/, "") !==
+        resolvedRoot.value.replace(/\/+$/, "")),
 );
 const displayPhase = computed<DownloadPhase>(() =>
   stale.value ? "idle" : phase.value,
@@ -136,6 +142,13 @@ const primary = computed(() => {
         busy: false,
       };
     case "cancelled":
+      if (state.download?.mode === "check")
+        return {
+          kind: "check" as const,
+          label: "重新检查",
+          icon: "i-arrows-clockwise",
+          busy: false,
+        };
       return {
         kind: "apply" as const,
         label: installed.value ? "继续更新游戏" : "继续安装游戏",
@@ -214,7 +227,13 @@ const transferActive = computed(
             <use :href="'#' + stateIcon" /></svg
         ></span>
         <div class="update-state__copy">
-          <h3 id="game-download-state-title">{{ stateTitle }}</h3>
+          <h3
+            id="game-download-state-title"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {{ stateTitle }}
+          </h3>
           <p>{{ stateDetail }}</p>
         </div>
       </div>
@@ -246,8 +265,8 @@ const transferActive = computed(
         </label>
       </div>
       <p class="download-hint">
-        将从当前地区的官方 CDN
-        获取启动器文件和游戏资源。启动器文件就绪后会继续检查游戏资源，未完成的文件可在下次下载时继续。
+        将从当前地区的官方 CDN 获取启动器文件和游戏资源.
+        启动器文件就绪后会继续检查游戏资源, 未完成的文件可在下次下载时继续.
       </p>
       <div class="update-actions">
         <button
@@ -280,7 +299,7 @@ const transferActive = computed(
           <span class="btn__text">完整校验</span>
         </button>
         <button
-          v-if="downloading"
+          v-if="cancellable"
           class="btn btn--link"
           type="button"
           @click="cancelGameDownload"
@@ -288,15 +307,12 @@ const transferActive = computed(
           <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
             <use href="#i-pause" />
           </svg>
-          <span class="btn__text">暂停下载</span>
+          <span class="btn__text">{{
+            state.download?.phase === "checking" ? "取消检查" : "暂停下载"
+          }}</span>
         </button>
       </div>
-      <div
-        v-if="showProgress && state.download"
-        class="download-progress"
-        role="status"
-        aria-live="polite"
-      >
+      <div v-if="showProgress && state.download" class="download-progress">
         <div v-if="transferActive" class="download-progress__meta">
           <span
             >{{ state.download.completedFiles }} /

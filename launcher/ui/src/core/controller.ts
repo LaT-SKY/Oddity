@@ -1,4 +1,4 @@
-import { computed, nextTick, reactive } from "vue";
+import { computed, nextTick, reactive, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
   AttendanceStatus,
@@ -19,7 +19,9 @@ const BULLETIN_CACHE_KEY = "nte.bulletins.v1";
 const BULLETIN_CACHE_TTL_MS = 15 * 60 * 1000;
 const disposers: (() => void)[] = [];
 let downloadRevision = 0;
+let bootstrapRevision = 0;
 let autoCheckStarted = false;
+const downloadStarting = ref<"check" | "apply" | null>(null);
 const timers = new Set<number>();
 function schedule(callback: () => void, ms: number) {
   const id = window.setTimeout(() => {
@@ -255,18 +257,29 @@ export const launchView = computed(() => ({
       }
     : LAUNCH_COPY[state.game]),
   busy:
-    state.game === "launching" || state.game === "closing" || downloadBusy(),
+    state.game === "launching" ||
+    state.game === "closing" ||
+    downloadBlocksLaunch(),
 }));
 function downloadNeedsWork() {
   return (
-    state.download?.distribution === form.distribution &&
+    state.download?.distribution === state.bootstrap?.settings.distribution &&
     ["needs-install", "needs-update", "needs-verify"].includes(
-      state.download.phase,
+      state.download?.phase || "idle",
     )
   );
 }
 export function downloadBusy() {
-  return ["checking", "launcher", "game"].includes(state.download?.phase || "");
+  return (
+    downloadStarting.value !== null ||
+    ["checking", "launcher", "game"].includes(state.download?.phase || "")
+  );
+}
+function downloadBlocksLaunch() {
+  return (
+    downloadBusy() &&
+    (downloadStarting.value || state.download?.mode) === "apply"
+  );
 }
 export function formatSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -299,7 +312,7 @@ export const downloadView = computed(() => {
     launcher: "正在下载启动器文件",
     game: "正在下载游戏资源",
     ready: "游戏资源已就绪",
-    cancelled: "下载已暂停",
+    cancelled: status?.mode === "check" ? "资源检查已取消" : "下载已暂停",
     failed: "操作失败",
   };
   const phase = status?.phase || "idle";
@@ -315,7 +328,15 @@ export const downloadView = computed(() => {
   const launcherScope = phase === "needs-install" || phase === "launcher";
   return {
     title: titles[phase],
-    progress: phase === "ready" ? 100 : Math.min(99, fileProgress),
+    progress:
+      phase === "ready"
+        ? 100
+        : Math.min(
+            99,
+            status?.stage === "download" && totalBytes > 0
+              ? Math.round((downloadedBytes / totalBytes) * 100)
+              : fileProgress,
+          ),
     downloadedText:
       totalBytes > 0 && downloadedBytes <= totalBytes
         ? `${formatSize(downloadedBytes)} / ${formatSize(totalBytes)}`
@@ -337,11 +358,13 @@ export const downloadView = computed(() => {
         : phase === "checking"
           ? "正在读取官方清单并核对本地文件"
           : phase === "ready"
-            ? "资源检查完成，可以启动游戏"
+            ? "资源检查完成, 可以启动游戏"
             : phase === "cancelled"
-              ? "未完成的文件将在下次安装或更新时继续"
+              ? status?.mode === "check"
+                ? "可重新检查游戏资源"
+                : "未完成的文件将在下次安装或更新时继续"
               : phase === "needs-install"
-                ? "启动器文件尚未安装，完成后将继续检查游戏资源"
+                ? "启动器文件尚未安装, 完成后将继续检查游戏资源"
                 : status?.pendingFiles
                   ? `${status.pendingFiles} 个文件待处理`
                   : "选择地区和安装目录后检查资源"),
@@ -349,8 +372,8 @@ export const downloadView = computed(() => {
 });
 export const homeDownloadNotice = computed(() => {
   const phase =
-    state.download?.distribution === form.distribution
-      ? state.download.phase
+    state.download?.distribution === state.bootstrap?.settings.distribution
+      ? state.download?.phase || "idle"
       : "idle";
   return {
     visible: [
@@ -363,7 +386,9 @@ export const homeDownloadNotice = computed(() => {
     kind: phase === "failed" ? "error" : "warn",
     text:
       phase === "cancelled"
-        ? "下载已暂停，打开更新页继续"
+        ? state.download?.mode === "check"
+          ? "资源检查已取消, 打开更新页重新检查"
+          : "下载已暂停, 打开更新页继续"
         : downloadView.value.title,
   };
 });
@@ -633,12 +658,18 @@ function toast(message: string, kind = "ok", duration = 3400) {
   }, duration);
 }
 
-function applyBootstrap(data: Bootstrap, announceError = true) {
+function applyBootstrap(
+  data: Bootstrap,
+  announceError = true,
+  syncForm = true,
+) {
+  bootstrapRevision++;
   state.bootstrap = data;
   const settings = data.settings || {};
 
   const ready = isReady(data);
   ui.setupNeeded = !ready;
+  if (!syncForm) return;
   applyTheme(settings.theme || "light");
 
   form.installRoot =
@@ -692,17 +723,29 @@ function applyDownloadStatus(status: DownloadStatus) {
   const previous = state.download?.phase;
   state.download = status;
   if (status.phase === "ready" && previous !== "ready") {
+    const epoch = generation;
+    const revision = downloadRevision;
+    const bootstrapVersion = bootstrapRevision;
     void invoke("bootstrap")
-      .then((data) => applyBootstrap(data, false))
+      .then((data) => {
+        if (
+          epoch === generation &&
+          revision === downloadRevision &&
+          bootstrapVersion === bootstrapRevision
+        )
+          applyBootstrap(data, false, false);
+      })
       .catch(() => {});
   }
 }
 
 export async function loadDownloadStatus() {
   const revision = downloadRevision;
+  const epoch = generation;
   try {
     const status = await invoke("game_download_status");
-    if (revision === downloadRevision && status) applyDownloadStatus(status);
+    if (epoch === generation && revision === downloadRevision && status)
+      applyDownloadStatus(status);
   } catch {}
 }
 
@@ -721,17 +764,25 @@ export async function startGameDownload(
   silent = false,
 ) {
   if (downloadBusy()) return;
-  if (!(await saveSettings(false, silent))) return;
+  const epoch = generation;
+  downloadStarting.value = mode;
   try {
-    applyDownloadStatus(await invoke("game_download_start", { mode, full }));
+    if (!silent && !(await saveSettings(false, silent))) return;
+    if (epoch !== generation) return;
+    const revision = downloadRevision;
+    const status = await invoke("game_download_start", { mode, full });
+    if (epoch !== generation) return;
+    if (revision === downloadRevision) applyDownloadStatus(status);
     pollDownloadStatus();
   } catch (error) {
-    if (!silent)
+    if (epoch === generation && !silent)
       toast(
         error instanceof Error ? error.message : String(error),
         "error",
         6500,
       );
+  } finally {
+    if (epoch === generation) downloadStarting.value = null;
   }
 }
 
@@ -744,8 +795,12 @@ async function quickCheckGame() {
 }
 
 export async function cancelGameDownload() {
+  const epoch = generation;
+  const revision = downloadRevision;
   try {
-    applyDownloadStatus(await invoke("game_download_cancel"));
+    const status = await invoke("game_download_cancel");
+    if (epoch === generation && revision === downloadRevision)
+      applyDownloadStatus(status);
   } catch (error) {
     toast(String(error), "error", 6500);
   }
@@ -922,7 +977,7 @@ export function handleLaunchAction() {
   if (state.game === "running") closeGame();
   else if (!state.bootstrap?.gameExists || downloadNeedsWork())
     showPage("update");
-  else if (!downloadBusy()) launchGame();
+  else if (!downloadBlocksLaunch()) launchGame();
 }
 
 export async function saveSettings(
@@ -1241,6 +1296,7 @@ export async function init() {
 export function dispose() {
   generation++;
   autoCheckStarted = false;
+  downloadStarting.value = null;
   events.abort();
   disposers.splice(0).forEach((stop) => stop());
   timers.forEach((id) => window.clearTimeout(id));

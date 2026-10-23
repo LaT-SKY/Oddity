@@ -357,3 +357,119 @@ fn emitted_stage_and_current_file_always_refer_to_the_same_item() {
         );
     }
 }
+
+#[test]
+fn read_only_checks_do_not_block_launch_or_settings() {
+    let fixture = Fixture::new(Distribution::Cn, true);
+    let cancel = Arc::new(AtomicBool::new(false));
+    let (status, _, _) = prepare_task(
+        &fixture.app.state::<AppState>(),
+        &fixture.app.state::<DownloadManager>(),
+        "check",
+        true,
+        &cancel,
+    )
+    .unwrap();
+    assert!(busy(&status.phase));
+    assert!(!blocks_changes(&status));
+    let mut applying = status;
+    applying.mode = "apply".into();
+    assert!(blocks_changes(&applying));
+    game_download_cancel(fixture.app.state());
+    assert!(cancel.load(Ordering::Relaxed));
+}
+
+#[test]
+fn byte_events_are_throttled_without_losing_progress() {
+    let fixture = Fixture::new(Distribution::Cn, true);
+    let seen = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+    let observed = seen.clone();
+    fixture.app.listen_any("game-download-state", move |event| {
+        observed
+            .lock()
+            .unwrap()
+            .push(serde_json::from_str(event.payload()).unwrap());
+    });
+    for _ in 0..100 {
+        publish_bytes(fixture.app.handle(), 1024);
+    }
+    assert_eq!(fixture.status().downloaded_bytes, 100 * 1024);
+    assert_eq!(seen.lock().unwrap().len(), 1);
+    fixture
+        .app
+        .state::<DownloadManager>()
+        .inner
+        .lock()
+        .unwrap()
+        .last_progress = Some(Instant::now() - Duration::from_millis(150));
+    publish_bytes(fixture.app.handle(), 1024);
+    assert_eq!(seen.lock().unwrap().len(), 2);
+    publish(fixture.app.handle(), |status| status.phase = "ready".into());
+    let events = seen.lock().unwrap();
+    assert_eq!(events.len(), 3);
+    assert_eq!(events.last().unwrap()["downloadedBytes"], 101 * 1024);
+    assert_eq!(events.last().unwrap()["phase"], "ready");
+}
+
+#[test]
+fn start_command_publishes_a_fast_worker_failure() {
+    let fixture = Fixture::new(Distribution::Cn, true);
+    fixture.dir.write(
+        "NTEGlobal/Config/Config.ini",
+        b"[General]\nGameID=3000001\n",
+    );
+    let (send, receive) = std::sync::mpsc::channel();
+    fixture.app.listen_any("game-download-state", move |event| {
+        let status: serde_json::Value = serde_json::from_str(event.payload()).unwrap();
+        if status["phase"] == "failed" {
+            send.send(status).unwrap();
+        }
+    });
+    let initial = game_download_start(
+        fixture.app.handle().clone(),
+        fixture.app.state(),
+        fixture.app.state(),
+        "check".into(),
+        false,
+    )
+    .unwrap();
+    assert_eq!(initial.phase, "checking");
+    let failed = receive.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert!(failed["error"].as_str().unwrap().contains("另一地区"));
+    assert_eq!(fixture.status().phase, "failed");
+}
+
+#[test]
+fn automatic_check_uses_detection_without_persisting_it() {
+    let mut env = crate::tests::EnvGuard::new();
+    let fixture = Fixture::new(Distribution::Cn, true);
+    env.set("NTE_ROOT", fixture.dir.path());
+    fixture
+        .app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .unwrap()
+        .install_root = None;
+    let (status, effective, _) = prepare_task(
+        &fixture.app.state::<AppState>(),
+        &fixture.app.state::<DownloadManager>(),
+        "check",
+        false,
+        &Arc::new(AtomicBool::new(false)),
+    )
+    .unwrap();
+    assert_eq!(
+        status.install_root,
+        fixture.dir.path().display().to_string()
+    );
+    assert_eq!(effective.install_root, Some(status.install_root));
+    assert!(fixture
+        .app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .unwrap()
+        .install_root
+        .is_none());
+}

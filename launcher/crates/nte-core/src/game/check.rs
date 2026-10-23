@@ -11,7 +11,7 @@ use crate::game::manifest::{
     LocalManifest, PakEntry, RemoteConfig, ResEntry,
 };
 use crate::game::pxml;
-use crate::update::{md5_bytes, md5_file};
+use crate::update::{md5_bytes, md5_file_cancellable};
 use crate::{Error, Result};
 
 const SMALL_HASH_LIMIT: u64 = 20 * 1024 * 1024;
@@ -208,8 +208,19 @@ pub fn load_remote(config: &GameUpdateConfig) -> Result<RemoteBundle> {
 }
 
 pub fn check(config: &GameUpdateConfig, opts: CheckOptions) -> Result<UpdatePlan> {
+    check_cancellable(config, opts, &|| false)
+}
+
+pub fn check_cancellable(
+    config: &GameUpdateConfig,
+    opts: CheckOptions,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<UpdatePlan> {
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
     let bundle = load_remote(config)?;
-    check_bundle(config, &bundle, opts)
+    check_bundle_cancellable(config, &bundle, opts, cancelled)
 }
 
 pub fn check_bundle(
@@ -217,6 +228,18 @@ pub fn check_bundle(
     bundle: &RemoteBundle,
     opts: CheckOptions,
 ) -> Result<UpdatePlan> {
+    check_bundle_cancellable(config, bundle, opts, &|| false)
+}
+
+pub fn check_bundle_cancellable(
+    config: &GameUpdateConfig,
+    bundle: &RemoteBundle,
+    opts: CheckOptions,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<UpdatePlan> {
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
     let local = load_local_ledger(config)?;
     let local_version = local
         .as_ref()
@@ -280,6 +303,9 @@ pub fn check_bundle(
     }
 
     for (kind, _size) in entries {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         plan.checked += 1;
         let path = kind.path().to_string();
         let size = kind.size();
@@ -370,7 +396,7 @@ pub fn check_bundle(
                 || metadata_changed
                 || size <= SMALL_HASH_LIMIT
             {
-                match md5_file(&local_path) {
+                match md5_file_cancellable(&local_path, cancelled) {
                     Ok(got) if got.eq_ignore_ascii_case(&md5) => {
                         plan.verified.push(kind);
                         continue;
@@ -401,7 +427,7 @@ pub fn check_bundle(
         // large unknown files are reported separately instead of silently
         // trusting a size-only match.
         if forced || opts.full || size <= SMALL_HASH_LIMIT {
-            match md5_file(&local_path) {
+            match md5_file_cancellable(&local_path, cancelled) {
                 Ok(got) if got.eq_ignore_ascii_case(&md5) => {
                     plan.verified.push(kind);
                     continue;
@@ -1515,6 +1541,38 @@ mod tests {
         assert_eq!(split_content_id("short.42"), None);
         assert_eq!(split_content_id(&format!("{}.x", "zz".repeat(16))), None);
         assert_eq!(split_content_id("nonsense"), None);
+    }
+
+    #[test]
+    fn full_check_stops_during_a_large_file() {
+        let dir = TempDir::new("full-check-cancel");
+        let config = config_for(&dir);
+        let bytes = vec![7; 4 * 1024 * 1024];
+        dir.write("install/data/a.bin", &bytes);
+        let remote = bundle(
+            manifest_res(vec![res(
+                "data/a.bin",
+                &crate::update::md5_bytes(&bytes),
+                bytes.len() as u64,
+            )]),
+            None,
+        );
+        let checks = std::cell::Cell::new(0);
+        let error = check_bundle_cancellable(
+            &config,
+            &remote,
+            CheckOptions {
+                full: true,
+                include_optional: false,
+            },
+            &|| {
+                checks.set(checks.get() + 1);
+                checks.get() > 4
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(error, Error::Cancelled));
+        assert_eq!(checks.get(), 5);
     }
 
     #[test]

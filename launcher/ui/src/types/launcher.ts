@@ -122,6 +122,7 @@ export type DownloadPhase =
   | "cancelled"
   | "failed";
 export interface DownloadStatus {
+  mode: "check" | "apply";
   phase: DownloadPhase;
   distribution: "cn" | "global";
   installRoot: string;

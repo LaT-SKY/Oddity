@@ -32,20 +32,44 @@ pub fn plan_launcher(
     install_root: &Path,
     full: bool,
 ) -> Result<LauncherPlan> {
-    plan_launcher_with_urls(
+    plan_launcher_cancellable(distribution, install_root, full, &|| false)
+}
+
+pub fn plan_launcher_cancellable(
+    distribution: Distribution,
+    install_root: &Path,
+    full: bool,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<LauncherPlan> {
+    plan_launcher_with_urls_cancellable(
         distribution,
         install_root,
         full,
         &distribution.version_urls(),
+        cancelled,
     )
 }
 
+#[cfg(test)]
 fn plan_launcher_with_urls(
     distribution: Distribution,
     install_root: &Path,
     full: bool,
     urls: &[&str],
 ) -> Result<LauncherPlan> {
+    plan_launcher_with_urls_cancellable(distribution, install_root, full, urls, &|| false)
+}
+
+fn plan_launcher_with_urls_cancellable(
+    distribution: Distribution,
+    install_root: &Path,
+    full: bool,
+    urls: &[&str],
+    cancelled: &dyn Fn() -> bool,
+) -> Result<LauncherPlan> {
+    if cancelled() {
+        return Err(Error::Cancelled);
+    }
     let other = match distribution {
         Distribution::Cn => Distribution::Global,
         Distribution::Global => Distribution::Cn,
@@ -76,6 +100,9 @@ fn plan_launcher_with_urls(
     let mut last_error = None;
     let mut found = None;
     for url in urls {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
         match version::fetch(url) {
             Ok(version) => {
                 let Some(manifest_url) = version.file_list_url else {
@@ -99,7 +126,7 @@ fn plan_launcher_with_urls(
     let (manifest, manifest_url, backup_url) = found.ok_or_else(|| {
         last_error.unwrap_or_else(|| Error::Http("无法获取官方启动器清单".into()))
     })?;
-    let report = update::check(&root, &manifest, !full)?;
+    let report = update::check_cancellable(&root, &manifest, !full, cancelled)?;
     let files: Vec<_> = report.missing.into_iter().chain(report.changed).collect();
     for file in &files {
         if file.zip_size.is_none()

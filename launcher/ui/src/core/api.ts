@@ -262,9 +262,8 @@ export function listenDownloadState(handler: (status: DownloadStatus) => void) {
   };
 }
 
-let previewAutoCheckPending = true;
-
 const mockDownload: DownloadStatus = {
+  mode: "check",
   phase: "idle",
   distribution: "cn",
   installRoot: preview.installRoot,
@@ -440,11 +439,11 @@ async function previewInvoke(
     case "game_download_status":
       return clone(mockDownload);
     case "game_download_start": {
-      // 启动后的第一次检查是静默快速检查，预览中视为没有小版本更新。
-      const auto = previewAutoCheckPending;
-      previewAutoCheckPending = false;
-      if (auto) {
+      const { mode, full } = args as CommandArgs["game_download_start"];
+      // 预览资源大小一致, 完整校验才能发现模拟的内容损坏。
+      if (mode === "check" && !full) {
         Object.assign(mockDownload, {
+          mode,
           phase: "ready",
           installed: true,
           full: false,
@@ -468,8 +467,8 @@ async function previewInvoke(
         });
         return clone(mockDownload);
       }
-      const { mode, full } = args as CommandArgs["game_download_start"];
       Object.assign(mockDownload, {
+        mode,
         full: full || (mockDownload.full && mockDownload.phase !== "ready"),
         unverifiedFiles: 0,
         phase: mode === "check" ? "needs-update" : "game",
