@@ -24,6 +24,7 @@ pub fn update_after_apply(
         crate::game::check::load_local_ledger(config)?.unwrap_or_else(GameManifest::default);
     let completed: BTreeSet<_> = successful_paths.iter().map(String::as_str).collect();
     if bump_version
+        && plan.unverified.is_empty()
         && plan
             .items
             .iter()
@@ -36,7 +37,13 @@ pub fn update_after_apply(
     }
 
     for path in successful_paths {
-        let Some(item) = plan.items.iter().find(|i| &i.path == path) else {
+        let Some(item) = plan
+            .items
+            .iter()
+            .map(|item| &item.kind)
+            .chain(&plan.verified)
+            .find(|kind| kind.path() == path)
+        else {
             continue;
         };
         let target = join_install_path(&config.install_root, path);
@@ -45,18 +52,18 @@ pub fn update_after_apply(
             .and_then(|m| m.modified().ok())
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
             .map(|d| d.as_secs());
-        let blocks = match &item.kind {
+        let blocks = match item {
             UpdateKind::Res { res } => res.blocks.clone(),
             UpdateKind::PakEntry { .. } => Vec::new(),
         };
-        let check = match &item.kind {
+        let check = match item {
             UpdateKind::Res { res } => res.check,
             UpdateKind::PakEntry { entry, .. } => entry.check,
         };
         let fresh = ResEntry {
             filename: path.clone(),
-            filesize: item.size,
-            md5: item.md5.clone(),
+            filesize: item.size(),
+            md5: item.md5().into(),
             timestamp,
             check,
             blocks,
@@ -66,8 +73,8 @@ pub fn update_after_apply(
             // the root ledger; the official parser accepts root Res entries.
             manifest.res.push(ResEntry {
                 filename: path.clone(),
-                filesize: item.size,
-                md5: item.md5.clone(),
+                filesize: item.size(),
+                md5: item.md5().into(),
                 timestamp,
                 check,
                 blocks: Vec::new(),

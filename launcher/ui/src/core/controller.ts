@@ -259,7 +259,9 @@ export const launchView = computed(() => ({
 function downloadNeedsWork() {
   return (
     state.download?.distribution === form.distribution &&
-    ["needs-install", "needs-update"].includes(state.download.phase)
+    ["needs-install", "needs-update", "needs-verify"].includes(
+      state.download.phase,
+    )
   );
 }
 export function downloadBusy() {
@@ -279,7 +281,7 @@ export function formatSize(bytes: number): string {
 }
 
 const DOWNLOAD_STAGE_LABELS: Record<string, string> = {
-  download: "下载中",
+  download: "下载",
   patch: "应用补丁",
   verify: "校验文件",
   install: "写入文件",
@@ -292,6 +294,7 @@ export const downloadView = computed(() => {
     checking: "正在检查游戏资源",
     "needs-install": "需要安装启动器文件",
     "needs-update": "发现待下载的游戏资源",
+    "needs-verify": "存在尚未验证的游戏资源",
     launcher: "正在下载启动器文件",
     game: "正在下载游戏资源",
     ready: "游戏资源已就绪",
@@ -301,11 +304,6 @@ export const downloadView = computed(() => {
   const phase = status?.phase || "idle";
   const totalBytes = status?.totalBytes || 0;
   const downloadedBytes = status?.downloadedBytes || 0;
-  // 回退整文件时实际传输量会超过计划量，此时用文件数表示进度。
-  const bytesProgress =
-    totalBytes > 0 && downloadedBytes <= totalBytes
-      ? Math.min(100, Math.round((downloadedBytes / totalBytes) * 100))
-      : null;
   const fileProgress = status?.totalFiles
     ? Math.min(
         100,
@@ -315,7 +313,7 @@ export const downloadView = computed(() => {
   const stageText = DOWNLOAD_STAGE_LABELS[status?.stage || ""] || "";
   return {
     title: titles[phase],
-    progress: bytesProgress ?? fileProgress,
+    progress: phase === "ready" ? 100 : Math.min(99, fileProgress),
     downloadedText:
       totalBytes > 0 && downloadedBytes <= totalBytes
         ? `${formatSize(downloadedBytes)} / ${formatSize(totalBytes)}`
@@ -330,11 +328,17 @@ export const downloadView = computed(() => {
     stageText,
     detail:
       status?.error ||
-      (phase === "checking"
-        ? "正在读取官方清单并核对本地文件"
-        : status?.pendingFiles
-          ? `${status.pendingFiles} 个文件待处理`
-          : "选择地区和安装目录后检查资源"),
+      (status?.unverifiedFiles
+        ? `${status.unverifiedFiles} 个文件尚未验证, 请完整校验或安装修复`
+        : phase === "checking"
+          ? "正在读取官方清单并核对本地文件"
+          : phase === "ready"
+            ? "资源检查完成，可以启动游戏"
+            : phase === "cancelled"
+              ? "未完成的文件将在下次安装或更新时继续"
+              : status?.pendingFiles
+                ? `${status.pendingFiles} 个文件待处理`
+                : "选择地区和安装目录后检查资源"),
   };
 });
 export const homeDownloadNotice = computed(() => {
@@ -343,9 +347,13 @@ export const homeDownloadNotice = computed(() => {
       ? state.download.phase
       : "idle";
   return {
-    visible: ["needs-install", "needs-update", "failed", "cancelled"].includes(
-      phase,
-    ),
+    visible: [
+      "needs-install",
+      "needs-update",
+      "needs-verify",
+      "failed",
+      "cancelled",
+    ].includes(phase),
     kind: phase === "failed" ? "error" : "warn",
     text:
       phase === "cancelled"

@@ -32,6 +32,20 @@ pub fn plan_launcher(
     install_root: &Path,
     full: bool,
 ) -> Result<LauncherPlan> {
+    plan_launcher_with_urls(
+        distribution,
+        install_root,
+        full,
+        &distribution.version_urls(),
+    )
+}
+
+fn plan_launcher_with_urls(
+    distribution: Distribution,
+    install_root: &Path,
+    full: bool,
+    urls: &[&str],
+) -> Result<LauncherPlan> {
     let other = match distribution {
         Distribution::Cn => Distribution::Global,
         Distribution::Global => Distribution::Cn,
@@ -61,7 +75,7 @@ pub fn plan_launcher(
     }
     let mut last_error = None;
     let mut found = None;
-    for url in distribution.version_urls() {
+    for url in urls {
         match version::fetch(url) {
             Ok(version) => {
                 let Some(manifest_url) = version.file_list_url else {
@@ -114,4 +128,131 @@ pub fn plan_launcher(
         download_bytes,
         zip_bases,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::{HttpServer, TempDir};
+
+    fn publish(server: &HttpServer, zip_metadata: bool) -> String {
+        let manifest_url = server.url("/launcher/AllFiles.xml");
+        server.route(
+            "/Version.ini",
+            format!("[VERSION]\nVersion=1.0\nFileListURL={manifest_url}\n"),
+        );
+        let zip = if zip_metadata {
+            " ZipChecksum=\"0123456789abcdef0123456789abcdef\" ZipSize=\"100\""
+        } else {
+            ""
+        };
+        server.route("/launcher/AllFiles.xml", format!(
+            "<AllFiles><ProductVersion Version=\"1.0\"/><File Path=\"/Config/Config.ini\" Size=\"4\" Checksum=\"{}\"{zip}/></AllFiles>",
+            update::md5_bytes(b"good")
+        ));
+        server.url("/Version.ini")
+    }
+
+    #[test]
+    fn plans_both_distributions_and_detects_same_size_corruption() {
+        let server = HttpServer::start();
+        let url = publish(&server, true);
+        for distribution in [Distribution::Cn, Distribution::Global] {
+            let dir = TempDir::new("install-plan");
+            let plan = plan_launcher_with_urls(distribution, dir.path(), false, &[&url]).unwrap();
+            assert_eq!(plan.root, dir.join(distribution.launcher_dir()));
+            assert_eq!(plan.file_count(), 1);
+            assert_eq!(plan.download_bytes, 100);
+            assert_eq!(plan.version, "1.0");
+            assert_eq!(plan.zip_bases[0], server.url("/launcher"));
+            dir.write(
+                format!("{}/Config/Config.ini", distribution.launcher_dir()),
+                b"evil",
+            );
+            assert_eq!(
+                plan_launcher_with_urls(distribution, dir.path(), false, &[&url])
+                    .unwrap()
+                    .file_count(),
+                0
+            );
+            assert_eq!(
+                plan_launcher_with_urls(distribution, dir.path(), true, &[&url])
+                    .unwrap()
+                    .file_count(),
+                1
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_region_collisions_before_contacting_the_cdn() {
+        for (distribution, other, game_id) in [
+            (Distribution::Cn, Distribution::Global, 3000001),
+            (Distribution::Global, Distribution::Cn, 1289),
+        ] {
+            let dir = TempDir::new("install-region");
+            dir.write(format!("{}/Config/Config.ini", other.launcher_dir()), b"");
+            assert!(
+                plan_launcher_with_urls(distribution, dir.path(), false, &[])
+                    .unwrap_err()
+                    .to_string()
+                    .contains("另一地区")
+            );
+            std::fs::remove_dir_all(dir.join(other.launcher_dir())).unwrap();
+            dir.write(
+                format!("{}/Config/Config.ini", distribution.launcher_dir()),
+                format!("[General]\nGameID={game_id}\n"),
+            );
+            assert!(
+                plan_launcher_with_urls(distribution, dir.path(), false, &[])
+                    .unwrap_err()
+                    .to_string()
+                    .contains("地区与当前选择不一致")
+            );
+        }
+    }
+
+    #[test]
+    fn requires_zip_integrity_and_tries_the_next_source() {
+        let server = HttpServer::start();
+        let url = publish(&server, false);
+        let dir = TempDir::new("install-metadata");
+        assert!(
+            plan_launcher_with_urls(Distribution::Cn, dir.path(), false, &[&url])
+                .unwrap_err()
+                .to_string()
+                .contains("ZIP 校验信息")
+        );
+        publish(&server, true);
+        let missing = server.url("/missing.ini");
+        let no_manifest = server.url("/no-manifest.ini");
+        server.route("/no-manifest.ini", b"[VERSION]\nVersion=1\n");
+        assert_eq!(
+            plan_launcher_with_urls(
+                Distribution::Cn,
+                dir.path(),
+                false,
+                &[&missing, &no_manifest, &url]
+            )
+            .unwrap()
+            .file_count(),
+            1
+        );
+        assert!(plan_launcher_with_urls(Distribution::Cn, dir.path(), false, &[&missing]).is_err());
+    }
+
+    #[test]
+    fn mirrors_use_the_selected_region() {
+        assert_eq!(
+            mirror_url("https://yhcdn1.wmupd.com/file", Distribution::Cn),
+            "https://yhcdn2.wmupd.com/file"
+        );
+        assert_eq!(
+            mirror_url(
+                "https://ntecdn1.perfectworld.com/file",
+                Distribution::Global
+            ),
+            "https://ntecdn2.perfectworld.com/file"
+        );
+    }
 }

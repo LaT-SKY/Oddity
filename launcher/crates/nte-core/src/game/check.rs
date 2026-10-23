@@ -116,6 +116,8 @@ pub struct UpdatePlan {
     pub checked: usize,
     pub items: Vec<UpdateItem>,
     pub unverified: Vec<UpdateItem>,
+    // 应用时记录本轮实际哈希验证过的文件，供后续快速核对。
+    pub verified: Vec<UpdateKind>,
     pub max_threads: usize,
 }
 
@@ -369,7 +371,10 @@ pub fn check_bundle(
                 || size <= SMALL_HASH_LIMIT
             {
                 match md5_file(&local_path) {
-                    Ok(got) if got.eq_ignore_ascii_case(&md5) => continue,
+                    Ok(got) if got.eq_ignore_ascii_case(&md5) => {
+                        plan.verified.push(kind);
+                        continue;
+                    }
                     Ok(_) => {
                         plan.items.push(UpdateItem {
                             path,
@@ -397,7 +402,10 @@ pub fn check_bundle(
         // trusting a size-only match.
         if forced || opts.full || size <= SMALL_HASH_LIMIT {
             match md5_file(&local_path) {
-                Ok(got) if got.eq_ignore_ascii_case(&md5) => continue,
+                Ok(got) if got.eq_ignore_ascii_case(&md5) => {
+                    plan.verified.push(kind);
+                    continue;
+                }
                 Ok(_) => {
                     plan.items.push(UpdateItem {
                         path,

@@ -100,6 +100,30 @@ test("导航、更新、设置、快捷键与启动关闭流程", async ({ page 
   expect(errors).toEqual([]);
 });
 
+test("完整校验后修复资源，并在完成后恢复普通安装入口", async ({ page }) => {
+  await page.goto("/#update");
+  const update = page.locator("#page-update");
+  await update.getByRole("button", { name: "完整校验", exact: true }).click();
+  await expect(
+    update.getByRole("heading", { name: "发现待下载的游戏资源" }),
+  ).toBeVisible();
+  await update
+    .getByRole("button", { name: "完整校验并修复", exact: true })
+    .click();
+  await expect(
+    update.getByRole("button", { name: "暂停下载", exact: true }),
+  ).toBeVisible();
+  await expect(
+    update.getByRole("heading", { name: "游戏资源已就绪" }),
+  ).toBeVisible();
+  await expect(
+    update.getByRole("button", { name: "安装或更新", exact: true }),
+  ).toBeEnabled();
+  await expect(
+    update.getByRole("button", { name: "完整校验并修复", exact: true }),
+  ).toHaveCount(0);
+});
+
 test("深链接与减少动态效果的首次加载", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/#settings");

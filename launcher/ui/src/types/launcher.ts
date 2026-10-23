@@ -115,6 +115,7 @@ export type DownloadPhase =
   | "checking"
   | "needs-install"
   | "needs-update"
+  | "needs-verify"
   | "launcher"
   | "game"
   | "ready"
@@ -124,6 +125,8 @@ export interface DownloadStatus {
   phase: DownloadPhase;
   distribution: "cn" | "global";
   installRoot: string;
+  full: boolean;
+  unverifiedFiles: number;
   currentFile: string;
   currentFileBytes: number;
   completedFiles: number;

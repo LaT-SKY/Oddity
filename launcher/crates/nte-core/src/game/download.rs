@@ -229,6 +229,22 @@ pub fn apply_plan_observed_full(
 
     let mut report = ApplyReport::default();
     if selected.is_empty() {
+        report.cancelled = cancelled();
+        if opts.update_ledger && !opts.dry_run && !report.cancelled && !plan.verified.is_empty() {
+            let verified = plan
+                .verified
+                .iter()
+                .map(|item| item.path().to_string())
+                .collect::<Vec<_>>();
+            if let Err(error) = crate::game::ledger::update_after_apply(
+                config,
+                plan,
+                &verified,
+                plan.items.is_empty(),
+            ) {
+                report.ledger_error = Some(error.to_string());
+            }
+        }
         return report;
     }
 
@@ -330,6 +346,8 @@ pub fn apply_plan_observed_full(
     });
 
     report.results.sort_by(|a, b| a.path.cmp(&b.path));
+    report.cancelled |= cancelled();
+    completed.extend(plan.verified.iter().map(|item| item.path().to_string()));
     if opts.update_ledger && !completed.is_empty() {
         let bump = !report.cancelled && report.failed == 0;
         match crate::game::ledger::update_after_apply(config, plan, &completed, bump) {
@@ -1636,6 +1654,25 @@ mod tests {
             res_url(&config, "", 0),
             format!("https://yhcdn1.wmupd.com/clientRes/{BRANCH}/Res/0/.0")
         );
+    }
+
+    #[test]
+    fn cancelling_before_workers_start_is_reported_without_writing_files() {
+        let dir = TempDir::new("cancel-before-worker");
+        let config = config_for(&dir);
+        let plan = plan_of(vec![res_item("data/a.bin", &"ab".repeat(16), 5)]);
+        let report = apply_plan_observed(
+            &config,
+            &plan,
+            &ApplyOptions::default(),
+            &mut |_| panic!("不能启动已取消的任务"),
+            &mut |_, _| {},
+            &|| true,
+        );
+        assert!(report.cancelled);
+        assert!(report.results.is_empty());
+        assert!(!config.install_root.join("data/a.bin").exists());
+        assert!(!config.patcher_dir.join("ResList.xml").exists());
     }
 
     #[test]

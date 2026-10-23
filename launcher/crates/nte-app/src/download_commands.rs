@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 
 use nte_core::config::LauncherConfig;
 use nte_core::game::check::CheckOptions;
@@ -18,6 +18,8 @@ pub struct DownloadStatus {
     pub(crate) phase: String,
     distribution: String,
     install_root: String,
+    full: bool,
+    unverified_files: usize,
     current_file: String,
     current_file_bytes: u64,
     completed_files: usize,
@@ -40,6 +42,8 @@ impl Default for DownloadStatus {
             phase: "idle".into(),
             distribution: "cn".into(),
             install_root: String::new(),
+            full: false,
+            unverified_files: 0,
             current_file: String::new(),
             current_file_bytes: 0,
             completed_files: 0,
@@ -73,7 +77,7 @@ pub(crate) fn busy(phase: &str) -> bool {
     matches!(phase, "checking" | "launcher" | "game")
 }
 
-fn publish(app: &AppHandle, change: impl FnOnce(&mut DownloadStatus)) {
+fn publish<R: Runtime>(app: &AppHandle<R>, change: impl FnOnce(&mut DownloadStatus)) {
     let manager = app.state::<DownloadManager>();
     let status = match manager.inner.lock() {
         Ok(mut inner) => {
@@ -85,8 +89,8 @@ fn publish(app: &AppHandle, change: impl FnOnce(&mut DownloadStatus)) {
     let _ = app.emit("game-download-state", status);
 }
 
-fn check_game(
-    app: &AppHandle,
+fn check_game<R: Runtime>(
+    app: &AppHandle<R>,
     settings: &Settings,
     root: &Path,
     full: bool,
@@ -114,6 +118,7 @@ fn check_game(
     publish(app, |status| {
         status.distribution = settings.distribution.as_str().into();
         status.remote_version = plan.remote_version.clone();
+        status.unverified_files = plan.unverified.len();
         status.pending_files = plan.items.len();
         status.total_bytes = total_bytes;
         status.total_files = plan.items.len();
@@ -125,8 +130,8 @@ fn check_game(
     Ok(plan)
 }
 
-fn run_task(
-    app: &AppHandle,
+fn run_task<R: Runtime>(
+    app: &AppHandle<R>,
     settings: &Settings,
     mode: &str,
     full: bool,
@@ -135,6 +140,17 @@ fn run_task(
     let install_root = selected_install_root(settings);
     let launcher_plan = install::plan_launcher(settings.distribution, &install_root, full)
         .map_err(|error| format!("检查启动器文件失败: {error}"))?;
+    run_plan(app, settings, mode, full, cancel, launcher_plan)
+}
+
+fn run_plan<R: Runtime>(
+    app: &AppHandle<R>,
+    settings: &Settings,
+    mode: &str,
+    full: bool,
+    cancel: &AtomicBool,
+    launcher_plan: install::LauncherPlan,
+) -> Result<(), String> {
     if cancel.load(Ordering::Relaxed) {
         publish(app, |status| status.phase = "cancelled".into());
         return Ok(());
@@ -202,7 +218,12 @@ fn run_task(
         status.full_bytes = 0;
         status.stage.clear();
     });
-    let plan = check_game(app, settings, &launcher_plan.root, full)?;
+    let mut plan = check_game(app, settings, &launcher_plan.root, full)?;
+    // 应用任务必须先确认未知资源，不能把仅大小相符的大文件视为已校验。
+    if mode == "apply" && !plan.unverified.is_empty() && !cancel.load(Ordering::Relaxed) {
+        publish(app, |status| status.full = true);
+        plan = check_game(app, settings, &launcher_plan.root, true)?;
+    }
     if cancel.load(Ordering::Relaxed) {
         publish(app, |status| status.phase = "cancelled".into());
         return Ok(());
@@ -212,17 +233,15 @@ fn run_task(
     }
     if mode == "check" {
         publish(app, |status| {
-            status.phase = if plan.items.is_empty() {
+            status.phase = if !plan.unverified.is_empty() {
+                "needs-verify"
+            } else if plan.items.is_empty() {
                 "ready"
             } else {
                 "needs-update"
             }
             .into();
         });
-        return Ok(());
-    }
-    if plan.items.is_empty() {
-        publish(app, |status| status.phase = "ready".into());
         return Ok(());
     }
     let launcher_config = LauncherConfig::load(&launcher_plan.root)
@@ -241,13 +260,22 @@ fn run_task(
         publish(app, |status| {
             status.current_file = item.path.clone();
             status.current_file_bytes = item.size;
+            status.stage = "download".into();
         });
     };
     let mut on_bytes = |_: &str, bytes: u64| {
         publish(app, |status| status.downloaded_bytes += bytes);
     };
-    let mut on_stage = |_: &str, stage: game::download::ApplyStage| {
-        publish(app, |status| status.stage = stage.as_str().into());
+    let mut on_stage = |path: &str, stage: game::download::ApplyStage| {
+        publish(app, |status| {
+            status.current_file = path.into();
+            status.current_file_bytes = plan
+                .items
+                .iter()
+                .find(|item| item.path == path)
+                .map_or(0, |item| item.size);
+            status.stage = stage.as_str().into();
+        });
     };
     let mut on_result = |result: &game::download::ApplyResult| {
         publish(app, |status| {
@@ -258,6 +286,7 @@ fn run_task(
             if status.current_file == result.path {
                 status.current_file.clear();
                 status.current_file_bytes = 0;
+                status.stage.clear();
             }
             if status.pending_files == 0 {
                 status.stage.clear();
@@ -313,19 +342,17 @@ pub fn game_download_status(manager: State<'_, DownloadManager>) -> DownloadStat
         .unwrap_or_default()
 }
 
-#[tauri::command]
-pub fn game_download_start(
-    app: AppHandle,
-    state: State<'_, AppState>,
-    manager: State<'_, DownloadManager>,
-    mode: String,
+fn prepare_task(
+    state: &AppState,
+    manager: &DownloadManager,
+    mode: &str,
     full: bool,
-) -> Result<DownloadStatus, String> {
+    cancel: &Arc<AtomicBool>,
+) -> Result<(DownloadStatus, Settings, bool), String> {
     if mode != "check" && mode != "apply" {
         return Err("无效的游戏资源操作".into());
     }
-    let cancel = Arc::new(AtomicBool::new(false));
-    let (status, settings) = {
+    let (status, settings, full) = {
         let mut inner = manager.inner.lock().map_err(|error| error.to_string())?;
         if busy(&inner.status.phase) {
             return Err("游戏资源任务正在进行".into());
@@ -346,15 +373,35 @@ pub fn game_download_start(
                 return Err("游戏正在运行，无法修改游戏文件".into());
             }
         }
+        let install_root = selected_install_root(&settings).display().to_string();
+        let full = full
+            || (inner.status.full
+                && inner.status.phase != "ready"
+                && inner.status.distribution == settings.distribution.as_str()
+                && inner.status.install_root == install_root);
         inner.cancel = Some(cancel.clone());
         inner.status = DownloadStatus {
             phase: "checking".into(),
             distribution: settings.distribution.as_str().into(),
-            install_root: selected_install_root(&settings).display().to_string(),
+            install_root,
+            full,
             ..DownloadStatus::default()
         };
-        (inner.status.clone(), settings)
+        (inner.status.clone(), settings, full)
     };
+    Ok((status, settings, full))
+}
+
+#[tauri::command]
+pub fn game_download_start<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+    manager: State<'_, DownloadManager>,
+    mode: String,
+    full: bool,
+) -> Result<DownloadStatus, String> {
+    let cancel = Arc::new(AtomicBool::new(false));
+    let (status, settings, full) = prepare_task(&state, &manager, &mode, full, &cancel)?;
     let _ = app.emit("game-download-state", status.clone());
     tauri::async_runtime::spawn_blocking(move || {
         let result = run_task(&app, &settings, &mode, full, &cancel);
@@ -389,3 +436,7 @@ pub fn game_download_cancel(manager: State<'_, DownloadManager>) -> DownloadStat
         DownloadStatus::default()
     }
 }
+
+#[cfg(test)]
+#[path = "tests/download.rs"]
+mod tests;

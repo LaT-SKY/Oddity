@@ -68,6 +68,8 @@ beforeEach(() => {
     phase: "idle",
     distribution: "cn",
     installRoot: "/game",
+    full: false,
+    unverifiedFiles: 0,
     currentFile: "",
     currentFileBytes: 0,
     completedFiles: 0,
@@ -335,7 +337,6 @@ describe("更新检查", () => {
       stage: "patch",
     });
     await nextTick();
-    // 下载量超过计划量时用文件数表示进度，避免进度条回退或超过 100%。
     expect(c.downloadView.value.progress).toBe(50);
     expect(c.downloadView.value.sizeText).toBe("本次需下载 10 B");
     expect(c.downloadView.value.stageText).toBe("应用补丁");
@@ -353,11 +354,104 @@ describe("更新检查", () => {
       pendingFiles: 2,
     });
     await nextTick();
-    expect(c.downloadView.value.progress).toBe(80);
+    expect(c.downloadView.value.progress).toBe(0);
     expect(c.downloadView.value.downloadedText).toBe("8 B / 10 B");
     expect(button("download-install-root").disabled).toBe(true);
     await c.cancelGameDownload();
     expect(backend.invoke).toHaveBeenCalledWith("game_download_cancel");
+  });
+
+  it("完整校验发现损坏后，实际修复按钮继续提交完整校验", async () => {
+    const c = await boot();
+    await wrapper!
+      .findAll("#page-update button")
+      .find((item) => item.text() === "完整校验")!
+      .trigger("click");
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("game_download_start", {
+      mode: "check",
+      full: true,
+    });
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      full: true,
+      pendingFiles: 1,
+      totalFiles: 1,
+    });
+    await nextTick();
+    await wrapper!
+      .findAll("#page-update button")
+      .find((item) => item.text() === "完整校验并修复")!
+      .trigger("click");
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenLastCalledWith("game_download_start", {
+      mode: "apply",
+      full: true,
+    });
+    expect(c.state.download?.phase).toBe("checking");
+  });
+
+  it("未知大文件显示待验证提示，并阻止首页直接启动游戏", async () => {
+    const c = await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-verify",
+      unverifiedFiles: 2,
+    });
+    await nextTick();
+    expect(c.downloadView.value.title).toBe("存在尚未验证的游戏资源");
+    expect(c.downloadView.value.detail).toContain("2 个文件尚未验证");
+    expect(c.launchView.value.label).toBe("更新游戏");
+    c.handleLaunchAction();
+    expect(c.state.page).toBe("update");
+    expect(backend.invoke).not.toHaveBeenCalledWith("launch_official");
+  });
+
+  it("完整校验通过后恢复普通安装按钮", async () => {
+    await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "ready",
+      full: true,
+    });
+    await flushPromises();
+    const action = wrapper!
+      .findAll("#page-update button")
+      .find((item) => item.text() === "安装或更新");
+    expect(action).toBeDefined();
+    await action!.trigger("click");
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenLastCalledWith("game_download_start", {
+      mode: "apply",
+      full: false,
+    });
+  });
+
+  it("传输完成和整文件回退不改变按完成文件数计算的进度", async () => {
+    const c = await boot();
+    const status: DownloadStatus = {
+      ...backend.downloadStatus,
+      phase: "game",
+      completedFiles: 1,
+      totalFiles: 2,
+      totalBytes: 100,
+      downloadedBytes: 100,
+      stage: "patch",
+    };
+    backend.downloadHandler(status);
+    expect(c.downloadView.value.progress).toBe(50);
+    backend.downloadHandler({ ...status, downloadedBytes: 101 });
+    expect(c.downloadView.value.progress).toBe(50);
+    backend.downloadHandler({ ...status, completedFiles: 2, stage: "install" });
+    expect(c.downloadView.value.progress).toBeLessThan(100);
+    backend.downloadHandler({
+      ...status,
+      phase: "ready",
+      completedFiles: 2,
+      stage: "",
+    });
+    expect(c.downloadView.value.progress).toBe(100);
   });
 
   it.each([

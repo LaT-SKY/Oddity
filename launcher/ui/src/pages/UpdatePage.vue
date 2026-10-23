@@ -29,6 +29,12 @@ const statusMatches = computed(
   () => state.download?.distribution === form.distribution,
 );
 const active = computed(() => downloadBusy());
+const needsFullRepair = computed(
+  () =>
+    statusMatches.value &&
+    state.download?.phase !== "ready" &&
+    Boolean(state.download?.full || state.download?.unverifiedFiles),
+);
 </script>
 
 <template>
@@ -109,9 +115,9 @@ const active = computed(() => downloadBusy());
             class="btn btn--primary"
             type="button"
             :disabled="active || state.game !== 'idle'"
-            @click="startGameDownload('apply', false)"
+            @click="startGameDownload('apply', needsFullRepair)"
           >
-            安装或更新
+            {{ needsFullRepair ? "完整校验并修复" : "安装或更新" }}
           </button>
           <button
             v-if="active"
@@ -136,7 +142,7 @@ const active = computed(() => downloadBusy());
           <div class="download-progress__meta">
             <span
               >{{ state.download.completedFiles }} /
-              {{ state.download.totalFiles }} 个文件</span
+              {{ state.download.totalFiles }} 个文件已完成</span
             >
             <span>已下载 {{ downloadView.downloadedText }}</span>
           </div>
@@ -152,7 +158,7 @@ const active = computed(() => downloadBusy());
           <progress
             :value="downloadView.progress"
             max="100"
-            :aria-label="'下载进度 ' + downloadView.progress + '%'"
+            :aria-label="'资源处理进度 ' + downloadView.progress + '%'"
           />
           <p
             v-if="downloadView.stageText"

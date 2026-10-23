@@ -266,6 +266,8 @@ const mockDownload: DownloadStatus = {
   phase: "idle",
   distribution: "cn",
   installRoot: preview.installRoot,
+  full: false,
+  unverifiedFiles: 0,
   currentFile: "",
   currentFileBytes: 0,
   completedFiles: 0,
@@ -435,8 +437,10 @@ async function previewInvoke(
     case "game_download_status":
       return clone(mockDownload);
     case "game_download_start": {
-      const { mode } = args as CommandArgs["game_download_start"];
+      const { mode, full } = args as CommandArgs["game_download_start"];
       Object.assign(mockDownload, {
+        full: full || (mockDownload.full && mockDownload.phase !== "ready"),
+        unverifiedFiles: 0,
         phase: mode === "check" ? "needs-update" : "game",
         distribution: mock.settings.distribution,
         installRoot: mock.installRoot,

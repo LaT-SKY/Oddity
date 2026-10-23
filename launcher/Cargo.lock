@@ -2420,6 +2420,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-single-instance",
  "zeroize",
+ "zip",
 ]
 
 [[package]]
