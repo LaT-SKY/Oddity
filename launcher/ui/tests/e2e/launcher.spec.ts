@@ -100,27 +100,28 @@ test("导航、更新、设置、快捷键与启动关闭流程", async ({ page 
   expect(errors).toEqual([]);
 });
 
-test("完整校验后修复资源，并在完成后恢复普通安装入口", async ({ page }) => {
+test("启动快速检查后更新，并在完成后显示检查通过", async ({ page }) => {
   await page.goto("/#update");
   const update = page.locator("#page-update");
+  const primary = update.locator("#game-download-primary");
+  // 启动后的自动快速检查没有发现更新。
+  await expect(primary).toHaveText("检查通过");
+  // 再用完整校验模拟发现一个小版本更新。
   await update.getByRole("button", { name: "完整校验", exact: true }).click();
   await expect(
     update.getByRole("heading", { name: "发现待下载的游戏资源" }),
   ).toBeVisible();
-  await update
-    .getByRole("button", { name: "完整校验并修复", exact: true })
-    .click();
+  await expect(primary).toHaveText("更新游戏");
+  await primary.click();
   await expect(
     update.getByRole("button", { name: "暂停下载", exact: true }),
   ).toBeVisible();
   await expect(
     update.getByRole("heading", { name: "游戏资源已就绪" }),
   ).toBeVisible();
+  await expect(primary).toHaveText("检查通过");
   await expect(
-    update.getByRole("button", { name: "安装或更新", exact: true }),
-  ).toBeEnabled();
-  await expect(
-    update.getByRole("button", { name: "完整校验并修复", exact: true }),
+    update.getByRole("button", { name: "暂停下载", exact: true }),
   ).toHaveCount(0);
 });
 

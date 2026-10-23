@@ -18,6 +18,8 @@ pub struct DownloadStatus {
     pub(crate) phase: String,
     distribution: String,
     install_root: String,
+    /// 官方本地清单存在时视为已安装，用于区分安装与更新。
+    installed: bool,
     full: bool,
     unverified_files: usize,
     current_file: String,
@@ -42,6 +44,7 @@ impl Default for DownloadStatus {
             phase: "idle".into(),
             distribution: "cn".into(),
             install_root: String::new(),
+            installed: false,
             full: false,
             unverified_files: 0,
             current_file: String::new(),
@@ -373,7 +376,12 @@ fn prepare_task(
                 return Err("游戏正在运行，无法修改游戏文件".into());
             }
         }
-        let install_root = selected_install_root(&settings).display().to_string();
+        let install_root = selected_install_root(&settings);
+        let installed = install_root
+            .join(settings.distribution.launcher_dir())
+            .join("UserData/Patcher/PatcherSDK/ResList.xml")
+            .is_file();
+        let install_root = install_root.display().to_string();
         let full = full
             || (inner.status.full
                 && inner.status.phase != "ready"
@@ -384,6 +392,7 @@ fn prepare_task(
             phase: "checking".into(),
             distribution: settings.distribution.as_str().into(),
             install_root,
+            installed,
             full,
             ..DownloadStatus::default()
         };

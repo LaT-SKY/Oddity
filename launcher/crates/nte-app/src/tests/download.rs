@@ -164,6 +164,7 @@ fn installs_from_an_empty_directory_for_both_regions() {
         let fixture = Fixture::new(distribution, false);
         fixture.run("check", false, true).unwrap();
         assert_eq!(fixture.status().phase, "needs-install");
+        assert!(!fixture.status().installed);
         fixture.run("apply", false, true).unwrap();
         let status = fixture.status();
         assert_eq!(status.phase, "ready");
@@ -177,6 +178,7 @@ fn installs_from_an_empty_directory_for_both_regions() {
         );
         fixture.run("check", true, false).unwrap();
         assert_eq!(fixture.status().phase, "ready");
+        assert!(fixture.status().installed);
     }
 }
 
@@ -187,6 +189,7 @@ fn a_full_check_is_preserved_until_corruption_is_repaired() {
     fixture.dir.write(DATA, vec![9; fixture.data.len()]);
     fixture.run("check", true, false).unwrap();
     assert_eq!(fixture.status().phase, "needs-update");
+    assert!(fixture.status().installed);
     assert_eq!(fixture.status().pending_files, 1);
     // 按钮传 false 时，后端仍须保留先前的完整校验要求。
     fixture.run("apply", false, false).unwrap();

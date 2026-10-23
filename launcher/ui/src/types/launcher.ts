@@ -125,6 +125,8 @@ export interface DownloadStatus {
   phase: DownloadPhase;
   distribution: "cn" | "global";
   installRoot: string;
+  /** 官方本地清单存在时视为已安装。 */
+  installed: boolean;
   full: boolean;
   unverifiedFiles: number;
   currentFile: string;

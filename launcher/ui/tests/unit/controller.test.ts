@@ -20,6 +20,9 @@ const backend = vi.hoisted(() => ({
   handler: (_status: GameStatus) => {},
   downloadHandler: (_status: DownloadStatus) => {},
   downloadStatus: {} as DownloadStatus,
+  autoCheckPending: false,
+  autoCheckStatus: null as DownloadStatus | null,
+  autoCheckFail: false,
   data: {} as Bootstrap,
   result: {} as CheckResult,
   status: {} as GameStatus,
@@ -68,6 +71,7 @@ beforeEach(() => {
     phase: "idle",
     distribution: "cn",
     installRoot: "/game",
+    installed: true,
     full: false,
     unverifiedFiles: 0,
     currentFile: "",
@@ -85,6 +89,9 @@ beforeEach(() => {
     pendingFiles: 0,
     error: "",
   };
+  backend.autoCheckPending = true;
+  backend.autoCheckStatus = null;
+  backend.autoCheckFail = false;
   backend.invoke
     .mockReset()
     .mockImplementation(
@@ -98,7 +105,18 @@ beforeEach(() => {
             return structuredClone(backend.status);
           case "game_download_status":
             return structuredClone(backend.downloadStatus);
-          case "game_download_start":
+          case "game_download_start": {
+            // 启动后的第一次检查是静默快速检查。
+            const auto = backend.autoCheckPending;
+            backend.autoCheckPending = false;
+            if (auto) {
+              if (backend.autoCheckFail) throw new Error("quick check offline");
+              if (backend.autoCheckStatus)
+                backend.downloadStatus = structuredClone(
+                  backend.autoCheckStatus,
+                );
+              return structuredClone(backend.downloadStatus);
+            }
             backend.downloadStatus = {
               ...backend.downloadStatus,
               phase: "checking",
@@ -106,6 +124,7 @@ beforeEach(() => {
               installRoot: backend.data.settings.globalInstallRoot || "/game",
             };
             return structuredClone(backend.downloadStatus);
+          }
           case "game_download_cancel":
             backend.downloadStatus = {
               ...backend.downloadStatus,
@@ -160,6 +179,8 @@ async function boot() {
 }
 const text = (id: string) => document.getElementById(id)?.textContent;
 const button = (id: string) => document.getElementById(id) as HTMLButtonElement;
+const primary = () => wrapper!.find("#game-download-primary");
+const primaryText = () => primary().find(".btn__text").text();
 const key = (value: string, options: KeyboardEventInit = {}) =>
   document.dispatchEvent(
     new KeyboardEvent("keydown", {
@@ -322,6 +343,7 @@ describe("更新检查", () => {
       full: true,
     });
     expect(c.state.download?.phase).toBe("checking");
+    expect(document.body.textContent).not.toContain("暂停下载");
     backend.downloadHandler({
       ...backend.downloadStatus,
       phase: "game",
@@ -337,6 +359,7 @@ describe("更新检查", () => {
       stage: "patch",
     });
     await nextTick();
+    expect(document.body.textContent).toContain("暂停下载");
     expect(c.downloadView.value.progress).toBe(50);
     expect(c.downloadView.value.sizeText).toBe("本次需下载 10 B");
     expect(c.downloadView.value.stageText).toBe("应用补丁");
@@ -361,7 +384,136 @@ describe("更新检查", () => {
     expect(backend.invoke).toHaveBeenCalledWith("game_download_cancel");
   });
 
-  it("完整校验发现损坏后，实际修复按钮继续提交完整校验", async () => {
+  it("主按钮按检查结果显示检查通过、安装或更新", async () => {
+    const c = await boot();
+    expect(primaryText()).toBe("检查资源");
+    await primary().trigger("click");
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("game_download_start", {
+      mode: "check",
+      full: false,
+    });
+    expect(document.body.textContent).not.toContain("暂停下载");
+
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      installed: true,
+      pendingFiles: 1,
+      totalFiles: 1,
+    });
+    await flushPromises();
+    expect(primaryText()).toBe("更新游戏");
+    c.state.game = "running";
+    await nextTick();
+    expect(button("game-download-primary").disabled).toBe(true);
+    c.state.game = "idle";
+    await nextTick();
+    expect(button("game-download-primary").disabled).toBe(false);
+    await primary().trigger("click");
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenLastCalledWith("game_download_start", {
+      mode: "apply",
+      full: false,
+    });
+    expect(document.body.textContent).not.toContain("暂停下载");
+
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      installed: false,
+      pendingFiles: 1,
+      totalFiles: 1,
+    });
+    await flushPromises();
+    expect(primaryText()).toBe("安装游戏");
+
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "ready",
+      installed: true,
+      pendingFiles: 0,
+      totalFiles: 1,
+    });
+    await flushPromises();
+    expect(primaryText()).toBe("检查通过");
+    expect(button("game-download-primary").disabled).toBe(false);
+    expect(
+      button("game-download-primary").classList.contains("is-passed"),
+    ).toBe(true);
+    expect(document.body.textContent).not.toContain("暂停下载");
+
+    // 安装目录改变后，旧结果不再适用。
+    c.form.installRoot = "/other";
+    await flushPromises();
+    expect(primaryText()).toBe("检查资源");
+
+    // 新目录开始检查时应立即显示检查中，而不是沿用旧结果。
+    await primary().trigger("click");
+    await flushPromises();
+    expect(primaryText()).toBe("正在检查");
+    expect(text("game-download-state-title")).toBe("正在检查游戏资源");
+  });
+
+  it("首次安装只显示启动器文件体积并说明后续检查", async () => {
+    const c = await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-install",
+      installed: false,
+      pendingFiles: 683,
+      totalFiles: 683,
+      totalBytes: 274636864,
+    });
+    await flushPromises();
+    expect(c.downloadView.value.title).toBe("需要安装启动器文件");
+    expect(c.downloadView.value.detail).toBe(
+      "启动器文件尚未安装，完成后将继续检查游戏资源",
+    );
+    expect(c.downloadView.value.sizeText).toBe("启动器文件 262 MiB");
+    expect(primaryText()).toBe("安装游戏");
+    expect(document.body.textContent).toContain("启动器文件 262 MiB");
+    expect(document.body.textContent).not.toContain("本次需下载 262 MiB");
+  });
+
+  it("启动时静默快速检查并在发现小版本更新时更新入口", async () => {
+    backend.autoCheckStatus = {
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      installed: true,
+      pendingFiles: 2,
+      totalFiles: 2,
+      totalBytes: 2048,
+    };
+    const c = await boot();
+    expect(backend.invoke).toHaveBeenCalledWith("game_download_start", {
+      mode: "check",
+      full: false,
+    });
+    expect(c.state.download?.phase).toBe("needs-update");
+    expect(c.launchView.value.label).toBe("更新游戏");
+    expect(primaryText()).toBe("更新游戏");
+    expect(text("toast")?.trim()).toBe("");
+  });
+
+  it("未安装游戏时启动不执行资源检查", async () => {
+    backend.data = bootstrap({ gameExists: false });
+    const c = await boot();
+    expect(backend.invoke).not.toHaveBeenCalledWith("game_download_start", {
+      mode: "check",
+      full: false,
+    });
+    expect(c.state.download?.phase ?? "idle").toBe("idle");
+  });
+
+  it("启动时的快速检查失败保持静默", async () => {
+    backend.autoCheckFail = true;
+    const c = await boot();
+    expect(c.state.download?.phase ?? "idle").toBe("idle");
+    expect(text("toast")?.trim()).toBe("");
+  });
+
+  it("完整校验发现损坏后，主按钮继续提交完整校验", async () => {
     const c = await boot();
     await wrapper!
       .findAll("#page-update button")
@@ -380,10 +532,8 @@ describe("更新检查", () => {
       totalFiles: 1,
     });
     await nextTick();
-    await wrapper!
-      .findAll("#page-update button")
-      .find((item) => item.text() === "完整校验并修复")!
-      .trigger("click");
+    expect(primaryText()).toBe("更新游戏");
+    await primary().trigger("click");
     await flushPromises();
     expect(backend.invoke).toHaveBeenLastCalledWith("game_download_start", {
       mode: "apply",
@@ -408,7 +558,7 @@ describe("更新检查", () => {
     expect(backend.invoke).not.toHaveBeenCalledWith("launch_official");
   });
 
-  it("完整校验通过后恢复普通安装按钮", async () => {
+  it("检查通过后主按钮显示通过状态", async () => {
     await boot();
     backend.downloadHandler({
       ...backend.downloadStatus,
@@ -416,16 +566,11 @@ describe("更新检查", () => {
       full: true,
     });
     await flushPromises();
-    const action = wrapper!
-      .findAll("#page-update button")
-      .find((item) => item.text() === "安装或更新");
-    expect(action).toBeDefined();
-    await action!.trigger("click");
-    await flushPromises();
-    expect(backend.invoke).toHaveBeenLastCalledWith("game_download_start", {
-      mode: "apply",
-      full: false,
-    });
+    expect(primaryText()).toBe("检查通过");
+    expect(button("game-download-primary").disabled).toBe(false);
+    expect(
+      button("game-download-primary").classList.contains("is-passed"),
+    ).toBe(true);
   });
 
   it("传输完成和整文件回退不改变按完成文件数计算的进度", async () => {

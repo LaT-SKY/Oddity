@@ -19,6 +19,7 @@ const BULLETIN_CACHE_KEY = "nte.bulletins.v1";
 const BULLETIN_CACHE_TTL_MS = 15 * 60 * 1000;
 const disposers: (() => void)[] = [];
 let downloadRevision = 0;
+let autoCheckStarted = false;
 const timers = new Set<number>();
 function schedule(callback: () => void, ms: number) {
   const id = window.setTimeout(() => {
@@ -250,7 +251,7 @@ export const launchView = computed(() => ({
   (!state.bootstrap?.gameExists || downloadNeedsWork())
     ? {
         label: state.bootstrap?.gameExists ? "更新游戏" : "安装游戏",
-        icon: "i-arrow-down",
+        icon: "i-download-simple",
       }
     : LAUNCH_COPY[state.game]),
   busy:
@@ -311,6 +312,7 @@ export const downloadView = computed(() => {
       )
     : 0;
   const stageText = DOWNLOAD_STAGE_LABELS[status?.stage || ""] || "";
+  const launcherScope = phase === "needs-install" || phase === "launcher";
   return {
     title: titles[phase],
     progress: phase === "ready" ? 100 : Math.min(99, fileProgress),
@@ -318,7 +320,9 @@ export const downloadView = computed(() => {
       totalBytes > 0 && downloadedBytes <= totalBytes
         ? `${formatSize(downloadedBytes)} / ${formatSize(totalBytes)}`
         : formatSize(downloadedBytes),
-    sizeText: totalBytes ? `本次需下载 ${formatSize(totalBytes)}` : "",
+    sizeText: totalBytes
+      ? `${launcherScope ? "启动器文件" : "本次需下载"} ${formatSize(totalBytes)}`
+      : "",
     splitText:
       status && status.patchBytes > 0
         ? status.fullBytes > 0
@@ -336,9 +340,11 @@ export const downloadView = computed(() => {
             ? "资源检查完成，可以启动游戏"
             : phase === "cancelled"
               ? "未完成的文件将在下次安装或更新时继续"
-              : status?.pendingFiles
-                ? `${status.pendingFiles} 个文件待处理`
-                : "选择地区和安装目录后检查资源"),
+              : phase === "needs-install"
+                ? "启动器文件尚未安装，完成后将继续检查游戏资源"
+                : status?.pendingFiles
+                  ? `${status.pendingFiles} 个文件待处理`
+                  : "选择地区和安装目录后检查资源"),
   };
 });
 export const homeDownloadNotice = computed(() => {
@@ -700,25 +706,41 @@ export async function loadDownloadStatus() {
   } catch {}
 }
 
-export async function startGameDownload(mode: "check" | "apply", full = false) {
+function pollDownloadStatus() {
+  if (isTauri()) return;
+  const poll = () => {
+    if (!downloadBusy()) return;
+    void loadDownloadStatus().then(() => schedule(poll, 250));
+  };
+  schedule(poll, 250);
+}
+
+export async function startGameDownload(
+  mode: "check" | "apply",
+  full = false,
+  silent = false,
+) {
   if (downloadBusy()) return;
-  if (!(await saveSettings(false))) return;
+  if (!(await saveSettings(false, silent))) return;
   try {
     applyDownloadStatus(await invoke("game_download_start", { mode, full }));
-    if (!isTauri()) {
-      const poll = () => {
-        if (!downloadBusy()) return;
-        void loadDownloadStatus().then(() => schedule(poll, 250));
-      };
-      schedule(poll, 250);
-    }
+    pollDownloadStatus();
   } catch (error) {
-    toast(
-      error instanceof Error ? error.message : String(error),
-      "error",
-      6500,
-    );
+    if (!silent)
+      toast(
+        error instanceof Error ? error.message : String(error),
+        "error",
+        6500,
+      );
   }
+}
+
+// 启动后静默快速核对游戏资源，尽早发现小版本更新。
+async function quickCheckGame() {
+  if (autoCheckStarted) return;
+  autoCheckStarted = true;
+  if (!state.bootstrap?.gameExists || state.game !== "idle") return;
+  await startGameDownload("check", false, true);
 }
 
 export async function cancelGameDownload() {
@@ -903,7 +925,10 @@ export function handleLaunchAction() {
   else if (!downloadBusy()) launchGame();
 }
 
-export async function saveSettings(announce = true): Promise<boolean> {
+export async function saveSettings(
+  announce = true,
+  silent = false,
+): Promise<boolean> {
   const epoch = generation;
   if (ui.saving) return false;
   const settings = {
@@ -943,11 +968,12 @@ export async function saveSettings(announce = true): Promise<boolean> {
     return true;
   } catch (error) {
     if (epoch !== generation) return false;
-    toast(
-      error instanceof Error ? error.message : String(error),
-      "error",
-      6000,
-    );
+    if (!silent)
+      toast(
+        error instanceof Error ? error.message : String(error),
+        "error",
+        6000,
+      );
     return false;
   } finally {
     if (epoch === generation) ui.saving = false;
@@ -1207,12 +1233,14 @@ export async function init() {
   if (state.bootstrap && state.bootstrap.ok) {
     whenIntroDone(() => {
       schedule(() => checkUpdate(false, true), 400);
+      schedule(() => void quickCheckGame(), 600);
     });
   }
 }
 
 export function dispose() {
   generation++;
+  autoCheckStarted = false;
   events.abort();
   disposers.splice(0).forEach((stop) => stop());
   timers.forEach((id) => window.clearTimeout(id));

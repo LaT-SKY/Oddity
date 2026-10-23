@@ -899,6 +899,20 @@ button:disabled {
   background: var(--primary-hover);
 }
 
+.btn--primary.is-passed {
+  background: var(--signal-dim);
+  color: var(--accent-text);
+  box-shadow: none;
+}
+
+.btn--primary.is-passed:hover:not(:disabled) {
+  background: var(--nav-active-bg);
+}
+
+.btn.is-spinning .icon {
+  animation: spin 1s linear infinite;
+}
+
 .btn__icon {
   width: 32px;
   height: 32px;
@@ -1035,36 +1049,33 @@ button:disabled {
   overflow-y: auto;
 }
 
-.update-wrap {
-  width: min(100%, 760px);
-  min-height: 100%;
-  margin: 0 auto;
-  padding: 12px 2px;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
+.update-card {
+  padding: 24px 26px 22px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(90% 130% at 0% 0%, var(--signal-dim), transparent 60%),
+    var(--surface-2);
 }
 
-.game-download-card {
-  margin-bottom: 22px;
-}
-
-.update-subtitle {
-  margin: 0 0 14px;
-  color: var(--muted);
-  font-size: 16px;
-  font-weight: 700;
+.update-card__title {
+  margin: 0 0 16px;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--bone);
 }
 
 .download-fields {
   display: grid;
   grid-template-columns: minmax(150px, 0.7fr) minmax(0, 2fr);
   gap: 16px;
-  margin-top: 28px;
+  margin-top: 24px;
 }
 
 .download-hint {
-  margin: 14px 0 0;
+  margin: 12px 0 0;
   color: var(--faint);
   font-size: 12px;
   line-height: 1.6;
@@ -1108,34 +1119,15 @@ button:disabled {
   }
 }
 
-.update-title {
-  margin: 0 0 20px;
-  font-family: var(--font-display);
-  font-size: 34px;
-  font-weight: 900;
-  line-height: 1.14;
-  letter-spacing: -0.02em;
-  color: var(--bone);
-}
-
-.update-card {
-  padding: 38px 40px 34px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-xl);
-  background:
-    radial-gradient(90% 130% at 0% 0%, var(--signal-dim), transparent 60%),
-    var(--surface);
-}
-
 .update-state {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
 }
 
 .update-icon {
-  width: 64px;
-  height: 64px;
+  width: 52px;
+  height: 52px;
   flex: none;
   display: grid;
   place-items: center;
@@ -1145,23 +1137,23 @@ button:disabled {
 }
 
 .update-icon .icon {
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
 }
 
 .update-state__copy h3 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 32px;
+  font-size: 24px;
   font-weight: 900;
-  line-height: 1.12;
+  line-height: 1.15;
   letter-spacing: -0.02em;
   color: var(--bone);
 }
 
 .update-state__copy p {
-  margin: 8px 0 0;
-  font-size: 14px;
+  margin: 6px 0 0;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--muted);
 }
@@ -1171,7 +1163,7 @@ button:disabled {
   align-items: center;
   gap: 18px;
   flex-wrap: wrap;
-  margin-top: 30px;
+  margin-top: 24px;
 }
 
 .update-actions .btn {
