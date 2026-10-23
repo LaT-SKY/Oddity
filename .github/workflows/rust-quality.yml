@@ -42,6 +42,7 @@ jobs:
   hygiene:
     name: 文档、脚本、仓库检查
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: 检出源码
         uses: actions/checkout@v7
@@ -72,6 +73,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: 检出源码
         uses: actions/checkout@v7
@@ -129,6 +131,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: 检出源码
         uses: actions/checkout@v7
@@ -164,6 +167,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: launcher
+          # 插桩 target 每次重编, 只缓存 registry
+          cache-targets: false
 
       - name: 安装 cargo-llvm-cov
         uses: taiki-e/install-action@v2

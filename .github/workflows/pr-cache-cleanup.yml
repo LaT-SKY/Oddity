@@ -1,0 +1,29 @@
+name: 清理 PR 缓存
+
+on:
+  pull_request_target:
+    types:
+      - closed
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    name: 删除已关闭 PR 的缓存
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    steps:
+      - name: 删除该 PR 的缓存
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: refs/pull/${{ github.event.pull_request.number }}/merge
+        run: |
+          set -euo pipefail
+          gh cache list --ref "$BRANCH" --limit 100 --json id --jq '.[].id' |
+          while read -r id; do
+            gh cache delete "$id" || true
+          done
