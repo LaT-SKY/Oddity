@@ -88,7 +88,7 @@ jobs:
             gh pr edit "$PR" --remove-label breaking
           fi
 
-      # 类型标签只增不删，breaking 和 area 标签单独同步。
+      # 标题类型标签只增不删；breaking 单独同步，ci、docs 和 area 标签按路径同步。
       - name: 根据标题同步类型和范围标签
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -148,7 +148,7 @@ jobs:
           done
           gh pr edit "$PR" "${args[@]}"
 
-      - name: 按路径同步 area 标签
+      - name: 按路径同步 area、ci 和 docs 标签
         uses: actions/labeler@v7
         with:
           sync-labels: true

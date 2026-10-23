@@ -1,4 +1,4 @@
-# 只维护 area 标签
+# 只维护 area、ci 和 docs 标签
 "area: ui":
   - changed-files:
       - any-glob-to-any-file:
@@ -28,3 +28,12 @@
       - any-glob-to-any-file:
           - "launcher/crates/nte-core/src/launch.rs"
           - "launcher/crates/nte-core/src/config.rs"
+"ci":
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+          - "scripts/**"
+"docs":
+  - changed-files:
+      - any-glob-to-all-files:
+          - "{docs/**,**/*.md}"

@@ -32,7 +32,7 @@ jobs:
               { label: "crash", prefix: "CRASH" },
               { label: "bug", prefix: "BUG" },
               { label: "feature", prefix: "FEATURE" },
-              { label: "enhancement", prefix: "FEATURE" },
+              { label: "enhancement", prefix: "ENHANCEMENT" },
               { label: "question", prefix: "QUESTION" },
             ];
             const validPrefixes = new Set(mappings.map((mapping) => mapping.prefix));
@@ -100,13 +100,16 @@ jobs:
             );
             const title = issue.title.trim();
             const match = prefixPattern.exec(title);
-            const labelPrefixes = [
-              ...new Set(
-                mappings
-                  .filter((mapping) => labels.has(mapping.label))
-                  .map((mapping) => mapping.prefix),
-              ),
-            ];
+            const labelPrefixes = new Set(
+              mappings
+                .filter((mapping) => labels.has(mapping.label))
+                .map((mapping) => mapping.prefix),
+            );
+
+            // 功能请求模板会同时带上 feature 和 enhancement，按功能请求补全。
+            if (labelPrefixes.has("FEATURE") && labelPrefixes.has("ENHANCEMENT")) {
+              labelPrefixes.delete("ENHANCEMENT");
+            }
 
             let prefix;
             let description;
@@ -120,19 +123,19 @@ jobs:
                 return;
               }
             } else {
-              if (labelPrefixes.length === 0) {
+              if (labelPrefixes.size === 0) {
                 await fail(
                   `Issue 标题没有类型前缀，也没有可识别的类型标签。请使用以下前缀之一：${prefixList}，或添加 bug、crash、feature、enhancement、question 标签。`,
                 );
                 return;
               }
-              if (labelPrefixes.length > 1) {
+              if (labelPrefixes.size > 1) {
                 await fail(
-                  `Issue 同时带有多个类型标签（${labelPrefixes.map((item) => `[${item}]`).join("、")}），请只保留一个。`,
+                  `Issue 同时带有多个类型标签（${[...labelPrefixes].map((item) => `[${item}]`).join("、")}），请只保留一个。`,
                 );
                 return;
               }
-              prefix = labelPrefixes[0];
+              prefix = [...labelPrefixes][0];
               description = title;
             }
 
