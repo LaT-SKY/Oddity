@@ -9,6 +9,7 @@ import type {
   GameStatus,
   DownloadStatus,
   BulletinFeed,
+  Settings,
 } from "../types/launcher";
 import { invoke, isTauri, listenGameState, listenDownloadState } from "./api";
 import { APP_VERSION } from "./version";
@@ -22,6 +23,15 @@ let downloadRevision = 0;
 let bootstrapRevision = 0;
 let autoCheckStarted = false;
 const downloadStarting = ref<"check" | "apply" | null>(null);
+// 文本输入防抖, 失焦和开关类控件立即保存。
+const AUTO_SAVE_DELAY = 500;
+const SAVED_STATE_DURATION = 2000;
+let autoSaveTimer: number | null = null;
+let autoSaveQueued = false;
+let autoSaveRunning = false;
+let saveStatusTimer = 0;
+let saveChain: Promise<boolean> = Promise.resolve(true);
+let lastSavedSettings = "";
 const timers = new Set<number>();
 function schedule(callback: () => void, ms: number) {
   const id = window.setTimeout(() => {
@@ -174,12 +184,15 @@ export async function runAttendance() {
     /* 错误由签到区显示。 */
   }
 }
-export async function saveAttendancePreferences() {
-  if (!attendance.status) return;
-  const preferences = {
+function attendancePreferences() {
+  return {
     trigger: attendanceForm.enabled ? attendanceForm.trigger : ("off" as const),
     time: attendanceForm.time,
   };
+}
+export async function saveAttendancePreferences() {
+  if (!attendance.status) return;
+  const preferences = attendancePreferences();
   const current = attendance.status.preferences;
   if (
     current.trigger === preferences.trigger &&
@@ -229,10 +242,11 @@ export const state = reactive<{
   heroMedia: "video",
 });
 
+type SaveState = "idle" | "saving" | "saved" | "error";
 export const ui = reactive({
   setupNeeded: false,
   updateError: false,
-  saving: false,
+  saveState: "idle" as SaveState,
   redetecting: false,
   maximized: false,
   introStarted: false,
@@ -282,6 +296,12 @@ function downloadBlocksLaunch() {
     (downloadStarting.value || state.download?.mode) === "apply"
   );
 }
+// 只有实际进入下载写入后才锁定路径; 启动下载前的保存仍读取表单。
+export const settingsPathsLocked = computed(
+  () =>
+    state.download?.mode === "apply" &&
+    ["checking", "launcher", "game"].includes(state.download?.phase || ""),
+);
 export function formatSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
   const units = ["B", "KiB", "MiB", "GiB", "TiB"];
@@ -670,6 +690,9 @@ function applyBootstrap(
 
   const ready = isReady(data);
   ui.setupNeeded = !ready;
+  if (data.error && announceError) {
+    toast(data.error, "error", 6000);
+  }
   if (!syncForm) return;
   applyTheme(settings.theme || "light");
 
@@ -694,10 +717,8 @@ function applyBootstrap(
   applyHeroMedia(settings.heroMedia || "video");
   form.minimizeToTrayOnClose = settings.minimizeToTrayOnClose ?? true;
   form.showLauncherAfterGameExit = settings.showLauncherAfterGameExit ?? true;
-
-  if (data.error && announceError) {
-    toast(data.error, "error", 6000);
-  }
+  // 记录表单当前对应的持久化状态, 自动保存时只提交真正的修改。
+  lastSavedSettings = JSON.stringify(currentSettings());
   void nextTick(syncScrollEdges);
 }
 
@@ -769,7 +790,7 @@ export async function startGameDownload(
   const epoch = generation;
   downloadStarting.value = mode;
   try {
-    if (!silent && !(await saveSettings(false, silent))) return;
+    if (!silent && !(await saveSettings(silent))) return;
     if (epoch !== generation) return;
     const revision = downloadRevision;
     const status = await invoke("game_download_start", { mode, full });
@@ -982,47 +1003,146 @@ export function handleLaunchAction() {
   else if (!downloadBlocksLaunch()) launchGame();
 }
 
-export async function saveSettings(
-  announce = true,
-  silent = false,
-): Promise<boolean> {
-  const epoch = generation;
-  if (ui.saving) return false;
-  const settings = {
-    installRoot: form.installRoot.trim() || null,
-    globalInstallRoot: form.globalInstallRoot.trim() || null,
-    distribution: form.distribution,
+function currentSettings(): Settings {
+  // 下载写入期间沿用已持久化的路径, 避免把自动探测到的目录当成修改提交。
+  const persisted = settingsPathsLocked.value
+    ? state.bootstrap?.settings
+    : undefined;
+  const launchMode = ["official", "background", "direct"].includes(
+    form.launchMode,
+  )
+    ? form.launchMode
+    : "background";
+  return {
+    installRoot: persisted
+      ? persisted.installRoot
+      : form.installRoot.trim() || null,
+    globalInstallRoot: persisted
+      ? persisted.globalInstallRoot
+      : form.globalInstallRoot.trim() || null,
+    distribution: persisted ? persisted.distribution : form.distribution,
     bridgeRoot: form.bridgeRoot.trim() || null,
     prefix: form.prefix.trim() || null,
     protonPath: form.protonPath.trim() || null,
-    launchMode: form.launchMode || "background",
+    launchMode,
     language: "zh-CN",
     reduceMotion: form.reduceMotion,
-    theme: applyTheme(form.theme),
-    heroMedia: applyHeroMedia(form.heroMedia),
+    theme: THEMES.has(form.theme) ? form.theme : "light",
+    heroMedia: HERO_MEDIA.has(form.heroMedia) ? form.heroMedia : "video",
     minimizeToTrayOnClose: form.minimizeToTrayOnClose,
     showLauncherAfterGameExit: form.showLauncherAfterGameExit,
   };
-  ui.saving = true;
+}
+
+function clearSaveStatusTimer() {
+  if (!saveStatusTimer) return;
+  window.clearTimeout(saveStatusTimer);
+  timers.delete(saveStatusTimer);
+  saveStatusTimer = 0;
+}
+
+function markSaved() {
+  clearSaveStatusTimer();
+  ui.saveState = "saved";
+  saveStatusTimer = schedule(() => {
+    saveStatusTimer = 0;
+    if (ui.saveState === "saved") ui.saveState = "idle";
+  }, SAVED_STATE_DURATION);
+}
+
+function cancelAutoSaveTimer() {
+  if (autoSaveTimer === null) return;
+  window.clearTimeout(autoSaveTimer);
+  timers.delete(autoSaveTimer);
+  autoSaveTimer = null;
+}
+
+// 表单事件只登记修改, 由统一队列合并并串行写入。
+export function queueSettingsSave(delay = AUTO_SAVE_DELAY) {
+  autoSaveQueued = true;
+  if (ui.saveState === "saved" || ui.saveState === "error") {
+    clearSaveStatusTimer();
+    ui.saveState = "idle";
+  }
+  cancelAutoSaveTimer();
+  if (delay <= 0) {
+    void flushAutoSave();
+    return;
+  }
+  autoSaveTimer = schedule(() => {
+    autoSaveTimer = null;
+    void flushAutoSave();
+  }, delay);
+}
+
+async function flushAutoSave() {
+  if (autoSaveRunning) return;
+  autoSaveRunning = true;
+  const epoch = generation;
   try {
-    const data = await invoke("save_settings", { settings });
-    if (epoch !== generation) return false;
-    applyBootstrap(data, announce);
-    applyReduceMotion(settings.reduceMotion);
-    if (announce && attendance.loaded && attendance.status) {
+    let ok = true;
+    let performed = false;
+    while (autoSaveQueued) {
+      performed = true;
+      autoSaveQueued = false;
+      ok = await enqueuePersist(false, epoch);
+      if (!ok) break;
+    }
+    // 连续修改合并为多次写入时, 只在最后一次成功后显示已保存。
+    if (performed && ok && !autoSaveQueued) markSaved();
+  } finally {
+    autoSaveRunning = false;
+  }
+}
+
+function enqueuePersist(silent: boolean, epoch = generation): Promise<boolean> {
+  const run = () => persistCurrentSettings(silent, epoch);
+  // 失败也不能中断后续保存, 因此串行链始终以已处理状态继续。
+  const next = saveChain.then(run, run);
+  saveChain = next.catch(() => false);
+  return next;
+}
+
+async function persistCurrentSettings(
+  silent: boolean,
+  epoch: number,
+): Promise<boolean> {
+  if (epoch !== generation) return false;
+  const settings = currentSettings();
+  const serialized = JSON.stringify(settings);
+  const changed = serialized !== lastSavedSettings;
+  const preferences = attendancePreferences();
+  const savedPreferences = attendance.status?.preferences;
+  const preferencesChanged = Boolean(
+    attendance.loaded &&
+    savedPreferences &&
+    (savedPreferences.trigger !== preferences.trigger ||
+      savedPreferences.time !== preferences.time),
+  );
+  if (!changed && !preferencesChanged) return true;
+
+  clearSaveStatusTimer();
+  ui.saveState = "saving";
+  try {
+    if (changed) {
+      const data = await invoke("save_settings", { settings });
+      if (epoch !== generation) return false;
+      lastSavedSettings = serialized;
+      // 保存响应只刷新环境状态, 不覆盖请求期间继续修改的表单。
+      applyBootstrap(data, false, false);
+    }
+    if (preferencesChanged) {
       try {
         await saveAttendancePreferences();
       } catch (cause) {
-        if (epoch === generation)
-          toast(
-            "设置已保存, 签到设置保存失败: " + attendanceMessage(cause),
-            "error",
-            6000,
-          );
+        if (epoch !== generation) return false;
+        if (!silent)
+          toast("签到设置保存失败: " + attendanceMessage(cause), "error", 6000);
+        ui.saveState = "error";
         return false;
       }
     }
-    if (epoch === generation && announce) toast("设置已保存.");
+    if (epoch !== generation) return false;
     return true;
   } catch (error) {
     if (epoch !== generation) return false;
@@ -1032,10 +1152,20 @@ export async function saveSettings(
         "error",
         6000,
       );
+    ui.saveState = "error";
     return false;
-  } finally {
-    if (epoch === generation) ui.saving = false;
   }
+}
+
+export async function saveSettings(silent = false): Promise<boolean> {
+  const epoch = generation;
+  autoSaveQueued = false;
+  cancelAutoSaveTimer();
+  await saveChain;
+  if (epoch !== generation) return false;
+  const ok = await enqueuePersist(silent, epoch);
+  if (ok && epoch === generation && !autoSaveQueued) markSaved();
+  return ok;
 }
 
 export async function redetect() {
@@ -1043,6 +1173,9 @@ export async function redetect() {
   if (ui.redetecting) return;
   ui.redetecting = true;
   try {
+    // 先写入未保存的修改, 失败时保留表单并让错误提示留在界面上。
+    if (!(await saveSettings())) return;
+    if (epoch !== generation) return;
     const data = await invoke("bootstrap");
     if (epoch !== generation) return;
     applyBootstrap(data);
@@ -1214,14 +1347,6 @@ function bindInteractions() {
     }
   });
 
-  onDocument("keydown", (event) => {
-    if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s")
-      return;
-    if (state.page !== "settings") return;
-    event.preventDefault();
-    void saveSettings();
-  });
-
   onWindow("hashchange", () => showPage(hashPage(), false));
 
   onWindow("focus", () => {
@@ -1300,6 +1425,12 @@ export function dispose() {
   generation++;
   autoCheckStarted = false;
   downloadStarting.value = null;
+  autoSaveQueued = false;
+  autoSaveRunning = false;
+  autoSaveTimer = null;
+  saveStatusTimer = 0;
+  lastSavedSettings = "";
+  saveChain = Promise.resolve(true);
   events.abort();
   disposers.splice(0).forEach((stop) => stop());
   timers.forEach((id) => window.clearTimeout(id));
@@ -1328,7 +1459,7 @@ export function dispose() {
     session: null,
   });
   Object.assign(ui, {
-    saving: false,
+    saveState: "idle",
     redetecting: false,
     updateError: false,
     setupNeeded: false,

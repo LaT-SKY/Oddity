@@ -255,6 +255,21 @@ describe("启动与设置", () => {
     expect(button("settings-redetect").disabled).toBe(false);
   });
 
+  it("重新检测前保存失败时保留表单并停止刷新", async () => {
+    const c = await boot();
+    c.form.prefix = "/draft-prefix";
+    backend.invoke.mockClear();
+    backend.invoke.mockRejectedValueOnce(new Error("disk full"));
+    await c.redetect();
+    expect(text("toast")).toBe("disk full");
+    expect(c.form.prefix).toBe("/draft-prefix");
+    expect(c.ui.saveState).toBe("error");
+    expect(backend.invoke.mock.calls.map(([command]) => command)).toEqual([
+      "save_settings",
+    ]);
+    expect(button("settings-redetect").disabled).toBe(false);
+  });
+
   it("无本地存储权限时仍能应用外观", async () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
       throw new Error("denied");
@@ -272,7 +287,7 @@ describe("启动与设置", () => {
     expect(button("app").classList.contains("reduce-motion")).toBe(false);
   });
 
-  it("保存时清理路径, 持久化外观, 失败后恢复按钮", async () => {
+  it("保存时清理路径, 持久化外观, 失败后保留错误状态", async () => {
     const c = await boot();
     Object.assign(c.form, {
       installRoot: " /new ",
@@ -302,14 +317,155 @@ describe("启动与设置", () => {
         showLauncherAfterGameExit: true,
       },
     });
-    expect(text("toast")).toBe("设置已保存.");
+    expect(c.ui.saveState).toBe("saved");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(c.ui.saveState).toBe("idle");
     Object.assign(c.form, { installRoot: "", prefix: "", protonPath: "" });
     backend.invoke.mockRejectedValueOnce(new Error("disk full"));
     await c.saveSettings();
     expect(text("toast")).toBe("disk full");
-    expect(button("settings-save").disabled).toBe(false);
+    expect(c.ui.saveState).toBe("error");
     await vi.advanceTimersByTimeAsync(6000);
     expect(button("toast").classList.contains("is-visible")).toBe(false);
+  });
+
+  it("文本输入防抖自动保存, 保存状态随后回到空闲", async () => {
+    const c = await boot();
+    backend.invoke.mockClear();
+    const input = document.querySelector<HTMLInputElement>("#set-install")!;
+    input.value = " /auto-game ";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(c.ui.saveState).toBe("idle");
+    await vi.advanceTimersByTimeAsync(499);
+    expect(backend.invoke).not.toHaveBeenCalledWith(
+      "save_settings",
+      expect.anything(),
+    );
+    await vi.advanceTimersByTimeAsync(1);
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
+      settings: expect.objectContaining({ installRoot: "/auto-game" }),
+    });
+    expect(c.ui.saveState).toBe("saved");
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(c.ui.saveState).toBe("idle");
+  });
+
+  it("开关修改立即自动保存", async () => {
+    const c = await boot();
+    const checkbox = document.querySelector<HTMLInputElement>(
+      "#set-minimize-to-tray",
+    )!;
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
+      settings: expect.objectContaining({ minimizeToTrayOnClose: false }),
+    });
+    expect(c.ui.saveState).toBe("saved");
+  });
+
+  it("下载写入期间锁住地区和安装目录, 其他设置仍可修改", async () => {
+    const c = await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      mode: "apply",
+      phase: "game",
+    });
+    await nextTick();
+    expect(c.settingsPathsLocked.value).toBe(true);
+    expect(
+      document.querySelector<HTMLSelectElement>("#set-distribution")!.disabled,
+    ).toBe(true);
+    expect(
+      document.querySelector<HTMLButtonElement>("#set-distribution-trigger")!
+        .disabled,
+    ).toBe(true);
+    expect(
+      document.querySelector<HTMLInputElement>("#set-install")!.disabled,
+    ).toBe(true);
+    expect(
+      document.querySelector<HTMLInputElement>("#set-global-install")!.disabled,
+    ).toBe(true);
+    expect(
+      document.querySelector<HTMLSelectElement>("#set-theme")!.disabled,
+    ).toBe(false);
+    expect(
+      document.querySelector<HTMLInputElement>("#set-proton")!.disabled,
+    ).toBe(false);
+    expect(wrapper!.find(".settings-lock").text()).toContain(
+      "暂时无法修改游戏地区和安装目录",
+    );
+    backend.invoke.mockClear();
+    c.applyTheme("dark");
+    c.queueSettingsSave(0);
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
+      settings: expect.objectContaining({
+        installRoot: null,
+        globalInstallRoot: null,
+        theme: "dark",
+      }),
+    });
+    expect(c.ui.saveState).toBe("saved");
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      mode: "check",
+      phase: "checking",
+    });
+    await nextTick();
+    expect(c.settingsPathsLocked.value).toBe(false);
+    expect(
+      document.querySelector<HTMLInputElement>("#set-install")!.disabled,
+    ).toBe(false);
+    expect(wrapper!.find(".settings-lock").exists()).toBe(false);
+  });
+
+  it("保存中的连续修改串行提交最新快照", async () => {
+    const c = await boot();
+    let finish!: (data: Bootstrap) => void;
+    backend.invoke.mockImplementationOnce(
+      () =>
+        new Promise<Bootstrap>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    c.form.prefix = "/first";
+    c.queueSettingsSave(0);
+    await flushPromises();
+    c.form.prefix = "/second";
+    c.queueSettingsSave(0);
+    await flushPromises();
+    finish(bootstrap());
+    await flushPromises();
+    const saves = backend.invoke.mock.calls.filter(
+      ([command]) => command === "save_settings",
+    );
+    expect(saves).toHaveLength(2);
+    expect(saves[1][1]).toMatchObject({
+      settings: { prefix: "/second" },
+    });
+    expect(c.ui.saveState).toBe("saved");
+  });
+
+  it("自动保存失败后在下一次修改时重试", async () => {
+    const c = await boot();
+    backend.invoke.mockRejectedValueOnce(new Error("disk full"));
+    c.form.prefix = "/blocked";
+    c.queueSettingsSave(0);
+    await flushPromises();
+    expect(text("toast")).toBe("disk full");
+    expect(c.ui.saveState).toBe("error");
+    c.form.prefix = "/retry";
+    c.queueSettingsSave(0);
+    await flushPromises();
+    expect(c.ui.saveState).toBe("saved");
+    expect(backend.invoke).toHaveBeenLastCalledWith(
+      "save_settings",
+      expect.objectContaining({
+        settings: expect.objectContaining({ prefix: "/retry" }),
+      }),
+    );
   });
 
   it("关闭窗口时最小化到托盘配置支持切换与保存", async () => {
@@ -328,20 +484,22 @@ describe("启动与设置", () => {
     });
   });
 
-  it("游戏退出后打开启动器配置支持切换与保存", async () => {
+  it("游戏退出后打开启动器配置支持切换与自动保存", async () => {
     const c = await boot();
     expect(c.form.showLauncherAfterGameExit).toBe(true);
     const checkbox = document.querySelector<HTMLInputElement>(
       "#set-show-after-game-exit",
     )!;
     expect(checkbox.checked).toBe(true);
-    c.form.showLauncherAfterGameExit = false;
-    await c.saveSettings();
+    checkbox.checked = false;
+    checkbox.dispatchEvent(new Event("change", { bubbles: true }));
+    await flushPromises();
     expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
       settings: expect.objectContaining({
         showLauncherAfterGameExit: false,
       }),
     });
+    expect(c.ui.saveState).toBe("saved");
   });
 });
 
@@ -966,16 +1124,12 @@ describe("导航和窗口交互", () => {
     key("2", { ctrlKey: true, metaKey: true });
     key("0", { ctrlKey: true });
     expect(c.state.page).toBe("home");
+    key("4", { ctrlKey: true });
+    expect(c.state.page).toBe("settings");
     backend.invoke.mockClear();
     key("s", { ctrlKey: true });
-    expect(backend.invoke).not.toHaveBeenCalledWith(
-      "save_settings",
-      expect.anything(),
-    );
-    key("4", { ctrlKey: true });
-    key("s", { metaKey: true });
     await flushPromises();
-    expect(backend.invoke).toHaveBeenCalledWith(
+    expect(backend.invoke).not.toHaveBeenCalledWith(
       "save_settings",
       expect.anything(),
     );
@@ -1204,11 +1358,11 @@ it("组件事件和双向绑定将用户操作传给控制器", async () => {
   await wrapper!.find('[data-page="settings"]').trigger("click");
   expect(c.state.page).toBe("settings");
   await wrapper!.find("#set-install").setValue(" /component-game ");
+  await wrapper!.find("#set-install").trigger("change");
   await wrapper!.find("#set-theme").setValue("dark");
   expect(localStorage.getItem("nte.theme")).toBe("dark");
   await wrapper!.find("#set-hero-media").setValue("photo");
   await wrapper!.find("#set-motion").setValue(false);
-  await wrapper!.find("#settings-form").trigger("submit");
   await flushPromises();
   expect(backend.data.settings.installRoot).toBe("/component-game");
   expect(backend.data.settings.theme).toBe("dark");
@@ -1327,6 +1481,22 @@ it("组件卸载时释放原生订阅、视频 URL、定时器和全局事件", 
   expect(backend.invoke).not.toHaveBeenCalled();
 });
 
+it("卸载时取消尚未触发的自动保存", async () => {
+  const c = await boot();
+  backend.invoke.mockClear();
+  c.form.prefix = "/pending";
+  c.queueSettingsSave();
+  wrapper!.unmount();
+  wrapper = undefined;
+  await vi.advanceTimersByTimeAsync(1000);
+  await flushPromises();
+  expect(backend.invoke).not.toHaveBeenCalledWith(
+    "save_settings",
+    expect.anything(),
+  );
+  expect(c.ui.saveState).toBe("idle");
+});
+
 it("卸载后返回的初始化快照不会重新触发界面或入场", async () => {
   let resolve!: (data: Bootstrap) => void;
   const pending = new Promise<Bootstrap>((done) => {
@@ -1359,12 +1529,14 @@ it.each(["check_update", "save_settings", "bootstrap"] as const)(
         resolve = done;
       }),
     );
+    if (command === "save_settings") c.form.prefix = "/late";
     const pending =
       command === "check_update"
         ? c.checkUpdate(true)
         : command === "save_settings"
           ? c.saveSettings()
           : c.redetect();
+    await flushPromises();
     wrapper!.unmount();
     wrapper = undefined;
     resolve(command === "check_update" ? check({ changed: 2 }) : bootstrap());
@@ -1372,7 +1544,7 @@ it.each(["check_update", "save_settings", "bootstrap"] as const)(
     expect(c.state.bootstrap).toBeNull();
     expect(c.state.check).toBeNull();
     expect(c.ui.toast.visible).toBe(false);
-    expect(c.ui.saving).toBe(false);
+    expect(c.ui.saveState).toBe("idle");
     expect(c.ui.redetecting).toBe(false);
   },
 );
@@ -1397,8 +1569,11 @@ it("设置页面标题与按钮图标正确, 且能计算滚动模糊边缘状�
   expect(wrapper!.find("#settings-redetect svg use").attributes("href")).toBe(
     "#i-arrows-clockwise",
   );
-  expect(wrapper!.find("#settings-save svg use").attributes("href")).toBe(
-    "#i-floppy-disk",
+  expect(wrapper!.find("#settings-save").exists()).toBe(false);
+  expect(wrapper!.find("#settings-autosave").exists()).toBe(false);
+  expect(wrapper!.find("#page-settings").text()).not.toContain("自动保存");
+  expect(wrapper!.find("#settings-form").attributes("data-save-state")).toBe(
+    "idle",
   );
 
   const activePage = document.querySelector<HTMLElement>(".page.is-active")!;
@@ -1437,7 +1612,7 @@ it("设置页面标题与按钮图标正确, 且能计算滚动模糊边缘状�
   expect(c.ui.scrollEdge.bottom).toBe(false);
 });
 
-it("页面保存先保存通用设置, 再保存已加载的签到偏好", async () => {
+it("保存先提交通用设置, 再提交已加载的签到偏好", async () => {
   const c = await boot();
   c.syncAttendance({
     accounts: [],
@@ -1447,6 +1622,7 @@ it("页面保存先保存通用设置, 再保存已加载的签到偏好", async
   c.attendanceForm.enabled = true;
   c.attendanceForm.trigger = "daily";
   c.attendanceForm.time = "20:30";
+  c.form.prefix = "/changed";
   const original = backend.invoke.getMockImplementation()!;
   backend.invoke.mockImplementation(async (command, args) =>
     command === "attendance_configure"
@@ -1462,11 +1638,13 @@ it("页面保存先保存通用设置, 再保存已加载的签到偏好", async
   expect(backend.invoke).toHaveBeenLastCalledWith("attendance_configure", {
     preferences: { trigger: "daily", time: "20:30" },
   });
-  expect(c.ui.toast.message).toBe("设置已保存.");
+  expect(c.ui.saveState).toBe("saved");
 });
 
-it("签到未加载时页面保存不提交签到偏好", async () => {
+it("签到未加载时保存不提交签到偏好", async () => {
   const c = await boot();
+  c.attendanceForm.enabled = true;
+  c.form.prefix = "/changed";
   backend.invoke.mockClear();
   await c.saveSettings();
   expect(backend.invoke.mock.calls.map(([command]) => command)).toEqual([
@@ -1474,7 +1652,7 @@ it("签到未加载时页面保存不提交签到偏好", async () => {
   ]);
 });
 
-it("签到保存失败明确提示通用设置已经保存", async () => {
+it("签到保存失败明确提示并保留错误状态", async () => {
   const c = await boot();
   c.syncAttendance({
     accounts: [],
@@ -1482,6 +1660,7 @@ it("签到保存失败明确提示通用设置已经保存", async () => {
   });
   c.attendance.loaded = true;
   c.attendanceForm.enabled = true;
+  c.form.prefix = "/changed";
   const original = backend.invoke.getMockImplementation()!;
   backend.invoke.mockImplementation(async (command, args) => {
     if (command === "attendance_configure")
@@ -1489,11 +1668,9 @@ it("签到保存失败明确提示通用设置已经保存", async () => {
     return original(command, args);
   });
   await c.saveSettings();
-  expect(c.ui.toast.message).toBe(
-    "设置已保存, 签到设置保存失败: 定时任务设置失败",
-  );
+  expect(c.ui.toast.message).toBe("签到设置保存失败: 定时任务设置失败");
   expect(c.ui.toast.kind).toBe("error");
-  expect(c.ui.saving).toBe(false);
+  expect(c.ui.saveState).toBe("error");
   expect(c.attendance.busy).toBe(false);
 });
 

@@ -156,6 +156,7 @@ onBeforeUnmount(() => {
     <select
       :id="id"
       :value="modelValue"
+      :disabled="disabled"
       tabindex="-1"
       aria-hidden="true"
       class="select-native-hidden"

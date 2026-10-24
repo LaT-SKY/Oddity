@@ -152,6 +152,8 @@ it("验证原因仅在弹窗显示, 登录失败也清空密码", async () => {
 it("签到与轮询保留未保存偏好, 弹窗循环焦点并还原", async () => {
   status.accounts = [account("1")];
   await boot();
+  // 单元测试不依赖弹窗动画, 避免 jsdom 缺少 DOMMatrixReadOnly.
+  c.applyReduceMotion(true);
   c.attendanceForm.enabled = true;
   c.attendanceForm.time = "21:30";
   await c.runAttendance();
@@ -271,7 +273,7 @@ it("手机号变化要求重新发送, 切换登录方式清理凭据和倒计�
   expect(el("[role=dialog]").textContent).not.toContain("重新发送 (");
   expect(document.querySelector("[role=dialog] [role=alert]")).toBeNull();
 });
-it("开机时选项可以统一保存", async () => {
+it("开机时选项自动保存", async () => {
   status.accounts = [account("1")];
   await boot();
   await wrapper.get("#attendance-enabled").setValue(true);
@@ -283,10 +285,22 @@ it("开机时选项可以统一保存", async () => {
   option!.click();
   await flushPromises();
   expect(wrapper.text()).toContain("用户登录后执行一次");
-  await c.saveSettings();
+  await flushPromises();
   expect(api.invoke).toHaveBeenCalledWith("attendance_configure", {
     preferences: { trigger: "boot", time: "08:00" },
   });
+});
+
+it("签到开关修改立即自动保存偏好", async () => {
+  status.accounts = [account("1")];
+  await boot();
+  api.invoke.mockClear();
+  await wrapper.get("#attendance-enabled").setValue(true);
+  await flushPromises();
+  expect(api.invoke).toHaveBeenCalledWith("attendance_configure", {
+    preferences: { trigger: "launch", time: "08:00" },
+  });
+  expect(c.ui.saveState).toBe("saved");
 });
 
 it("短信冷却在 60 秒结束, 关闭和卸载清理计时器", async () => {

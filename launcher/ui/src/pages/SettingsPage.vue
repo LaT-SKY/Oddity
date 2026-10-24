@@ -7,8 +7,9 @@ import {
   applyTheme,
   applyReduceMotion,
   applyHeroMedia,
-  saveSettings,
+  queueSettingsSave,
   redetect,
+  settingsPathsLocked,
 } from "../core/controller";
 import TaygedoSettings from "../components/TaygedoSettings.vue";
 import BaseSelect from "../components/BaseSelect.vue";
@@ -73,23 +74,15 @@ const launchModeHint = computed(
             <use href="#i-arrows-clockwise" /></svg
           ><span class="btn__text">重新检测</span>
         </button>
-        <button
-          class="btn btn--primary"
-          type="submit"
-          form="settings-form"
-          id="settings-save"
-          :disabled="ui.saving"
-          :class="{ 'is-busy': ui.saving }"
-        >
-          <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-            <use href="#i-floppy-disk"></use>
-          </svg>
-          <span class="btn__text">保存设置</span>
-        </button>
       </div>
     </header>
 
-    <form class="settings" id="settings-form" @submit.prevent="saveSettings()">
+    <form
+      class="settings"
+      id="settings-form"
+      :data-save-state="ui.saveState"
+      @submit.prevent
+    >
       <section class="settings-section">
         <h3>外观</h3>
         <div class="field-grid">
@@ -99,7 +92,10 @@ const launchModeHint = computed(
               id="set-theme"
               v-model="form.theme"
               :options="themeOptions"
-              @change="applyTheme(form.theme)"
+              @change="
+                applyTheme(form.theme);
+                queueSettingsSave(0);
+              "
             />
           </div>
           <div class="field">
@@ -108,7 +104,10 @@ const launchModeHint = computed(
               id="set-hero-media"
               v-model="form.heroMedia"
               :options="heroMediaOptions"
-              @change="applyHeroMedia(form.heroMedia)"
+              @change="
+                applyHeroMedia(form.heroMedia);
+                queueSettingsSave(0);
+              "
             />
           </div>
         </div>
@@ -123,6 +122,7 @@ const launchModeHint = computed(
             @change="
               applyReduceMotion(form.reduceMotion);
               applyHeroMedia(form.heroMedia);
+              queueSettingsSave(0);
             "
             type="checkbox"
           />
@@ -132,6 +132,9 @@ const launchModeHint = computed(
 
       <section class="settings-section">
         <h3>安装与运行</h3>
+        <p v-if="settingsPathsLocked" class="settings-lock" role="status">
+          游戏资源任务进行中，暂时无法修改游戏地区和安装目录。
+        </p>
         <div class="field-grid">
           <div class="field">
             <span>游戏地区</span>
@@ -139,6 +142,8 @@ const launchModeHint = computed(
               id="set-distribution"
               v-model="form.distribution"
               :options="distributionOptions"
+              :disabled="settingsPathsLocked"
+              @change="queueSettingsSave(0)"
             />
           </div>
           <label class="field field--wide">
@@ -150,6 +155,9 @@ const launchModeHint = computed(
               spellcheck="false"
               autocomplete="off"
               placeholder="/path/to/Neverness To Everness"
+              :disabled="settingsPathsLocked"
+              @input="queueSettingsSave()"
+              @change="queueSettingsSave(0)"
             />
           </label>
           <label class="field field--wide">
@@ -161,6 +169,9 @@ const launchModeHint = computed(
               spellcheck="false"
               autocomplete="off"
               placeholder="~/Games/Neverness To Everness Global"
+              :disabled="settingsPathsLocked"
+              @input="queueSettingsSave()"
+              @change="queueSettingsSave(0)"
             />
           </label>
           <label class="field">
@@ -172,6 +183,8 @@ const launchModeHint = computed(
               spellcheck="false"
               autocomplete="off"
               placeholder="~/.local/share/oddity/winroot"
+              @input="queueSettingsSave()"
+              @change="queueSettingsSave(0)"
             />
           </label>
           <label class="field">
@@ -183,6 +196,8 @@ const launchModeHint = computed(
               spellcheck="false"
               autocomplete="off"
               placeholder="~/.local/share/oddity/prefix"
+              @input="queueSettingsSave()"
+              @change="queueSettingsSave(0)"
             />
           </label>
           <label class="field field--wide">
@@ -194,6 +209,8 @@ const launchModeHint = computed(
               spellcheck="false"
               autocomplete="off"
               placeholder="~/.local/share/Steam/compatibilitytools.d/GE-Proton..."
+              @input="queueSettingsSave()"
+              @change="queueSettingsSave(0)"
             />
           </label>
           <div class="field">
@@ -202,6 +219,7 @@ const launchModeHint = computed(
               id="set-mode"
               v-model="form.launchMode"
               :options="launchModeOptions"
+              @change="queueSettingsSave(0)"
             /><small class="field__hint">{{ launchModeHint }}</small>
           </div>
         </div>
@@ -214,6 +232,7 @@ const launchModeHint = computed(
             id="set-minimize-to-tray"
             v-model="form.minimizeToTrayOnClose"
             type="checkbox"
+            @change="queueSettingsSave(0)"
           />
           <i class="switch" aria-hidden="true"></i>
         </label>
@@ -226,6 +245,7 @@ const launchModeHint = computed(
             id="set-show-after-game-exit"
             v-model="form.showLauncherAfterGameExit"
             type="checkbox"
+            @change="queueSettingsSave(0)"
           />
           <i class="switch" aria-hidden="true"></i>
         </label>
