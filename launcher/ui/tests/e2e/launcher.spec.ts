@@ -140,7 +140,7 @@ test("深链接与减少动态效果的首次加载", async ({ page }) => {
   await expect(page.locator("#hero-canvas")).not.toHaveClass(/is-visible/);
 });
 
-test("视频长时间循环无黑帧, 离页后从头播放", async ({ page }) => {
+test("视频双缓冲循环无黑帧, 离页暂停并保留进度", async ({ page }) => {
   test.setTimeout(240_000);
   await page.goto("/");
   const video = page.locator("#hero-video");
@@ -150,16 +150,19 @@ test("视频长时间循环无黑帧, 离页后从头播放", async ({ page }) =
     .poll(() => video.evaluate((v: HTMLVideoElement) => v.duration))
     .toBeCloseTo(13, 2);
   await page.evaluate(() => {
-    const source = document.querySelector<HTMLVideoElement>("#hero-video")!;
+    const videos = Array.from(
+      document.querySelectorAll<HTMLVideoElement>("video.hero__source"),
+    );
     const display = document.querySelector<HTMLCanvasElement>("#hero-canvas")!;
     const monitor = document.createElement("div");
     monitor.id = "video-probe";
-    monitor.dataset.loops = "0";
+    monitor.dataset.plays = "0";
     monitor.dataset.blackFrames = "0";
     document.body.append(monitor);
-    source.addEventListener("seeking", () => {
-      monitor.dataset.loops = String(Number(monitor.dataset.loops) + 1);
-    });
+    for (const source of videos)
+      source.addEventListener("play", () => {
+        monitor.dataset.plays = String(Number(monitor.dataset.plays) + 1);
+      });
     setInterval(() => {
       if (!display.classList.contains("is-visible")) return;
       const pixel = display
@@ -172,51 +175,56 @@ test("视频长时间循环无黑帧, 离页后从头播放", async ({ page }) =
     }, 33);
   });
   const probe = page.locator("#video-probe");
-  for (const cycles of [5, 3]) {
-    const loops = Number(await probe.getAttribute("data-loops"));
-    await expect
-      .poll(async () => Number(await probe.getAttribute("data-loops")), {
-        timeout: cycles * 15_000,
-      })
-      .toBeGreaterThanOrEqual(loops + cycles);
-    await expect
-      .poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime), {
-        timeout: 12_000,
-      })
-      .toBeGreaterThan(5);
-    await expect(probe).toHaveAttribute("data-black-frames", "0");
-    await page.locator('[data-page="settings"]').click();
-    await expect(canvas).not.toHaveClass(/is-visible/);
-    await expect
-      .poll(() =>
-        video.evaluate(
-          (v: HTMLVideoElement) => v.paused && v.currentTime === 0,
-        ),
-      )
-      .toBe(true);
-    await page.waitForTimeout(15_000);
-    await expect
-      .poll(() => video.evaluate((v: HTMLVideoElement) => v.currentTime))
-      .toBe(0);
-    await page.locator('[data-page="home"]').click();
-    await expect(canvas).toHaveClass(/is-visible/);
-    expect(
-      await video.evaluate((v: HTMLVideoElement) => v.currentTime),
-    ).toBeLessThan(1);
-  }
-  const loops = Number(await probe.getAttribute("data-loops"));
   await expect
-    .poll(async () => Number(await probe.getAttribute("data-loops")), {
+    .poll(async () => Number(await probe.getAttribute("data-plays")), {
       timeout: 45_000,
     })
-    .toBeGreaterThanOrEqual(loops + 3);
+    .toBeGreaterThanOrEqual(3);
   await expect(probe).toHaveAttribute("data-black-frames", "0");
+
+  const clock = () =>
+    page.evaluate(() =>
+      Math.max(
+        ...Array.from(
+          document.querySelectorAll<HTMLVideoElement>("video.hero__source"),
+        ).map((source) => source.currentTime),
+      ),
+    );
+  const before = await clock();
+  expect(before).toBeGreaterThan(0);
+  await page.locator('[data-page="settings"]').click();
+  await expect(canvas).not.toHaveClass(/is-visible/);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Array.from(
+          document.querySelectorAll<HTMLVideoElement>("video.hero__source"),
+        ).every((source) => source.paused),
+      ),
+    )
+    .toBe(true);
+  const paused = await clock();
+  expect(paused).toBeGreaterThanOrEqual(before);
+  await page.waitForTimeout(1500);
+  const stopped = await clock();
+  expect(stopped).toBeGreaterThanOrEqual(paused);
+  expect(stopped).toBeLessThan(paused + 0.05);
+  await page.locator('[data-page="home"]').click();
+  await expect(canvas).toHaveClass(/is-visible/);
+  await expect.poll(clock, { timeout: 15_000 }).toBeGreaterThan(stopped);
+
   await page.locator('[data-page="settings"]').click();
   await page.locator("#set-hero-media").selectOption("photo");
   await expect(canvas).not.toHaveClass(/is-visible/);
   await page.locator("#set-hero-media").selectOption("video");
   await expect
-    .poll(() => video.evaluate((v: HTMLVideoElement) => v.paused))
+    .poll(() =>
+      page.evaluate(() =>
+        Array.from(
+          document.querySelectorAll<HTMLVideoElement>("video.hero__source"),
+        ).every((source) => source.paused),
+      ),
+    )
     .toBe(true);
   await page.locator('[data-page="home"]').click();
   await expect(canvas).toHaveClass(/is-visible/);

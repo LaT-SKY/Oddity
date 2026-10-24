@@ -433,6 +433,8 @@ async function previewInvoke(
       if (!previewAttendance.accounts.length)
         previewAttendance.preferences = { trigger: "off", time: "08:00" };
       return clone(previewAttendance);
+    case "launcher_background":
+      return { video: null, image: null };
     case "bootstrap":
       return clone(mock);
     case "check_update":
