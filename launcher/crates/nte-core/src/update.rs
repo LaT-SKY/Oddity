@@ -1,11 +1,13 @@
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use md5::{Digest, Md5};
 
+use crate::http::HttpClient;
 use crate::manifest::{Manifest, ManifestFile};
-use crate::{Error, Result, USER_AGENT};
+use crate::{Error, Result};
 
 #[derive(Debug, Default)]
 pub struct CheckReport {
@@ -107,20 +109,7 @@ pub fn check_cancellable(
 }
 
 fn download(url: &str) -> Result<Vec<u8>> {
-    let mut resp = ureq::get(url)
-        .header("User-Agent", USER_AGENT)
-        .config()
-        .timeout_global(Some(std::time::Duration::from_secs(60)))
-        .build()
-        .call()
-        .map_err(|e| Error::Http(format!("GET {url}: {e}")))?;
-    let mut buf = Vec::new();
-    resp.body_mut()
-        .as_reader()
-        .take(512 * 1024 * 1024)
-        .read_to_end(&mut buf)
-        .map_err(|e| Error::Http(format!("read {url}: {e}")))?;
-    Ok(buf)
+    HttpClient::shared().fetch_bytes(url, 512 * 1024 * 1024, Duration::from_secs(60))
 }
 
 pub fn apply_file(root: &Path, zip_base: &str, f: &ManifestFile) -> Result<usize> {
@@ -272,11 +261,7 @@ pub fn apply_file_resumable(
             base.trim_end_matches('/'),
             file.path.trim_start_matches('/')
         );
-        let mut request = ureq::get(&url)
-            .header("User-Agent", USER_AGENT)
-            .config()
-            .timeout_global(Some(std::time::Duration::from_secs(120)))
-            .build();
+        let mut request = HttpClient::shared().request(&url, Duration::from_secs(120));
         if existing > 0 {
             request = request.header("Range", format!("bytes={existing}-"));
         }

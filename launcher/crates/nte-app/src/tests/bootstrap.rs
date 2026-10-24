@@ -249,6 +249,42 @@ fn bootstrap_reports_a_missing_install_when_nothing_is_found() {
 }
 
 #[test]
+fn bootstrap_keeps_the_selected_root_over_a_detected_install() {
+    let dir = TempDir::new("bootstrap-selected-root");
+    let _env = isolated_env(&dir);
+    // 旧安装仍在默认位置，会被探测到。
+    dir.write_text(
+        "home/Games/Neverness To Everness/NTELauncher/Config/Config.ini",
+        "[VERSION]\nVersion=1.4.16\n",
+    );
+    let selected = dir.join("new-install");
+    let settings = Settings {
+        install_root: Some(selected.display().to_string()),
+        ..Default::default()
+    };
+
+    let bootstrap = bootstrap_impl(&settings);
+    assert_eq!(bootstrap.install_root, selected.display().to_string());
+    assert_eq!(
+        bootstrap.launcher_root,
+        dir.join("home/Games/Neverness To Everness/NTELauncher")
+            .display()
+            .to_string()
+    );
+    assert!(bootstrap.ok);
+    assert!(!bootstrap.game_exists);
+
+    // 未指定目录时仍使用探测结果。
+    let detected = bootstrap_impl(&Settings::default());
+    assert_eq!(
+        detected.install_root,
+        dir.join("home/Games/Neverness To Everness")
+            .display()
+            .to_string()
+    );
+}
+
+#[test]
 fn bootstrap_uses_the_default_bridge_and_prefix() {
     let install = Install::new("bootstrap-defaults");
     let _env = isolated_env(&install.dir);
