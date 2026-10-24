@@ -953,6 +953,7 @@ function applyGameStatus(
   // 启动和关闭期间由命令维护按钮状态, 避免事件覆盖中间反馈。
   const previous = state.game;
   if (!force && (previous === "launching" || previous === "closing")) return;
+  if (announce && status.error) toast(status.error, "error", 7500);
   if (status.running) {
     state.session = status;
     setLaunchState(status.closing ? "closing" : "running");
@@ -960,7 +961,8 @@ function applyGameStatus(
   }
   state.session = null;
   setLaunchState("idle");
-  if (announce && previous === "running") toast("游戏已退出。");
+  if (announce && !status.error && previous === "running")
+    toast("游戏已退出。");
 }
 
 async function syncGameStatus() {
@@ -991,7 +993,7 @@ async function launchGame() {
     if (epoch !== generation) return;
     if (status && !status.running) {
       setLaunchState("idle");
-      toast("游戏进程已退出，启动未完成。", "error", 7000);
+      toast(status.error || "游戏进程已退出，启动未完成。", "error", 7000);
       return;
     }
 

@@ -17,7 +17,7 @@ fn prepare_presence_writes_backup_and_keeps_credentials() {
     let updated = std::fs::read_to_string(&config).expect("read updated");
     assert!(updated.contains("autoLogin=1"));
     assert!(updated.contains("user_t92=deadbeef"));
-    assert!(updated.contains("autoUpdate=0"));
+    assert!(updated.contains("autoUpdate=1"));
     assert!(updated.contains("quitWithGame=1"));
     assert!(updated.contains("showAfterGameQuit=0"));
     assert!(updated.contains("closeAction=0"));
@@ -63,7 +63,7 @@ fn presence_reports_unreadable_configs() {
 #[test]
 fn presence_leaves_an_up_to_date_config_alone() {
     let dir = TempDir::new("presence-stable");
-    let original = "[Setting]\nautoUpdate=0\nquitWithGame=1\nshowAfterGameQuit=0\ncloseAction=0\n[UPDATER]\nNeedUpdate=0\n";
+    let original = "[Setting]\nautoUpdate=1\nquitWithGame=1\nshowAfterGameQuit=0\ncloseAction=0\n[UPDATER]\nNeedUpdate=0\n";
     dir.write_text("UserData/Config/Config.ini", original);
 
     prepare_launcher_presence(dir.path()).expect("apply presence");
@@ -83,7 +83,7 @@ fn presence_settings_preserve_other_sections_and_crlf() {
         "[Setting]\r\nautoLogin=1\r\n\r\n[UPDATER]\r\nNeedUpdate=1\r\n[Game]\r\nloginType=92\r\n";
     let output = apply_presence_settings(input);
     assert!(output.contains("autoLogin=1\r\n"));
-    assert!(output.contains("autoUpdate=0\r\n"));
+    assert!(output.contains("autoUpdate=1\r\n"));
     assert!(output.contains("quitWithGame=1\r\n"));
     assert!(output.contains("showAfterGameQuit=0\r\n"));
     assert!(output.contains("closeAction=0\r\n"));
@@ -97,7 +97,7 @@ fn presence_settings_preserve_other_sections_and_crlf() {
 fn presence_settings_add_missing_sections() {
     let output = apply_presence_settings("[GENERAL]\npreVersion=1\n");
     assert!(output.contains("[Setting]\n"));
-    assert!(output.contains("autoUpdate=0\n"));
+    assert!(output.contains("autoUpdate=1\n"));
     assert!(output.contains("quitWithGame=1\n"));
     assert!(output.contains("showAfterGameQuit=0\n"));
     assert!(output.contains("closeAction=0\n"));
@@ -110,17 +110,17 @@ fn presence_settings_add_missing_sections() {
 fn presence_settings_cover_an_empty_file() {
     assert_eq!(
         apply_presence_settings(""),
-        "[Setting]\nautoUpdate=0\nquitWithGame=1\nshowAfterGameQuit=0\ncloseAction=0\n[UPDATER]\nNeedUpdate=0\n"
+        "[Setting]\nautoUpdate=1\nquitWithGame=1\nshowAfterGameQuit=0\ncloseAction=0\n[UPDATER]\nNeedUpdate=0\n"
     );
 }
 
 #[test]
 fn presence_settings_handle_section_and_key_case() {
-    let output = apply_presence_settings("[SETTING]\nAUTOUPDATE=1\n[updater]\nneedupdate=1\n");
-    assert!(output.contains("AUTOUPDATE=0"), "{output}");
+    let output = apply_presence_settings("[SETTING]\nAUTOUPDATE=0\n[updater]\nneedupdate=1\n");
+    assert!(output.contains("AUTOUPDATE=1"), "{output}");
     assert!(output.contains("quitWithGame=1"), "{output}");
     assert!(output.contains("needupdate=0"), "{output}");
-    assert!(!output.contains("AUTOUPDATE=1"), "{output}");
+    assert!(!output.contains("AUTOUPDATE=0"), "{output}");
     assert!(!output.contains("needupdate=1"), "{output}");
     // 两个段都存在，不再追加新段
     assert_eq!(output.matches("[SETTING]").count(), 1);
@@ -130,7 +130,7 @@ fn presence_settings_handle_section_and_key_case() {
 #[test]
 fn presence_settings_keep_a_last_line_without_newline() {
     let output = apply_presence_settings("[setting]\nautoUpdate=1");
-    assert!(output.contains("autoUpdate=0"), "{output}");
+    assert!(output.contains("autoUpdate=1"), "{output}");
     assert!(output.contains("quitWithGame=1\n"), "{output}");
     assert!(output.contains("[UPDATER]\n"), "{output}");
 
@@ -145,7 +145,7 @@ fn presence_settings_append_to_an_empty_section() {
     let output = apply_presence_settings("[Setting]\n[UPDATER]\n");
     assert_eq!(
         output,
-        "[Setting]\nautoUpdate=0\nquitWithGame=1\nshowAfterGameQuit=0\ncloseAction=0\n[UPDATER]\nNeedUpdate=0\n"
+        "[Setting]\nautoUpdate=1\nquitWithGame=1\nshowAfterGameQuit=0\ncloseAction=0\n[UPDATER]\nNeedUpdate=0\n"
     );
 }
 

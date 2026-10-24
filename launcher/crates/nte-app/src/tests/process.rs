@@ -27,6 +27,7 @@ fn game_status_reflects_the_session() {
         started_at: 99,
         log: "/tmp/launch.log".to_string(),
         closing: true,
+        background: None,
     };
     let status = GameStatus::from_session(Some(&session));
     assert!(status.running);

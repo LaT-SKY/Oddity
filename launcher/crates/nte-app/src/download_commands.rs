@@ -11,7 +11,7 @@ use nte_core::game::check::CheckOptions;
 use nte_core::game::download::ApplyOptions;
 use nte_core::{game, install, update};
 
-use crate::{game_exe_for, process_group_alive, selected_install_root, AppState, Settings};
+use crate::{game_exe_for, selected_install_root, session_alive, AppState, Settings};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -414,12 +414,7 @@ fn prepare_task(
         }
         if mode == "apply" {
             let game = state.game.lock().map_err(|error| error.to_string())?;
-            if game.starting
-                || game
-                    .session
-                    .as_ref()
-                    .is_some_and(|session| process_group_alive(session.pgid))
-            {
+            if game.starting || game.session.as_ref().is_some_and(session_alive) {
                 return Err("游戏正在运行，无法修改游戏文件".into());
             }
         }

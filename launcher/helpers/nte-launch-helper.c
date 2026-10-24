@@ -6,35 +6,20 @@
 #include <stdarg.h>
 
 /*
- * Tiny Windows launcher for NTE.
+ * 私有 Windows 启动桥接. direct 模式保持 Unreal 的参数专用命令行.
+ * bridge 模式先挂起创建官方后台, 安装窗口事件钩子后恢复.
+ * 回调仅处理该 PID; 启动时请求 SW_HIDE, 后续 CREATE/SHOW 事件隐藏启动器主窗口;
+ * 登录遮罩 ToolSaveBitsOwnDC 和游戏进程的窗口保持正常显示.
  *
- * Direct HTGame mode:
- *   Wine/umu starts a process with the executable path as argv[0]; Unreal
- *   parses that as the map URL. CreateProcessW(lpApplicationName=exe,
- *   lpCommandLine="/Game/...") avoids it.
- *
- * Background bridge mode:
- *   Start NTEGame.exe /launcher /directly /autoplay and keep its launcher
- *   window out of the way. NTEGame still performs auto-login and the pipe
- *   handoff; the game window and the newautologin.qml cover stay visible.
- *
- *   We do not hide "all windows once after N seconds" any more. The launcher
- *   creates/re-shows windows at several points (main Qt window, CEF host,
- *   game-cover window). A monitor thread hides only the launcher's own
- *   windows and explicitly preserves the game-cover window, which Qt creates
- *   later with class "...QWindowToolSaveBitsOwnDC" and owner = HTGame window.
- *
- * Environment:
- *   Direct:   NTE_GAME_EXE, NTE_GAME_CWD, NTE_GAME_ARGS
- *   Bridge:   NTE_BRIDGE_EXE, NTE_BRIDGE_CWD, NTE_BRIDGE_ARGS
- *   Optional: NTE_HELPER_LOG  (Windows path; one line per hidden window)
+ * Direct: NTE_GAME_EXE, NTE_GAME_CWD, NTE_GAME_ARGS
+ * Bridge: NTE_BRIDGE_EXE, NTE_BRIDGE_CWD, NTE_BRIDGE_ARGS
+ * Optional: NTE_HELPER_LOG
  */
 
 static void fail(void) {
     ExitProcess(2);
 }
 
-static volatile LONG g_stop = 0;
 static DWORD g_launcher_pid = 0;
 static FILE *g_log = NULL;
 
@@ -51,8 +36,7 @@ static void log_line(const wchar_t *fmt, ...) {
 }
 
 static int is_cover_class(const wchar_t *cls) {
-    /* The auto-login/game cover is Qt51517QWindowToolSaveBitsOwnDC.
-     * It is owned by the HTGame window and must stay visible. */
+    /* 官方自动登录遮罩由游戏窗口拥有, 必须保留. */
     return wcsstr(cls, L"ToolSaveBitsOwnDC") != NULL;
 }
 
@@ -62,76 +46,96 @@ static int is_ignored_class(const wchar_t *cls) {
            wcsstr(cls, L"WineTablet") != NULL;
 }
 
-static BOOL CALLBACK hide_proc(HWND hwnd, LPARAM lp) {
+static void hide_launcher_window(HWND hwnd) {
     DWORD pid = 0;
     wchar_t cls[256] = L"";
     wchar_t title[512] = L"";
     HWND owner;
-    (void)lp;
 
+    if (!hwnd || !IsWindow(hwnd)) return;
     GetWindowThreadProcessId(hwnd, &pid);
-    if (pid != g_launcher_pid) return TRUE;
-    if (!IsWindowVisible(hwnd)) return TRUE;
-
-    GetClassNameW(hwnd, cls, 255);
-    GetWindowTextW(hwnd, title, 511);
-
-    if (is_ignored_class(cls)) return TRUE;
-    if (is_cover_class(cls)) return TRUE;
-
-    /* Hide the launcher's Qt/CEF top-level windows. Keep the cover and the
-     * actual game window (different pid) untouched. */
+    if (pid != g_launcher_pid || GetAncestor(hwnd, GA_ROOT) != hwnd ||
+        (GetWindowLongPtrW(hwnd, GWL_STYLE) & WS_CHILD)) return;
+    if (!GetClassNameW(hwnd, cls, 256)) return;
+    if (is_ignored_class(cls) || is_cover_class(cls)) return;
+    GetWindowTextW(hwnd, title, 512);
     owner = GetWindow(hwnd, GW_OWNER);
-    if (wcsstr(cls, L"QWindow") != NULL || wcsstr(title, L"NTEGame") != NULL ||
-        owner != NULL) {
-        ShowWindow(hwnd, SW_HIDE);
-        log_line(L"hide pid=%lu hwnd=%p cls=%ls title=%ls", (unsigned long)pid,
-                 (void *)hwnd, cls, title);
+    if (wcsstr(cls, L"QWindow") != NULL || wcsstr(title, L"NTEGame") != NULL || owner != NULL) {
+        if (IsWindowVisible(hwnd)) {
+            ShowWindow(hwnd, SW_HIDE);
+            log_line(L"hide pid=%lu hwnd=%p cls=%ls", (unsigned long)pid, (void *)hwnd, cls);
+        }
     }
-    return TRUE;
 }
 
-static DWORD WINAPI monitor_thread(LPVOID param) {
-    (void)param;
-    while (InterlockedCompareExchange(&g_stop, 0, 0) == 0) {
-        EnumWindows(hide_proc, 0);
-        Sleep(200);
+static void CALLBACK window_event(HWINEVENTHOOK hook, DWORD event, HWND hwnd,
+                                  LONG object, LONG child, DWORD thread, DWORD time) {
+    (void)hook;
+    (void)thread;
+    (void)time;
+    if ((event == EVENT_OBJECT_CREATE || event == EVENT_OBJECT_SHOW) &&
+        object == OBJID_WINDOW && child == CHILDID_SELF) hide_launcher_window(hwnd);
+}
+
+static int stop_child(HANDLE process) {
+    DWORD code = STILL_ACTIVE;
+    if (WaitForSingleObject(process, 0) == WAIT_OBJECT_0) return 1;
+    if (!TerminateProcess(process, 2)) log_line(L"terminate child failed error=%lu", (unsigned long)GetLastError());
+    if (WaitForSingleObject(process, 5000) != WAIT_OBJECT_0 ||
+        !GetExitCodeProcess(process, &code) || code == STILL_ACTIVE) {
+        log_line(L"child exit unconfirmed error=%lu", (unsigned long)GetLastError());
+        return 0;
     }
-    return 0;
+    return 1;
 }
 
 static int run_and_optional_hide(wchar_t *exe, wchar_t *args, wchar_t *cwd, int hide) {
     STARTUPINFOW si;
     PROCESS_INFORMATION pi;
-    HANDLE monitor = NULL;
+    HWINEVENTHOOK hook = NULL;
+    DWORD code = 1;
+    int failed = 0;
     ZeroMemory(&si, sizeof(si));
     si.cb = sizeof(si);
     ZeroMemory(&pi, sizeof(pi));
-
-    if (!CreateProcessW(exe, args, NULL, NULL, TRUE, 0, NULL,
-                        cwd[0] ? cwd : NULL, &si, &pi)) {
-        fail();
+    if (hide) {
+        si.dwFlags = STARTF_USESHOWWINDOW;
+        si.wShowWindow = SW_HIDE;
     }
+    if (!CreateProcessW(exe, args, NULL, NULL, TRUE, hide ? CREATE_SUSPENDED : 0,
+                        NULL, cwd[0] ? cwd : NULL, &si, &pi)) fail();
 
     if (hide) {
+        MSG message;
+        /* 先建立事件线程的消息队列, 防止恢复 child 前漏掉初始窗口事件. */
+        PeekMessageW(&message, NULL, 0, 0, PM_NOREMOVE);
         g_launcher_pid = pi.dwProcessId;
-        InterlockedExchange(&g_stop, 0);
-        monitor = CreateThread(NULL, 0, monitor_thread, NULL, 0, NULL);
-    }
+        /* Wine 在挂起进程注册时需要全局订阅; 回调只处理持有句柄的本轮 PID. */
+        hook = SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW, NULL, window_event,
+                              0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+        if (!hook || ResumeThread(pi.hThread) == (DWORD)-1) {
+            log_line(L"install window hook or resume failed error=%lu", (unsigned long)GetLastError());
+            failed = 1;
+        } else {
+            for (;;) {
+                DWORD wait = MsgWaitForMultipleObjectsEx(1, &pi.hProcess, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+                if (wait == WAIT_OBJECT_0) break;
+                if (wait != WAIT_OBJECT_0 + 1) { failed = 1; break; }
+                while (PeekMessageW(&message, NULL, 0, 0, PM_REMOVE)) {
+                    TranslateMessage(&message);
+                    DispatchMessageW(&message);
+                }
+            }
+        }
+    } else if (WaitForSingleObject(pi.hProcess, INFINITE) != WAIT_OBJECT_0) failed = 1;
 
-    WaitForSingleObject(pi.hProcess, INFINITE);
-
-    if (monitor) {
-        InterlockedExchange(&g_stop, 1);
-        WaitForSingleObject(monitor, 2000);
-        CloseHandle(monitor);
-    }
-
-    DWORD code = 1;
-    GetExitCodeProcess(pi.hProcess, &code);
+    if (failed) (void)stop_child(pi.hProcess);
+    if (hook) UnhookWinEvent(hook);
+    g_launcher_pid = 0;
+    if (!GetExitCodeProcess(pi.hProcess, &code) || code == STILL_ACTIVE) failed = 1;
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
-    return (int)code;
+    return failed ? 2 : (int)code;
 }
 
 int WINAPI WinMain(HINSTANCE h, HINSTANCE p, LPSTR cmd, int show) {
@@ -157,7 +161,7 @@ int WINAPI WinMain(HINSTANCE h, HINSTANCE p, LPSTR cmd, int show) {
         if (n == 0 || n >= 32768) cwd[0] = 0;
         n = GetEnvironmentVariableW(L"NTE_BRIDGE_ARGS", args, 65536);
         if (n == 0 || n >= 65536) {
-            wcscpy(args, L"/launcher /directly /autoplay");
+            wcscpy(args, L"/launcher /directly");
         }
         return run_and_optional_hide(exe, args, cwd, 1);
     }

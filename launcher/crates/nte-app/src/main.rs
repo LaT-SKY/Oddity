@@ -7,11 +7,12 @@
 
 use std::fs::{self, OpenOptions};
 use std::io::Write;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -20,14 +21,17 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent};
 
+use native_session::NativeSession;
 use nte_core::bulletin::{self, BulletinFeed};
 use nte_core::config::{Ini, LauncherConfig};
 use nte_core::distribution::Distribution;
+use nte_core::launch::background::{validated_click_profile, ClickProfile};
 use nte_core::manifest::Manifest;
 use nte_core::{update, version};
 
 mod attendance_commands;
 mod download_commands;
+mod native_session;
 
 const APP_IDENTIFIER: &str = "io.github.oddity.Launcher";
 
@@ -79,11 +83,10 @@ struct GameTracker {
     session: Option<GameSession>,
     starting: bool,
     next_id: u64,
+    last_error: Option<String>,
 }
 
-/// A launched official launcher/game process tree. `pgid` is the process group
-/// created for `umu-run`, so signalling it stops the wrapper, Proton and the
-/// Windows game together.
+/// 本轮启动及其专属后台会话.
 #[derive(Debug, Clone)]
 struct GameSession {
     id: u64,
@@ -93,6 +96,7 @@ struct GameSession {
     started_at: u64,
     log: String,
     closing: bool,
+    background: Option<Arc<NativeSession>>,
 }
 
 /// A validated Proton installation. umu-launcher expects `PROTONPATH` to be
@@ -174,6 +178,8 @@ struct GameStatus {
     started_at: Option<u64>,
     exe: Option<String>,
     log: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
 }
 
 impl GameStatus {
@@ -185,6 +191,7 @@ impl GameStatus {
             started_at: None,
             exe: None,
             log: None,
+            error: None,
         }
     }
 
@@ -197,6 +204,7 @@ impl GameStatus {
                 started_at: Some(session.started_at),
                 exe: Some(session.exe.clone()),
                 log: Some(session.log.clone()),
+                error: None,
             },
             None => Self::idle(),
         }
@@ -207,6 +215,7 @@ struct LaunchInvocation {
     result: LaunchResult,
     child: Child,
     pgid: i32,
+    background: Option<Arc<NativeSession>>,
 }
 
 fn now_millis() -> u64 {
@@ -306,44 +315,67 @@ fn should_show_launcher_after_exit(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-/// Reap the wrapper and clear the session as soon as it exits.
-///
-/// Proton/Wine teardown can keep the original process group alive for a while
-/// (wineserver, CEF helpers, the tray host). The game session is over when the
-/// helper/wrapper exits, so the UI must not stay on "关闭游戏" while waiting
-/// for that cleanup; otherwise a normal in-game exit leaves a stale running
-/// state and the "启动游戏" button is unavailable.
+fn session_alive(session: &GameSession) -> bool {
+    session.background.as_ref().map_or_else(
+        || process_group_alive(session.pgid),
+        |background| !background.finished(),
+    )
+}
+
+/// 后台会话按实际游戏生命周期结束, 无需等待共享 wineserver 退出.
 fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
     thread::spawn(move || {
-        let _ = child.wait();
+        let result = if let Some(background) = &session.background {
+            background.monitor(&mut child)
+        } else {
+            child.wait().map(|_| ()).map_err(|error| error.to_string())
+        };
 
-        let cleared = {
+        if child.try_wait().ok().flatten().is_none() {
+            thread::spawn(move || {
+                let _ = child.wait();
+            });
+        }
+        let status = {
             let state = app.state::<AppState>();
             let mut tracker = match state.game.lock() {
                 Ok(tracker) => tracker,
                 Err(_) => return,
             };
-            if tracker.session.as_ref().map(|current| current.id) == Some(session.id) {
+            if tracker.session.as_ref().map(|current| current.id) != Some(session.id) {
+                return;
+            }
+            tracker.last_error = result.err();
+            if session
+                .background
+                .as_ref()
+                .is_none_or(|background| background.finished())
+            {
                 tracker.session = None;
-                true
-            } else {
-                false
+            } else if let Some(current) = tracker.session.as_mut() {
+                current.closing = false;
             }
+            tracker_status(&tracker)
         };
-        if cleared {
-            let _ = app.emit("game-state", GameStatus::idle());
-            if should_show_launcher_after_exit(&app) {
-                show_main(&app);
-            }
+        let finished = !status.running;
+        let _ = app.emit("game-state", status);
+        if finished && should_show_launcher_after_exit(&app) {
+            show_main(&app);
         }
     });
+}
+
+fn tracker_status(tracker: &GameTracker) -> GameStatus {
+    let mut status = GameStatus::from_session(tracker.session.as_ref());
+    status.error = tracker.last_error.clone();
+    status
 }
 
 fn emit_game_status(app: &AppHandle, state: &AppState) {
     let status = state
         .game
         .lock()
-        .map(|tracker| GameStatus::from_session(tracker.session.as_ref()))
+        .map(|tracker| tracker_status(&tracker))
         .unwrap_or_else(|_| GameStatus::idle());
     let _ = app.emit("game-state", status);
 }
@@ -670,10 +702,6 @@ fn bridge_root_for(settings: &Settings, launcher_root: &Path) -> PathBuf {
             return p;
         }
     }
-    let default = data_dir().join("winroot");
-    if default.join("NTELauncher").join("NTEGame.exe").is_file() {
-        return default;
-    }
     launcher_root
         .parent()
         .map(Path::to_path_buf)
@@ -837,6 +865,65 @@ fn ensure_sdk_link(prefix: &Path, install_dir: &Path) -> Result<(), String> {
     symlink(install_dir, &link).map_err(|e| format!("symlink {}: {e}", link.display()))
 }
 
+fn ensure_bridge_client(bridge_root: &Path, install_dir: &Path) -> Result<(), String> {
+    let bridge = fs::canonicalize(bridge_root).map_err(|e| format!("读取桥接目录失败: {e}"))?;
+    let install =
+        fs::canonicalize(install_dir).map_err(|e| format!("读取游戏安装目录失败: {e}"))?;
+    if bridge == install {
+        return Ok(());
+    }
+    let client = find_ci(&install, &["Client"])
+        .filter(|path| path.is_dir())
+        .ok_or_else(|| format!("游戏安装目录缺少 Client: {}", install.display()))?;
+    let client = fs::canonicalize(client).map_err(|e| format!("读取游戏资源目录失败: {e}"))?;
+    let link = find_ci(&bridge, &["Client"]).unwrap_or_else(|| bridge.join("Client"));
+    match fs::symlink_metadata(&link) {
+        Ok(meta) => {
+            if fs::canonicalize(&link).ok().as_ref() == Some(&client) {
+                return Ok(());
+            }
+            if !meta.file_type().is_symlink() {
+                return Err(format!(
+                    "桥接目录的 Client 与所选安装目录不一致: {}. 请更换桥接目录或移走该目录后重试.",
+                    link.display()
+                ));
+            }
+            // 官方组件按自身目录查找 Client, 必须与 Oddity 校验的安装一致.
+            fs::remove_file(&link).map_err(|e| format!("移除旧游戏资源链接失败: {e}"))?;
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("读取桥接游戏资源链接失败: {error}")),
+    }
+    symlink(&client, &link).map_err(|e| format!("创建桥接游戏资源链接失败: {e}"))
+}
+
+fn check_game_write_access(game_exe: &Path) -> Result<(), String> {
+    let bin = game_exe
+        .parent()
+        .ok_or_else(|| "游戏可执行文件目录异常".to_string())?;
+    for (path, mode) in [
+        (bin.to_path_buf(), libc::W_OK | libc::X_OK),
+        (bin.join("GameLauncher.config"), libc::W_OK),
+        (bin.join("patchersdk_serverlist"), libc::W_OK | libc::X_OK),
+    ] {
+        match fs::metadata(&path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(format!("读取游戏目录权限失败: {}: {error}", path.display())),
+        }
+        let raw = std::ffi::CString::new(path.as_os_str().as_bytes())
+            .map_err(|_| "游戏路径含有无效字符".to_string())?;
+        // 官方组件需要写入 SDK 路径和服务器缓存, 只读文件会让游戏在内部失败.
+        if unsafe { libc::access(raw.as_ptr(), mode) } != 0 {
+            return Err(format!(
+                "游戏运行配置不可写: {}. 请检查此路径的所有者和写入权限后重试.",
+                path.display()
+            ));
+        }
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -873,21 +960,10 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
         error = Some("尚未找到所选游戏地区的游戏安装. 可在游戏更新页开始安装.".to_string());
     }
 
-    let mut game_version = launcher_root
+    let game_version = launcher_root
         .as_ref()
         .map(|p| game_version_for(p))
         .unwrap_or_default();
-    if let Some(root) = &launcher_root {
-        let bridge = bridge_root_for(settings, root).join(settings.distribution.launcher_dir());
-        if bridge.is_dir() {
-            let bridge_version = game_version_for(&bridge);
-            if nte_core::version::compare(&bridge_version, &game_version)
-                == std::cmp::Ordering::Greater
-            {
-                game_version = bridge_version;
-            }
-        }
-    }
     let game_exe = launcher_root
         .as_ref()
         .and_then(|p| game_exe_for(p))
@@ -1107,16 +1183,20 @@ fn save_settings(
 }
 
 const LAUNCH_HELPER_BYTES: &[u8] = include_bytes!("../../../helpers/nte-launch-helper.exe");
+const SESSION_HELPER_BYTES: &[u8] = include_bytes!("../../../helpers/nte-session-helper.exe");
 
 fn ensure_launch_helper() -> Result<PathBuf, String> {
+    ensure_helper("nte-launch-helper.exe", LAUNCH_HELPER_BYTES)
+}
+
+fn ensure_helper(name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
     let dir = data_dir().join("helpers");
     fs::create_dir_all(&dir).map_err(|e| format!("create {}: {e}", dir.display()))?;
-    let path = dir.join("nte-launch-helper.exe");
+    let path = dir.join(name);
     let current = fs::read(&path).ok();
-    if current.as_deref() != Some(LAUNCH_HELPER_BYTES) {
-        let tmp = dir.join("nte-launch-helper.exe.new");
-        fs::write(&tmp, LAUNCH_HELPER_BYTES)
-            .map_err(|e| format!("write {}: {e}", tmp.display()))?;
+    if current.as_deref() != Some(bytes) {
+        let tmp = dir.join(format!("{name}.new"));
+        fs::write(&tmp, bytes).map_err(|e| format!("write {}: {e}", tmp.display()))?;
         fs::rename(&tmp, &path).map_err(|e| format!("install {}: {e}", path.display()))?;
     }
     Ok(path)
@@ -1136,13 +1216,9 @@ fn windows_path(path: &Path) -> String {
     out
 }
 
-/// Official NTEGame settings that make the launcher behave like a thin login
-/// helper: no automatic updates, no "popup after game exit", quit when the game
-/// exits, and quit (rather than minimize to tray) when its close button is used.
-/// Only [Setting] and [UPDATER] are touched; account/token sections are left
-/// byte-for-byte intact. A one-time backup is written next to the file.
+/// 保留官方资源初始化, 游戏退出后关闭官方后台.
 const PRESENCE_SETTINGS: [(&str, &str); 4] = [
-    ("autoUpdate", "0"),
+    ("autoUpdate", "1"),
     ("quitWithGame", "1"),
     ("showAfterGameQuit", "0"),
     ("closeAction", "0"),
@@ -1357,6 +1433,15 @@ fn open_url(url: String) -> Result<(), String> {
 }
 
 fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
+    launch_impl_with_profile(settings, |path| {
+        validated_click_profile(path).map_err(|error| error.to_string())
+    })
+}
+
+fn launch_impl_with_profile(
+    settings: &Settings,
+    profile_provider: impl FnOnce(&Path) -> Result<ClickProfile, String>,
+) -> Result<LaunchInvocation, String> {
     let launcher_root = detect_launcher_root(settings)
         .ok_or_else(|| "尚未找到《异环》启动器安装目录".to_string())?;
     let install_dir = launcher_root
@@ -1378,6 +1463,9 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
         .ok_or_else(|| "未找到可用的 Proton（需要 proton 与 toolmanifest.vdf）".to_string())?;
     if !prefix.join("drive_c").is_dir() {
         return Err(format!("Wine prefix 尚未初始化：{}", prefix.display()));
+    }
+    if let Some(game_exe) = &direct_exe {
+        check_game_write_access(game_exe)?;
     }
     ensure_sdk_link(&prefix, &install_dir)?;
 
@@ -1411,7 +1499,7 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
         if !official.is_file() {
             return Err(format!("官方启动器不存在：{}", official.display()));
         }
-        let helper = ensure_launch_helper()?;
+        let helper = ensure_helper("nte-session-helper.exe", SESSION_HELPER_BYTES)?;
         let win_exe = windows_path(&official);
         let win_cwd = windows_path(
             official
@@ -1438,19 +1526,33 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
         (
             "official".to_string(),
             exe.clone(),
-            vec![
-                "/launcher".to_string(),
-                "/directly".to_string(),
-                "/autoplay".to_string(),
-            ],
+            vec!["/launcher".to_string(), "/directly".to_string()],
             exe,
             None,
             None,
         )
     };
 
+    if mode != "direct" {
+        let official_root = display_exe
+            .parent()
+            .and_then(Path::parent)
+            .ok_or_else(|| "官方启动器目录结构异常".to_string())?;
+        ensure_bridge_client(official_root, &install_dir)?;
+    }
+
     let log_dir = data_dir().join("logs");
     fs::create_dir_all(&log_dir).map_err(|e| format!("create log dir: {e}"))?;
+    let background = if mode == "background" {
+        let profile = profile_provider(&display_exe)?;
+        let native_log = display_exe
+            .parent()
+            .ok_or("官方启动器没有父目录")?
+            .join("UserData/Log/NTEGame.log");
+        Some(NativeSession::prepare(&log_dir, &native_log, profile)?)
+    } else {
+        None
+    };
     let log_path = log_dir.join("nte-app-launch.log");
     let log = OpenOptions::new()
         .create(true)
@@ -1460,21 +1562,30 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
     let mut log_clone = log.try_clone().map_err(|e| e.to_string())?;
     writeln!(
         log_clone,
-        "\n=== oddity launch {mode} ===\ntarget={} runner={} proton={} prefix={}",
+        "\n=== oddity launch {mode} ===\ntarget={} runner={} proton={} prefix={}\ninstall={}",
         display_exe.display(),
         exe.display(),
         proton.name,
-        prefix.display()
+        prefix.display(),
+        install_dir.display()
     )
     .ok();
 
+    if let Some(background) = &background {
+        writeln!(
+            log_clone,
+            "session_status={}",
+            background.status_path().display()
+        )
+        .ok();
+    }
     if mode != "direct" && std::env::var_os("NTE_DISABLE_PRESENCE_TUNING").is_none() {
         if let Some(dir) = display_exe.parent() {
             match prepare_launcher_presence(dir) {
                 Ok(()) => {
                     writeln!(
                         log_clone,
-                        "presence settings: autoUpdate=0 quitWithGame=1 \
+                        "presence settings: autoUpdate=1 quitWithGame=1 \
                          showAfterGameQuit=0 closeAction=0 NeedUpdate=0"
                     )
                     .ok();
@@ -1507,7 +1618,27 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
         .env("pgp_scale_value", "1")
         .env("UMU_LOG", "info")
         .env("PROTON_LOG", "0")
+        .env("PROTON_VERB", "run")
         .env_remove("PROTON_ENABLE_WAYLAND");
+    for key in [
+        "NTE_GAME_EXE",
+        "NTE_GAME_CWD",
+        "NTE_GAME_ARGS",
+        "NTE_BRIDGE_EXE",
+        "NTE_BRIDGE_CWD",
+        "NTE_BRIDGE_ARGS",
+        "NTE_HELPER_LOG",
+        "NTE_SESSION_HELPER",
+        "NTE_SESSION_OUTPUT",
+        "NTE_SESSION_SIGNAL",
+        "NTE_SESSION_CANCEL",
+        "NTE_SESSION_CLICK",
+    ] {
+        cmd.env_remove(key);
+    }
+    if let Some(background) = &background {
+        background.configure(&mut cmd, &ensure_launch_helper()?);
+    }
     if let Some((win_exe, win_cwd)) = &helper_env {
         // The helper uses CreateProcessW(lpApplicationName=exe, lpCommandLine=args)
         // so UE does not mistake the executable path for the map URL.
@@ -1519,13 +1650,10 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
             );
     }
     if let Some((win_exe, win_cwd)) = &bridge_env {
-        // Keep the official login/pipe handoff. The helper now runs a monitor
-        // thread: it hides launcher-owned windows but explicitly preserves the
-        // newautologin.qml cover (class ...ToolSaveBitsOwnDC), instead of
-        // hiding every visible window once after a fixed Sleep.
+        // 由官方正常启动按钮完成资源、登录和管道交接.
         cmd.env("NTE_BRIDGE_EXE", win_exe)
             .env("NTE_BRIDGE_CWD", win_cwd)
-            .env("NTE_BRIDGE_ARGS", "/launcher /directly /autoplay")
+            .env("NTE_BRIDGE_ARGS", "/launcher /directly")
             .env(
                 "NTE_HELPER_LOG",
                 windows_path(&log_dir.join("helper-window.log")),
@@ -1548,6 +1676,7 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
             match child.try_wait() {
                 Ok(Some(status)) => break Some(status),
                 Ok(None) => {}
+                Err(_) if background.is_some() => break None,
                 Err(error) => return Err(format!("检查启动器状态失败：{error}")),
             }
             if Instant::now() >= deadline {
@@ -1556,7 +1685,8 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
             thread::sleep(Duration::from_millis(25));
         }
     };
-    if let Some(status) = immediate_exit {
+    // 后台包装进程早退时仍交由会话监控清理已分离的 Windows 子进程.
+    if let Some(status) = immediate_exit.filter(|_| background.is_none()) {
         let code = status
             .code()
             .map(|code| format!("退出码 {code}"))
@@ -1583,6 +1713,7 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
         },
         child,
         pgid,
+        background,
     })
 }
 
@@ -1611,13 +1742,13 @@ async fn launch_official(
             if session.closing {
                 return Err("游戏正在关闭，请稍候。".to_string());
             }
-            if process_group_alive(session.pgid) {
+            if session_alive(session) {
                 return Err("游戏已在运行。".to_string());
             }
         }
-        // A session whose process group disappeared without the monitor
-        // clearing it yet is stale; replace it instead of blocking a relaunch.
+        // 已结束的会话允许重新启动.
         tracker.session = None;
+        tracker.last_error = None;
         tracker.starting = true;
     }
 
@@ -1653,6 +1784,7 @@ async fn launch_official(
             started_at: invocation.result.started_at,
             log: invocation.result.log.clone(),
             closing: false,
+            background: invocation.background.clone(),
         };
         tracker.session = Some(session.clone());
         session
@@ -1669,17 +1801,21 @@ fn game_status(state: State<AppState>) -> GameStatus {
         Ok(tracker) => tracker,
         Err(_) => return GameStatus::idle(),
     };
-    match tracker.session.as_ref() {
-        Some(session) if process_group_alive(session.pgid) => {
-            GameStatus::from_session(Some(session))
-        }
-        _ => GameStatus::idle(),
+    let mut status = tracker_status(&tracker);
+    if tracker
+        .session
+        .as_ref()
+        .is_some_and(|session| !session_alive(session))
+    {
+        status.running = false;
+        status.closing = false;
     }
+    status
 }
 
 #[tauri::command]
 async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameStatus, String> {
-    let (session_id, pgid) = {
+    let (session_id, pgid, background) = {
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;
         if tracker.starting {
             return Err("游戏正在启动，请稍候。".to_string());
@@ -1689,7 +1825,7 @@ async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameSt
                 return Err("游戏正在关闭，请稍候。".to_string());
             }
             Some(session) => {
-                if !process_group_alive(session.pgid) {
+                if !session_alive(session) {
                     tracker.session = None;
                     drop(tracker);
                     let status = GameStatus::idle();
@@ -1697,7 +1833,7 @@ async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameSt
                     return Ok(status);
                 }
                 session.closing = true;
-                (session.id, session.pgid)
+                (session.id, session.pgid, session.background.clone())
             }
             None => return Ok(GameStatus::idle()),
         }
@@ -1705,16 +1841,24 @@ async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameSt
 
     emit_game_status(&app, &state);
 
-    let result =
-        match tauri::async_runtime::spawn_blocking(move || terminate_process_group(pgid)).await {
-            Ok(result) => result,
-            Err(error) => Err(format!("关闭任务失败：{error}")),
-        };
+    let result = match tauri::async_runtime::spawn_blocking(move || {
+        if let Some(background) = background {
+            background.close()
+        } else {
+            terminate_process_group(pgid)
+        }
+    })
+    .await
+    {
+        Ok(result) => result,
+        Err(error) => Err(format!("关闭任务失败：{error}")),
+    };
 
     {
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;
         if tracker.session.as_ref().map(|session| session.id) == Some(session_id) {
             if result.is_ok() {
+                tracker.last_error = None;
                 tracker.session = None;
             } else if let Some(session) = tracker.session.as_mut() {
                 session.closing = false;
@@ -1725,7 +1869,7 @@ async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameSt
     let status = state
         .game
         .lock()
-        .map(|tracker| GameStatus::from_session(tracker.session.as_ref()))
+        .map(|tracker| tracker_status(&tracker))
         .unwrap_or_else(|_| GameStatus::idle());
     let _ = app.emit("game-state", status.clone());
     result?;
