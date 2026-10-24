@@ -1595,6 +1595,15 @@ button:disabled {
   background-color: var(--input-bg);
 }
 
+.field input:disabled,
+.field select:disabled {
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--faint);
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .field select {
   appearance: none;
   cursor: pointer;
@@ -1646,6 +1655,14 @@ button:disabled {
   border-color: var(--input-focus-border);
   background-color: var(--input-bg);
   box-shadow: 0 0 0 1px var(--input-focus-border);
+}
+
+.select-trigger:disabled {
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--faint);
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .select-trigger__text {
@@ -2090,6 +2107,13 @@ button:disabled {
 .field__hint,
 .attendance__hint {
   color: var(--muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.settings-lock {
+  margin: -6px 0 16px;
+  color: var(--warn);
   font-size: 12px;
   line-height: 1.7;
 }

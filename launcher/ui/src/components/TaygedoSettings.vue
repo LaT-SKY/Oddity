@@ -5,6 +5,7 @@ import {
   attendance,
   attendanceForm,
   loadAttendance,
+  queueSettingsSave,
   runAttendance,
 } from "../core/controller";
 import BaseSelect from "./BaseSelect.vue";
@@ -97,7 +98,8 @@ onBeforeUnmount(() => clearInterval(poll));
         id="attendance-enabled"
         v-model="attendanceForm.enabled"
         type="checkbox"
-        :disabled="!accounts.length || attendance.busy" /><i
+        :disabled="!accounts.length || attendance.busy"
+        @change="queueSettingsSave(0)" /><i
         class="switch"
         aria-hidden="true"
       ></i
@@ -113,6 +115,7 @@ onBeforeUnmount(() => clearInterval(poll));
           v-model="attendanceForm.trigger"
           :options="options"
           :disabled="attendance.busy"
+          @change="queueSettingsSave(0)"
         />
       </div>
       <label v-if="attendanceForm.trigger === 'daily'" class="field"
@@ -123,6 +126,7 @@ onBeforeUnmount(() => clearInterval(poll));
           type="time"
           required
           :disabled="attendance.busy"
+          @change="queueSettingsSave(0)"
       /></label>
     </div>
     <div class="attendance__actions">

@@ -20,6 +20,35 @@ fn settings_default_matches_the_ui_contract() {
 }
 
 #[test]
+fn download_only_blocks_region_and_install_paths() {
+    let current = Settings::default();
+    let mut next = current.clone();
+    next.bridge_root = Some("/bridge".into());
+    next.prefix = Some("/prefix".into());
+    next.proton_path = Some("/proton".into());
+    next.launch_mode = "direct".into();
+    next.language = "en-US".into();
+    next.reduce_motion = true;
+    next.theme = "dark".into();
+    next.hero_media = "photo".into();
+    next.minimize_to_tray_on_close = false;
+    next.show_launcher_after_game_exit = false;
+    assert!(!download_paths_changed(&current, &next));
+
+    let mut next = current.clone();
+    next.install_root = Some("/games/nte".into());
+    assert!(download_paths_changed(&current, &next));
+
+    let mut next = current.clone();
+    next.global_install_root = Some("/games/nte-global".into());
+    assert!(download_paths_changed(&current, &next));
+
+    let mut next = current.clone();
+    next.distribution = Distribution::Global;
+    assert!(download_paths_changed(&current, &next));
+}
+
+#[test]
 fn settings_round_trip_through_the_config_dir() {
     let mut env = EnvGuard::new();
     let dir = TempDir::new("settings");

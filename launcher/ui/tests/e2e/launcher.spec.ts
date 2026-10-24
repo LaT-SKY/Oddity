@@ -85,8 +85,11 @@ test("导航、更新、设置、快捷键与启动关闭流程", async ({ page 
   await expect(page.locator("#set-minimize-to-tray")).toBeChecked();
   await expect(page.locator("#app")).toHaveClass(/reduce-motion/);
   await page.locator("#set-install").fill("/tmp/oddity-game");
-  await page.keyboard.press("Control+s");
-  await expect(page.locator("#toast")).toHaveText("设置已保存.");
+  await page.locator("#set-install").press("Tab");
+  await expect(page.locator("#settings-form")).toHaveAttribute(
+    "data-save-state",
+    "saved",
+  );
   await page.locator("#settings-redetect").click();
   await expect(page.locator("#set-install")).toHaveValue("/tmp/oddity-game");
   await page.keyboard.press("Control+1");
@@ -219,7 +222,7 @@ test("视频长时间循环无黑帧, 离页后从头播放", async ({ page }) =
   await expect(canvas).toHaveClass(/is-visible/);
 });
 
-test("多账号签到、统一保存和账号管理", async ({ page }) => {
+test("多账号签到、自动保存和账号管理", async ({ page }) => {
   await page.goto("/#settings");
   const panel = page.locator(".attendance");
   const action = page.locator("#attendance-action");
@@ -243,13 +246,18 @@ test("多账号签到、统一保存和账号管理", async ({ page }) => {
   await page.locator("#attendance-trigger-trigger").click();
   await page.getByRole("option", { name: "开机时", exact: true }).click();
   await expect(panel).toContainText("用户登录后执行一次");
-  await page.locator("#settings-save").click();
-  await expect(page.locator("#toast")).toHaveText("设置已保存.");
+  await expect(page.locator("#settings-form")).toHaveAttribute(
+    "data-save-state",
+    "saved",
+  );
   await page.locator("#attendance-trigger-trigger").click();
   await page.getByRole("option", { name: "每天定时" }).click();
   await page.locator("#attendance-time").fill("20:30");
-  await page.locator("#settings-save").click();
-  await expect(page.locator("#toast")).toHaveText("设置已保存.");
+  await page.locator("#attendance-time").press("Tab");
+  await expect(page.locator("#settings-form")).toHaveAttribute(
+    "data-save-state",
+    "saved",
+  );
   await action.click();
   await expect(action).toHaveText("今日已签到");
   await expect(action).toBeDisabled();

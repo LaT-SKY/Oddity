@@ -1063,6 +1063,13 @@ async fn fetch_bulletins() -> Result<BulletinFeed, String> {
         .map_err(|error| format!("公告抓取任务失败：{error}"))
 }
 
+/// 下载任务只依赖游戏地区和两个地区的安装目录, 其余设置可以随时保存。
+fn download_paths_changed(current: &Settings, next: &Settings) -> bool {
+    current.distribution != next.distribution
+        || current.install_root != next.install_root
+        || current.global_install_root != next.global_install_root
+}
+
 #[tauri::command]
 fn save_settings(
     state: State<AppState>,
@@ -1070,9 +1077,6 @@ fn save_settings(
     settings: Settings,
 ) -> Result<Bootstrap, String> {
     let guard = downloads.inner.lock().map_err(|error| error.to_string())?;
-    if download_commands::blocks_changes(&guard.status) {
-        return Err("游戏资源任务正在进行，暂时无法修改设置".into());
-    }
     let mut next = settings;
     if !matches!(
         next.launch_mode.as_str(),
@@ -1085,6 +1089,14 @@ fn save_settings(
     }
     if next.hero_media != "video" && next.hero_media != "photo" {
         next.hero_media = "video".into();
+    }
+    let current = state
+        .settings
+        .lock()
+        .map(|settings| settings.clone())
+        .unwrap_or_default();
+    if download_commands::blocks_changes(&guard.status) && download_paths_changed(&current, &next) {
+        return Err("游戏资源任务正在进行, 暂时无法修改游戏地区或安装目录".into());
     }
     persist_settings(&next)?;
     if let Ok(mut current) = state.settings.lock() {
