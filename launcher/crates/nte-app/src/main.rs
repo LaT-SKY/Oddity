@@ -552,6 +552,18 @@ fn selected_install_root(settings: &Settings) -> PathBuf {
     }
 }
 
+/// 界面展示的安装目录必须与下载任务实际写入的目录一致。
+/// 只有未指定目录时才采用探测到的旧安装，避免旧安装覆盖用户的新选择。
+fn effective_install_root(settings: &Settings, launcher_root: Option<&Path>) -> PathBuf {
+    if configured_install_root(settings).is_some() {
+        return selected_install_root(settings);
+    }
+    launcher_root
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| selected_install_root(settings))
+}
+
 fn normalize_launcher_root_for(path: &Path, distribution: Distribution) -> Option<PathBuf> {
     let root = if path.join("Config").join("Config.ini").is_file() {
         path.to_path_buf()
@@ -826,10 +838,7 @@ fn ensure_sdk_link(prefix: &Path, install_dir: &Path) -> Result<(), String> {
 fn bootstrap_impl(settings: &Settings) -> Bootstrap {
     let mut error: Option<String> = None;
     let launcher_root = detect_launcher_root(settings);
-    let install_root = launcher_root
-        .as_ref()
-        .and_then(|p| p.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| selected_install_root(settings));
+    let install_root = effective_install_root(settings, launcher_root.as_deref());
     let bridge_root = launcher_root
         .as_ref()
         .map(|p| bridge_root_for(settings, p))
