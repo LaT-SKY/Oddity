@@ -38,6 +38,27 @@ fn game_status_reflects_the_session() {
     assert_eq!(status.log.as_deref(), Some("/tmp/launch.log"));
 }
 
+fn wait_until(mut condition: impl FnMut() -> bool, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        if condition() {
+            return true;
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    condition()
+}
+
+#[test]
+fn matches_only_the_game_executable() {
+    assert!(is_game_process_name("HTGame.exe"));
+    assert!(is_game_process_name("htgame"));
+    assert!(is_game_process_name(r"Z:\games\HTGame.exe"));
+    assert!(is_game_process_name("GameThread"));
+    assert!(!is_game_process_name("NTEGame.exe"));
+    assert!(!is_game_process_name("exec -a HTGame.exe sleep 30"));
+}
+
 #[test]
 fn rejects_non_process_groups() {
     assert!(!process_group_alive(0));
@@ -45,6 +66,60 @@ fn rejects_non_process_groups() {
     assert_eq!(signal_process_group(0, libc::SIGTERM), Ok(()));
     assert_eq!(signal_process_group(-1, libc::SIGTERM), Ok(()));
     terminate_process_group(0).expect("nothing to terminate");
+    assert!(!game_main_process_alive(0));
+}
+
+#[test]
+fn detects_the_game_main_process() {
+    let _env = EnvGuard::new();
+    let mut child = Command::new("bash")
+        .arg("-c")
+        .arg("exec -a HTGame.exe sleep 30")
+        .process_group(0)
+        .spawn()
+        .expect("spawn game process");
+    let root = child.id();
+    assert!(wait_until(
+        || game_main_process_alive(root),
+        Duration::from_secs(2)
+    ));
+
+    let pgid = i32::try_from(root).expect("pid fits i32");
+    let waiter = thread::spawn(move || child.wait());
+    terminate_process_group(pgid).expect("terminate game process");
+    let _ = waiter.join().expect("join waiter").expect("wait for child");
+    assert!(!game_main_process_alive(root));
+}
+
+#[test]
+fn ignores_wine_cleanup_processes() {
+    let _env = EnvGuard::new();
+    // 游戏主进程结束后 shell 和收尾进程仍存活, 用来模拟 Wine 清理阶段。
+    let mut child = Command::new("bash")
+        .arg("-c")
+        .arg(
+            "exec -a HTGame.exe sleep 30 & game=$!; \
+             sleep 0.5; kill \"$game\"; wait \"$game\"; sleep 30",
+        )
+        .process_group(0)
+        .spawn()
+        .expect("spawn fake wine tree");
+    let root = child.id();
+    assert!(
+        wait_until(|| game_main_process_alive(root), Duration::from_secs(2)),
+        "游戏主进程应在清理进程前被识别"
+    );
+    assert!(
+        wait_until(|| !game_main_process_alive(root), Duration::from_secs(3)),
+        "游戏主进程退出后不应继续等待收尾进程"
+    );
+    // 收尾进程仍在, 但不能再被当作游戏运行中。
+    let pgid = i32::try_from(root).expect("pid fits i32");
+    assert!(process_group_alive(pgid));
+
+    let waiter = thread::spawn(move || child.wait());
+    terminate_process_group(pgid).expect("terminate fake wine tree");
+    let _ = waiter.join().expect("join waiter");
 }
 
 #[test]
