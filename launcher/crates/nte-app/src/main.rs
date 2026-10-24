@@ -5,6 +5,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
@@ -12,6 +13,7 @@ use std::os::unix::fs::{symlink, PermissionsExt};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -315,6 +317,134 @@ fn should_show_launcher_after_exit(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+/// 进程名是否指向游戏主进程。Windows 路径和 Wine 的 comm 都可能保留
+/// HTGame 或 GameThread，其他参数里的同名文本不算。
+fn is_game_process_name(text: &str) -> bool {
+    let name = text
+        .trim()
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(text)
+        .to_ascii_lowercase();
+    matches!(
+        name.as_str(),
+        "htgame" | "htgame.exe" | "gamethread" | "gamethread.exe"
+    )
+}
+
+/// 读取进程的父进程与状态，用于沿进程树寻找游戏主进程。
+fn process_stat(pid: u32) -> Option<(u32, char)> {
+    let text = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let (_, rest) = text.rsplit_once(')')?;
+    let mut fields = rest.split_whitespace();
+    let state = fields.next()?.chars().next()?;
+    let ppid = fields.next()?.parse().ok()?;
+    Some((ppid, state))
+}
+
+fn is_game_process(pid: u32, state: char) -> bool {
+    if state == 'Z' {
+        return false;
+    }
+    if let Ok(comm) = fs::read(format!("/proc/{pid}/comm")) {
+        if is_game_process_name(&String::from_utf8_lossy(&comm)) {
+            return true;
+        }
+    }
+    let Ok(cmdline) = fs::read(format!("/proc/{pid}/cmdline")) else {
+        return false;
+    };
+    cmdline
+        .split(|byte| *byte == 0)
+        .filter(|argument| !argument.is_empty())
+        .any(|argument| is_game_process_name(&String::from_utf8_lossy(argument)))
+}
+
+/// 游戏主进程是否仍在以 `root_pid` 为根的进程树中。
+///
+/// Wine 收尾阶段的 wineserver、CEF 辅助进程仍会短暂留在树里，但它们不是
+/// 游戏主进程；这里只认 HTGame / GameThread，避免退出显示被清理流程拖慢。
+fn game_main_process_alive(root_pid: u32) -> bool {
+    if root_pid == 0 {
+        return false;
+    }
+    let Ok(entries) = fs::read_dir("/proc") else {
+        return false;
+    };
+    let mut states = HashMap::new();
+    for entry in entries.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|name| name.parse::<u32>().ok())
+        else {
+            continue;
+        };
+        if let Some((ppid, state)) = process_stat(pid) {
+            states.insert(pid, (ppid, state));
+        }
+    }
+    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+    for (pid, (ppid, _)) in &states {
+        children.entry(*ppid).or_default().push(*pid);
+    }
+    let mut stack = vec![root_pid];
+    let mut seen = HashSet::new();
+    while let Some(pid) = stack.pop() {
+        if !seen.insert(pid) {
+            continue;
+        }
+        if states
+            .get(&pid)
+            .is_some_and(|(_, state)| is_game_process(pid, *state))
+        {
+            return true;
+        }
+        if let Some(descendants) = children.get(&pid) {
+            stack.extend(descendants);
+        }
+    }
+    false
+}
+
+fn finish_game_early(app: &AppHandle, session: &GameSession) {
+    let cleared = {
+        let state = app.state::<AppState>();
+        let mut tracker = match state.game.lock() {
+            Ok(tracker) => tracker,
+            Err(_) => return,
+        };
+        if tracker.session.as_ref().map(|current| current.id) == Some(session.id) {
+            tracker.session = None;
+            true
+        } else {
+            false
+        }
+    };
+    if cleared {
+        let _ = app.emit("game-state", GameStatus::idle());
+        if should_show_launcher_after_exit(app) {
+            show_main(app);
+        }
+    }
+}
+
+/// 游戏主进程退出后先结束界面会话, Wine 收尾继续在监控线程中进行.
+fn watch_game_exit(app: AppHandle, session: GameSession, done: Arc<AtomicBool>) {
+    thread::spawn(move || {
+        let mut seen = false;
+        while !done.load(Ordering::Acquire) {
+            if game_main_process_alive(session.pid) {
+                seen = true;
+            } else if seen {
+                finish_game_early(&app, &session);
+                return;
+            }
+            thread::sleep(Duration::from_millis(500));
+        }
+    });
+}
+
 fn session_alive(session: &GameSession) -> bool {
     session.background.as_ref().map_or_else(
         || process_group_alive(session.pgid),
@@ -325,11 +455,14 @@ fn session_alive(session: &GameSession) -> bool {
 /// 后台会话按实际游戏生命周期结束, 无需等待共享 wineserver 退出.
 fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
     thread::spawn(move || {
+        let done = Arc::new(AtomicBool::new(false));
+        watch_game_exit(app.clone(), session.clone(), Arc::clone(&done));
         let result = if let Some(background) = &session.background {
             background.monitor(&mut child)
         } else {
             child.wait().map(|_| ()).map_err(|error| error.to_string())
         };
+        done.store(true, Ordering::Release);
 
         if child.try_wait().ok().flatten().is_none() {
             thread::spawn(move || {
