@@ -1,0 +1,23 @@
+diff --git a/dist/es/types/instance.d.ts b/dist/es/types/instance.d.ts
+index 7ed10b1bae195eea397780164fcc96e580b01699..7e56150f9fcc5596b6f6d62477cba8b465fbc9aa 100644
+--- a/dist/es/types/instance.d.ts
++++ b/dist/es/types/instance.d.ts
+@@ -1,5 +1,5 @@
+ import { Options } from './state';
+ declare module '@vue/runtime-dom' {
+-    interface HTMLAttributes extends Omit<Options, 'motionConfig' | 'layoutGroup'> {
++    interface HTMLAttributes extends Omit<Options, 'motionConfig' | 'layoutGroup' | 'onDrag' | 'style'> {
+     }
+ }
+diff --git a/dist/es/utils/use-in-view.d.ts b/dist/es/utils/use-in-view.d.ts
+index 29e61b4eff3989d921ed248d9a57999a0176168b..641c6c6898d66092452f9bb46acad5ca5227daad 100644
+--- a/dist/es/utils/use-in-view.d.ts
++++ b/dist/es/utils/use-in-view.d.ts
+@@ -1,5 +1,6 @@
+ import { Options } from '../types/state';
+-import { MaybeComputedElementRef, MaybeRef } from '@vueuse/core';
++import { MaybeComputedElementRef } from '@vueuse/core';
++import type { MaybeRef } from 'vue';
+ type InViewOptions = Options['inViewOptions'];
+ export interface UseInViewOptions extends Omit<InViewOptions, 'root'> {
+     root?: MaybeRef<Element | Document>;

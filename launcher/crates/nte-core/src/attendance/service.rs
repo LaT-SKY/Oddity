@@ -319,6 +319,43 @@ impl<V: Vault> Service<V> {
         })();
         result.unwrap_or_else(|e| Step::optional_failure("云异环时长", e))
     }
+    pub fn refresh_game_records(&self) -> Result<Status> {
+        // 与登录、签到共用锁, 防止轮换令牌覆盖或移除的账号重新出现。
+        let _lock = self.lock(false)?;
+        let mut status = self.status_locked()?;
+        if status.accounts.is_empty() {
+            return Ok(status);
+        }
+        let accounts = self.vault.load_all()?;
+        for current in &mut status.accounts {
+            let result = (|| {
+                let mut account = accounts
+                    .iter()
+                    .find(|a| account_id(&a.phone) == current.id)
+                    .cloned()
+                    .ok_or_else(|| Failure::new(FailureKind::Auth, "账号凭据不存在, 请重新登录"))?;
+                let session = self.session(&account)?;
+                account.uid = session.uid;
+                account.refresh_token = session.refresh;
+                account.laohu_token = session.laohu_token;
+                account.laohu_user_id = session.laohu_user;
+                self.vault.save(&account)?;
+                self.client.game_record(&account, &session.access)
+            })();
+            match result {
+                Ok(record) => {
+                    current.game_record = Some(record);
+                    current.game_record_error = None;
+                }
+                Err(mut error) => {
+                    error.message = error.message.replace("; 自动任务已暂停", "");
+                    current.game_record_error = Some(error);
+                }
+            }
+        }
+        self.write(&status)?;
+        Ok(status)
+    }
     pub fn run(&self, automatic: Option<Trigger>) -> Result<Status> {
         let _lock = self.lock(automatic.is_some())?;
         let mut status = self.status_locked()?;

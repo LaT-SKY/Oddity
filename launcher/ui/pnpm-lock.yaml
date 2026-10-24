@@ -204,15 +204,25 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  framer-motion@14.3.1: 74147fdf0477d3bf04dcd10eed215f4915eb9f16f909859adbba36c309148c58
+  motion-v@2.8.0: b8db2a69665adb3a732062d52a884e6c7d235665a4a9ca0ed3f99ad3cec6fa6d
+
 importers:
   .:
     dependencies:
       "@tauri-apps/api":
         specifier: ^2.12.4
         version: 2.12.4
+      "@vueuse/core":
+        specifier: 14.4.0
+        version: 14.4.0(vue@3.5.44(typescript@5.9.3))
       motion-dom:
-        specifier: ~14.5.0
-        version: 14.5.0
+        specifier: ~14.3.1
+        version: 14.3.1
+      motion-v:
+        specifier: 2.8.0
+        version: 2.8.0(patch_hash=b8db2a69665adb3a732062d52a884e6c7d235665a4a9ca0ed3f99ad3cec6fa6d)(@vueuse/core@14.4.0(vue@3.5.44(typescript@5.9.3)))(vue@3.5.44(typescript@5.9.3))
       vue:
         specifier: ^3.5.44
         version: 3.5.44(typescript@5.9.3)
@@ -226,6 +236,9 @@ importers:
       "@types/node":
         specifier: ^24.19.2
         version: 24.19.2
+      "@types/web-bluetooth":
+        specifier: 0.0.21
+        version: 0.0.21
       "@vitejs/plugin-vue":
         specifier: ^6.0.10
         version: 6.0.10(vite@8.3.4(@types/node@24.19.2))(vue@3.5.44(typescript@5.9.3))
@@ -706,6 +719,12 @@ packages:
         integrity: sha512-93d49wCWJkCyN87MxLpNN6KXPCwFw7bVUg79mGUV1OS40JGWwVCr8n61DXCSqz7CV6/VfPkb7xec7uP2M+QHWQ==,
       }
 
+  "@types/web-bluetooth@0.0.21":
+    resolution:
+      {
+        integrity: sha512-oIQLCGWtcFZy2JW77j9k8nHzAOpqMHLQejDA48XXMWH6tjCQHz5RCFz1bzsmROyL6PUm+LLnUiI4BCn221inxA==,
+      }
+
   "@vitejs/plugin-vue@6.0.10":
     resolution:
       {
@@ -857,6 +876,28 @@ packages:
     peerDependenciesMeta:
       "@vue/server-renderer":
         optional: true
+
+  "@vueuse/core@14.4.0":
+    resolution:
+      {
+        integrity: sha512-X4WHz1HlCzCBoYXesUkifzzWBAcZgXG8Fi5iNPQg/epdzOB3gu8Fawj3hvuwYR1nGcXGnvxwYYcUC/71++svtQ==,
+      }
+    peerDependencies:
+      vue: ^3.5.0
+
+  "@vueuse/metadata@14.4.0":
+    resolution:
+      {
+        integrity: sha512-swx/255R6JyHZFJhx845iz5CRWDZdCfvkZOpACWc5+c5WHcG24mv8gUT1WIdFQaHt6dq79rvILd9QnCWiyVm9g==,
+      }
+
+  "@vueuse/shared@14.4.0":
+    resolution:
+      {
+        integrity: sha512-JRgY90Sz8DDtPMsaDflvPMp9xYk69JZAmbuDvAquUVXKr2gEjqtzGNTTthLfckH0BzBqvnu31gb4a8TGLRe79g==,
+      }
+    peerDependencies:
+      vue: ^3.5.0
 
   abbrev@5.0.0:
     resolution:
@@ -1016,6 +1057,20 @@ packages:
       picomatch:
         optional: true
 
+  framer-motion@14.3.1:
+    resolution:
+      {
+        integrity: sha512-/6kjoSWyGsaUaHGaZehiqyVj0eJlY163TPKQCoTh0gHVr0JLyJE/NwCTqkLbXAnOOM00fLD/d92eh9mZfJaa6w==,
+      }
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
+      react-dom: ^18.0.0 || ^19.0.0
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
+
   fsevents@2.3.3:
     resolution:
       {
@@ -1030,6 +1085,12 @@ packages:
         integrity: sha512-Wjlyrolmm8uDpm/ogGyXZXb1Z+Ca2B8NbJwqBVg0axK9GbBeoS7yGV6vjXnYdGm6X53iehEuxxbyiKp8QmN4Vw==,
       }
     engines: { node: 18 || 20 || >=22 }
+
+  hey-listen@1.0.8:
+    resolution:
+      {
+        integrity: sha512-COpmrF2NOg4TBWUJ5UVyaCU2A88wEMkUPK4hNqyCkqHbxT92BbvfjoSozkAIIm6XhicGlJHhFdullInrdhwU8Q==,
+      }
 
   html-encoding-sniffer@7.0.0:
     resolution:
@@ -1237,10 +1298,10 @@ packages:
       }
     engines: { node: ">=16 || 14 >=14.17" }
 
-  motion-dom@14.5.0:
+  motion-dom@14.3.1:
     resolution:
       {
-        integrity: sha512-GAdnk1AgdtyrD3I09ZxEpV+Nt5QgwUsxN55qQV8mfk082dFQpcoT07wXkQAHRZjvZWUEBYhBVNeoXvtkYdL8jA==,
+        integrity: sha512-6gsjOAjXgZPoLLHNiBI1uBVNhSrIXSm6YBU8RsFM//byOvIys8YHPQE3VZqW3rWR021tcd3eT8pmV8zWTY9Jsg==,
       }
 
   motion-utils@14.1.1:
@@ -1248,6 +1309,15 @@ packages:
       {
         integrity: sha512-3VvN5Uvf8B6qG+OfOui6Nht5EWp+vLuU3IqcAj7ItZGKqtmTjCebl5sGZF7/08gEHRnEl1AP/fIwbcEyVrcQGQ==,
       }
+
+  motion-v@2.8.0:
+    resolution:
+      {
+        integrity: sha512-kCwxm+EUbXW/lUdhTyozTKCX2WmQ5aDrjrPtFnUKByw99cz6mQAJyqtIubGdecnDM4VvNz8JOhWy2upp3m5b3w==,
+      }
+    peerDependencies:
+      "@vueuse/core": ">=10.0.0"
+      vue: ">=3.0.0"
 
   muggle-string@0.4.1:
     resolution:
@@ -1451,6 +1521,12 @@ packages:
         integrity: sha512-BcDSDW+SIGWVOns1Zm6Yg91q9AEj7eaID0QDY9oIqJD1A8dscNwMcl9Sms2DeuWCNov1X0/oXanHGYQBSLwZsg==,
       }
     engines: { node: ^22.14.0 || >=24.0.0 }
+
+  tslib@2.8.1:
+    resolution:
+      {
+        integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==,
+      }
 
   typescript@5.9.3:
     resolution:
@@ -1831,6 +1907,8 @@ snapshots:
     dependencies:
       undici-types: 7.24.6
 
+  "@types/web-bluetooth@0.0.21": {}
+
   "@vitejs/plugin-vue@6.0.10(vite@8.3.4(@types/node@24.19.2))(vue@3.5.44(typescript@5.9.3))":
     dependencies:
       "@rolldown/pluginutils": 1.0.1
@@ -1953,6 +2031,19 @@ snapshots:
     optionalDependencies:
       "@vue/server-renderer": 3.5.44
 
+  "@vueuse/core@14.4.0(vue@3.5.44(typescript@5.9.3))":
+    dependencies:
+      "@types/web-bluetooth": 0.0.21
+      "@vueuse/metadata": 14.4.0
+      "@vueuse/shared": 14.4.0(vue@3.5.44(typescript@5.9.3))
+      vue: 3.5.44(typescript@5.9.3)
+
+  "@vueuse/metadata@14.4.0": {}
+
+  "@vueuse/shared@14.4.0(vue@3.5.44(typescript@5.9.3))":
+    dependencies:
+      vue: 3.5.44(typescript@5.9.3)
+
   abbrev@5.0.0: {}
 
   alien-signals@3.2.1: {}
@@ -2027,6 +2118,12 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.7
 
+  framer-motion@14.3.1(patch_hash=74147fdf0477d3bf04dcd10eed215f4915eb9f16f909859adbba36c309148c58):
+    dependencies:
+      motion-dom: 14.3.1
+      motion-utils: 14.1.1
+      tslib: 2.8.1
+
   fsevents@2.3.3:
     optional: true
 
@@ -2035,6 +2132,8 @@ snapshots:
       minimatch: 10.2.6
       minipass: 7.1.3
       path-scurry: 2.0.2
+
+  hey-listen@1.0.8: {}
 
   html-encoding-sniffer@7.0.0:
     dependencies:
@@ -2156,11 +2255,23 @@ snapshots:
 
   minipass@7.1.3: {}
 
-  motion-dom@14.5.0:
+  motion-dom@14.3.1:
     dependencies:
       motion-utils: 14.1.1
 
   motion-utils@14.1.1: {}
+
+  motion-v@2.8.0(patch_hash=b8db2a69665adb3a732062d52a884e6c7d235665a4a9ca0ed3f99ad3cec6fa6d)(@vueuse/core@14.4.0(vue@3.5.44(typescript@5.9.3)))(vue@3.5.44(typescript@5.9.3)):
+    dependencies:
+      "@vueuse/core": 14.4.0(vue@3.5.44(typescript@5.9.3))
+      framer-motion: 14.3.1(patch_hash=74147fdf0477d3bf04dcd10eed215f4915eb9f16f909859adbba36c309148c58)
+      hey-listen: 1.0.8
+      motion-dom: 14.3.1
+      motion-utils: 14.1.1
+      vue: 3.5.44(typescript@5.9.3)
+    transitivePeerDependencies:
+      - react
+      - react-dom
 
   muggle-string@0.4.1: {}
 
@@ -2262,6 +2373,8 @@ snapshots:
   tr46@7.0.0:
     dependencies:
       punycode: 2.3.1
+
+  tslib@2.8.1: {}
 
   typescript@5.9.3: {}
 

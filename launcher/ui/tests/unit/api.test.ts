@@ -190,6 +190,29 @@ describe("原生命令和事件", () => {
   });
 });
 
+it("游戏状态预览覆盖全部账号, 保留零次周本且不改变签到状态", async () => {
+  const { invoke } = await import("../../src/core/api");
+  expect((await invoke("attendance_refresh_game_records")).accounts).toEqual(
+    [],
+  );
+  for (const phone of ["13800138000", "13900139000"])
+    await invoke("attendance_login", {
+      phone,
+      password: "preview-only",
+      rememberPassword: false,
+    });
+  const result = await invoke("attendance_refresh_game_records");
+  expect(result.accounts.map((a) => a.gameRecord?.weeklyRemaining)).toEqual([
+    2, 0,
+  ]);
+  expect(result.accounts.map((a) => a.gameRecord?.stamina)).toEqual([168, 240]);
+  expect(
+    result.accounts.every((a) => a.lastReport === null && !a.signedToday),
+  ).toBe(true);
+  result.accounts.length = 0;
+  expect((await invoke("attendance_status")).accounts).toHaveLength(2);
+});
+
 it("签到预览默认关闭, 手机号密码登录不保存原始凭据且不会自动开启", async () => {
   const { invoke } = await import("../../src/core/api");
   expect((await invoke("attendance_status")).preferences.trigger).toBe("off");

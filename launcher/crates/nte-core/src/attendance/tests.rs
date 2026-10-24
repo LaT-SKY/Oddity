@@ -1,4 +1,6 @@
 use super::*;
+#[path = "game_record_tests.rs"]
+mod game_record_tests;
 use crate::testing::{HttpServer, TempDir};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -19,6 +21,7 @@ struct MemoryVault {
     account: Arc<Mutex<Vec<Account>>>,
     fail: Arc<AtomicBool>,
     fail_save: Arc<AtomicBool>,
+    fail_save_phone: Arc<Mutex<Option<String>>>,
 }
 impl Vault for MemoryVault {
     fn load_all(&self) -> Result<Vec<Account>> {
@@ -28,7 +31,10 @@ impl Vault for MemoryVault {
         Ok(self.account.lock().unwrap().clone())
     }
     fn save(&self, a: &Account) -> Result<()> {
-        if self.fail.load(Ordering::Relaxed) || self.fail_save.load(Ordering::Relaxed) {
+        if self.fail.load(Ordering::Relaxed)
+            || self.fail_save.load(Ordering::Relaxed)
+            || self.fail_save_phone.lock().unwrap().as_deref() == Some(a.phone.as_str())
+        {
             return Err(Failure::new(FailureKind::Keyring, "Keyring 锁定"));
         }
         let mut accounts = self.account.lock().unwrap();

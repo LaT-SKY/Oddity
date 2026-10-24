@@ -71,13 +71,52 @@ export const attendanceForm = reactive({
   trigger: "launch" as Exclude<AttendanceTrigger, "off">,
   time: "08:00",
 });
+export const gameRecords = reactive({
+  loading: false,
+  error: "",
+  nextRefresh: 0,
+});
+const GAME_RECORD_REFRESH_MS = 30 * 60 * 1000;
+let attendanceRevision = 0;
 export function syncAttendance(next: AttendanceStatus, syncForm = true) {
+  attendanceRevision++;
+  const oldIds = attendance.status?.accounts.map((a) => a.id).join(",");
+  if (oldIds !== next.accounts.map((a) => a.id).join(","))
+    gameRecords.nextRefresh = 0;
   attendance.status = next;
   if (syncForm) {
     attendanceForm.enabled = next.preferences.trigger !== "off";
     attendanceForm.trigger =
       next.preferences.trigger === "off" ? "launch" : next.preferences.trigger;
     attendanceForm.time = next.preferences.time;
+  }
+}
+export async function refreshGameRecords(force = false) {
+  if (
+    !attendance.status?.accounts.length ||
+    gameRecords.loading ||
+    attendance.busy ||
+    attendance.running ||
+    (!force && Date.now() < gameRecords.nextRefresh)
+  )
+    return;
+  const epoch = generation;
+  const revision = attendanceRevision;
+  gameRecords.loading = true;
+  gameRecords.error = "";
+  gameRecords.nextRefresh = Date.now() + GAME_RECORD_REFRESH_MS;
+  try {
+    const next = await invoke("attendance_refresh_game_records");
+    // 登录、移除账号或签到已改变状态时, 不接受较早发起的查询结果。
+    if (epoch !== generation || revision !== attendanceRevision) return;
+    syncAttendance(next, false);
+  } catch (cause) {
+    if (epoch === generation) {
+      gameRecords.error = attendanceMessage(cause);
+      gameRecords.nextRefresh = Date.now() + GAME_RECORD_REFRESH_MS;
+    }
+  } finally {
+    if (epoch === generation) gameRecords.loading = false;
   }
 }
 function attendanceMessage(cause: unknown) {
@@ -96,7 +135,10 @@ async function attendanceAction(
   attendance.error = "";
   try {
     const next = await action();
-    if (epoch === generation) syncAttendance(next, syncForm);
+    if (epoch === generation) {
+      syncAttendance(next, syncForm);
+      gameRecords.nextRefresh = 0;
+    }
   } catch (cause) {
     if (epoch === generation) attendance.error = attendanceMessage(cause);
     throw cause;
@@ -111,7 +153,13 @@ export async function loadAttendance() {
   try {
     const next = await invoke("attendance_status");
     // 轮询不能覆盖正在进行的登录或签到结果。
-    if (epoch !== generation || attendance.busy || attendance.running) return;
+    if (
+      epoch !== generation ||
+      attendance.busy ||
+      attendance.running ||
+      gameRecords.loading
+    )
+      return;
     syncAttendance(next, !attendance.loaded);
     attendance.loaded = true;
     attendance.error = "";
@@ -1373,6 +1421,9 @@ async function watchWindowShape() {
 
 export async function init() {
   const epoch = ++generation;
+  // 子组件先挂载时发起的读取属于上一代, 在此重新加载当前状态。
+  attendance.loading = false;
+  void loadAttendance();
   events = new window.AbortController();
   let storedReduceMotion = false;
   try {
@@ -1423,6 +1474,7 @@ export async function init() {
 
 export function dispose() {
   generation++;
+  Object.assign(gameRecords, { loading: false, error: "", nextRefresh: 0 });
   autoCheckStarted = false;
   downloadStarting.value = null;
   autoSaveQueued = false;

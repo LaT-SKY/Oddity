@@ -1,5 +1,5 @@
 //! 请求配置与签名参考仍在维护的 taygedo-auto-attendance, 许可见 THIRD_PARTY.md。
-use super::{id, now, Account, Failure, FailureKind, Result, Step};
+use super::{id, now, Account, Failure, FailureKind, GameRecord, Result, Step};
 use base64::Engine;
 use cipher::{BlockCipherEncrypt, KeyInit};
 use md5::{Digest, Md5};
@@ -511,50 +511,7 @@ impl Client {
         {
             return steps;
         }
-        let roles = (|| -> Result<BTreeMap<String, String>> {
-            let value = self.native(
-                &format!("/usercenter/api/v2/getGameRoles?gameId={GAME_ID}"),
-                account,
-                access,
-                None,
-            )?;
-            check(&value)?;
-            let list = value["data"]["roles"]
-                .as_array()
-                .ok_or_else(|| Failure::new(FailureKind::Protocol, "角色列表格式无效"))?;
-            let mut roles = BTreeMap::new();
-            for role in list {
-                let Some(role_id) = id(&role["roleId"]) else {
-                    continue;
-                };
-                let name = role["roleName"]
-                    .as_str()
-                    .map(str::trim)
-                    .filter(|name| {
-                        !name.is_empty()
-                            && name.chars().count() <= 128
-                            && !name.chars().any(char::is_control)
-                    })
-                    .unwrap_or_default()
-                    .to_string();
-                // 同一角色只签到一次, 重复记录中优先保留有效名称。
-                roles
-                    .entry(role_id)
-                    .and_modify(|current: &mut String| {
-                        if current.is_empty() {
-                            *current = name.clone();
-                        }
-                    })
-                    .or_insert(name);
-            }
-            if roles.is_empty() {
-                return Err(Failure::new(
-                    FailureKind::Protocol,
-                    "未找到异环角色, 请先在塔吉多绑定角色",
-                ));
-            }
-            Ok(roles)
-        })();
+        let roles = self.roles(account, access);
         match roles {
             Err(error) => steps.push(Step::from_result("获取异环角色", Err(error))),
             Ok(roles) => {
@@ -594,6 +551,69 @@ impl Client {
             }
         }
         steps
+    }
+    fn roles(&self, account: &Account, access: &str) -> Result<BTreeMap<String, String>> {
+        let value = self.native(
+            &format!("/usercenter/api/v2/getGameRoles?gameId={GAME_ID}"),
+            account,
+            access,
+            None,
+        )?;
+        check(&value)?;
+        let list = value["data"]["roles"]
+            .as_array()
+            .ok_or_else(|| Failure::new(FailureKind::Protocol, "角色列表格式无效"))?;
+        let mut roles = BTreeMap::new();
+        for role in list {
+            let Some(role_id) =
+                id(&role["roleId"]).filter(|s| s.len() <= 128 && !s.chars().any(char::is_control))
+            else {
+                continue;
+            };
+            let name = role["roleName"]
+                .as_str()
+                .map(str::trim)
+                .filter(|name| {
+                    !name.is_empty()
+                        && name.chars().count() <= 128
+                        && !name.chars().any(char::is_control)
+                })
+                .unwrap_or_default()
+                .to_string();
+            // 同一角色只签到一次, 重复记录中优先保留有效名称。
+            roles
+                .entry(role_id)
+                .and_modify(|current: &mut String| {
+                    if current.is_empty() {
+                        *current = name.clone();
+                    }
+                })
+                .or_insert(name);
+        }
+        if roles.is_empty() {
+            return Err(Failure::new(
+                FailureKind::Protocol,
+                "未找到异环角色, 请先在塔吉多绑定角色",
+            ));
+        }
+        Ok(roles)
+    }
+    pub(super) fn game_record(&self, account: &Account, access: &str) -> Result<GameRecord> {
+        let roles = self.roles(account, access)?;
+        let (role, name) = roles.first_key_value().expect("角色列表已检查非空");
+        let encoded: String = role.bytes().map(|b| format!("%{b:02X}")).collect();
+        let value = self.native(
+            &format!("/apihub/awapi/yh/roleHome?roleId={encoded}"),
+            account,
+            access,
+            None,
+        )?;
+        check(&value)?;
+        let mut record = GameRecord::parse(&value["data"], role)?;
+        if record.role_name.is_empty() {
+            record.role_name = name.clone();
+        }
+        Ok(record)
     }
 }
 fn laohu_profile(device: &str, version_code: bool) -> BTreeMap<String, String> {
