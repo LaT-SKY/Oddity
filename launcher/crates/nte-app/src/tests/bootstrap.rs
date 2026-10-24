@@ -69,14 +69,7 @@ fn bootstrap_reports_a_complete_install() {
         .dir
         .write("install/NTELauncher/WPGameClientSDK_64.dll", b"MZ");
 
-    // 桥接目录里的版本比安装目录新，应当被采用
-    install
-        .dir
-        .write("data/oddity/winroot/NTELauncher/NTEGame.exe", b"MZ");
-    install.dir.write_text(
-        "data/oddity/winroot/NTELauncher/UserData/Config/Config.ini",
-        "[Game]\nVersion_=1.4.30\n",
-    );
+    install.dir.write("install/NTELauncher/NTEGame.exe", b"MZ");
 
     std::fs::create_dir_all(install.dir.join("prefix/drive_c")).expect("create prefix");
     let proton = fake_proton(&install.dir.join("tools"), "GE-Proton9-1");
@@ -103,11 +96,7 @@ fn bootstrap_reports_a_complete_install() {
     );
     assert_eq!(
         bootstrap.bridge_root,
-        install
-            .dir
-            .join("data/oddity/winroot")
-            .display()
-            .to_string()
+        install.dir.join("install").display().to_string()
     );
     assert!(bootstrap.bridge_ready);
     assert_eq!(
@@ -120,7 +109,7 @@ fn bootstrap_reports_a_complete_install() {
     assert!(bootstrap.umu_available);
     assert_eq!(bootstrap.launcher_version, "1.4.16");
     assert_eq!(bootstrap.launcher_build, "20240101");
-    assert_eq!(bootstrap.game_version, "1.4.30");
+    assert_eq!(bootstrap.game_version, "1.4.20");
     assert!(bootstrap.game_exists);
     assert!(bootstrap.game_exe.ends_with("HTGame.exe"));
 
@@ -152,7 +141,7 @@ fn bootstrap_reports_a_complete_install() {
 }
 
 #[test]
-fn bootstrap_uses_the_install_version_when_the_bridge_is_older() {
+fn bootstrap_uses_the_install_version_with_a_separate_bridge() {
     let install = Install::new("bootstrap-older");
     let mut env = isolated_env(&install.dir);
     // 空 PATH：模拟没有 umu-launcher 的机器
@@ -167,7 +156,17 @@ fn bootstrap_uses_the_install_version_when_the_bridge_is_older() {
         "[Game]\nVersion_=1.0.0\n",
     );
 
-    let bootstrap = bootstrap_impl(&install.settings());
+    let settings = Settings {
+        bridge_root: Some(
+            install
+                .dir
+                .join("data/oddity/winroot")
+                .display()
+                .to_string(),
+        ),
+        ..install.settings()
+    };
+    let bootstrap = bootstrap_impl(&settings);
     assert!(bootstrap.ok);
     assert_eq!(bootstrap.game_version, "1.4.20");
     assert!(bootstrap.bridge_ready);

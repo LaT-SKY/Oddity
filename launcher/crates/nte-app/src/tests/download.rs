@@ -297,6 +297,39 @@ fn commands_reject_overlapping_tasks_and_running_games() {
         .lock()
         .unwrap()
         .starting = false;
+    // UMU 进程组已消失时, 后台会话仍阻止资源写入.
+    let background = crate::native_session::NativeSession::prepare(
+        &fixture.dir.join("logs"),
+        &fixture.dir.join("native.log"),
+        nte_core::launch::background::ClickProfile {
+            width: 1280,
+            height: 720,
+            x: 1120,
+            y: 636,
+        },
+    )
+    .unwrap();
+    fixture.app.state::<AppState>().game.lock().unwrap().session = Some(crate::GameSession {
+        id: 1,
+        pid: 0,
+        pgid: 0,
+        exe: EXE.into(),
+        started_at: 0,
+        log: String::new(),
+        closing: false,
+        background: Some(background.clone()),
+    });
+    assert!(game_download_start(
+        fixture.app.handle().clone(),
+        fixture.app.state(),
+        fixture.app.state(),
+        "apply".into(),
+        false,
+    )
+    .unwrap_err()
+    .contains("游戏正在运行"));
+    background.close().unwrap();
+    fixture.app.state::<AppState>().game.lock().unwrap().session = None;
     publish(fixture.app.handle(), |status| status.phase = "game".into());
     assert!(game_download_start(
         fixture.app.handle().clone(),

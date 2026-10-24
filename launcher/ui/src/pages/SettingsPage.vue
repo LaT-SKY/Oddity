@@ -32,12 +32,12 @@ const launchModeOptions = [
   {
     label: "后台启动 (推荐)",
     value: "background",
-    hint: "自动完成官方登录, 启动后隐藏启动器窗口.",
+    hint: "等待官方资源检查, 自动登录并启动游戏, 隐藏官方主窗口.",
   },
   {
     label: "前台启动",
     value: "official",
-    hint: "自动完成官方登录, 保留官方启动器窗口.",
+    hint: "显示官方窗口, 请从该窗口点击启动游戏.",
   },
   {
     label: "直接启动 (开发中)",

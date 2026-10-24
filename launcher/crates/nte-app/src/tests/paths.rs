@@ -202,7 +202,7 @@ fn detects_the_chinese_home_seed() {
 }
 
 #[test]
-fn bridge_root_follows_the_priority_order() {
+fn bridge_root_uses_the_installation_unless_explicitly_configured() {
     let mut env = EnvGuard::new();
     let home = TempDir::new("bridge-home");
     env.set("HOME", home.path());
@@ -214,13 +214,6 @@ fn bridge_root_follows_the_priority_order() {
     assert_eq!(
         bridge_root_for(&Settings::default(), &launcher),
         home.join("games/install")
-    );
-
-    // data_dir/winroot 里有 NTEGame.exe 时优先使用
-    home.write(".local/share/oddity/winroot/NTELauncher/NTEGame.exe", b"MZ");
-    assert_eq!(
-        bridge_root_for(&Settings::default(), &launcher),
-        home.join(".local/share/oddity/winroot")
     );
 
     // 设置里显式指定的路径最优先
@@ -235,14 +228,14 @@ fn bridge_root_follows_the_priority_order() {
         custom.path().to_path_buf()
     );
 
-    // 设置里的路径无效时忽略，回到 winroot
+    // 设置里的路径无效时使用所选安装
     let broken = Settings {
         bridge_root: Some("/nope".to_string()),
         ..Default::default()
     };
     assert_eq!(
         bridge_root_for(&broken, &launcher),
-        home.join(".local/share/oddity/winroot")
+        home.join("games/install")
     );
 }
 

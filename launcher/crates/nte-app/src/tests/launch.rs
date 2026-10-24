@@ -147,6 +147,10 @@ fn launch_official_mode_sets_the_proton_environment() {
     assert!(invocation.result.started_at > 1_600_000_000_000);
     assert!(Path::new(&invocation.result.log).is_file());
     assert!(invocation.result.log.ends_with("nte-app-launch.log"));
+    assert_eq!(
+        std::fs::canonicalize(fixture.bridge.join("Client")).expect("bridge client"),
+        std::fs::canonicalize(fixture.dir.join("install/Client")).expect("selected client")
+    );
 
     let dump = fixture.dump();
     assert_eq!(
@@ -162,6 +166,7 @@ fn launch_official_mode_sets_the_proton_environment() {
     assert_eq!(env_value(&dump, "pgp_scale_value"), Some("1"));
     assert_eq!(env_value(&dump, "UMU_LOG"), Some("info"));
     assert_eq!(env_value(&dump, "PROTON_LOG"), Some("0"));
+    assert_eq!(env_value(&dump, "PROTON_VERB"), Some("run"));
     // Proton 的 Wayland 开关必须被显式移除
     assert!(env_value(&dump, "PROTON_ENABLE_WAYLAND").is_none());
     assert_eq!(
@@ -175,7 +180,7 @@ fn launch_official_mode_sets_the_proton_environment() {
         .find_map(|line| line.strip_prefix("args: "))
         .expect("umu args");
     assert!(args.contains("NTEGame.exe"), "{args}");
-    assert!(args.ends_with("/launcher /directly /autoplay"), "{args}");
+    assert!(args.ends_with("/launcher /directly"), "{args}");
 
     // 官方启动器会被改成“随游戏退出”的薄壳
     let presence = std::fs::read_to_string(
@@ -185,7 +190,7 @@ fn launch_official_mode_sets_the_proton_environment() {
     )
     .expect("read presence config");
     assert!(presence.contains("user_t92=deadbeef"), "{presence}");
-    assert!(presence.contains("autoUpdate=0"), "{presence}");
+    assert!(presence.contains("autoUpdate=1"), "{presence}");
     assert!(presence.contains("quitWithGame=1"), "{presence}");
     assert!(presence.contains("NeedUpdate=0"), "{presence}");
 
@@ -197,16 +202,32 @@ fn launch_official_mode_sets_the_proton_environment() {
 }
 
 #[test]
-fn launch_background_mode_uses_the_window_helper() {
+fn launch_background_mode_configures_the_native_session() {
     let fixture = LaunchFixture::new("launch-background");
+    let old_client = fixture.dir.join("old-install/Client");
+    std::fs::create_dir_all(&old_client).expect("create old client");
+    symlink(&old_client, fixture.bridge.join("Client")).expect("link old installation");
     fixture.dir.write_text(
         "winroot/NTELauncher/UserData/Config/Config.ini",
         "[Setting]\nautoLogin=1\n",
     );
 
-    let invocation = launch_impl(&fixture.settings("background")).expect("launch");
+    let invocation = launch_impl_with_profile(&fixture.settings("background"), |_| {
+        Ok(ClickProfile {
+            width: 1280,
+            height: 720,
+            x: 1120,
+            y: 636,
+        })
+    })
+    .expect("launch");
     assert_eq!(invocation.result.mode, "background");
     assert!(invocation.result.exe.ends_with("NTEGame.exe"));
+    assert_eq!(
+        std::fs::canonicalize(fixture.bridge.join("Client")).expect("bridge client"),
+        std::fs::canonicalize(fixture.dir.join("install/Client")).expect("selected client")
+    );
+    assert!(old_client.is_dir());
 
     let dump = fixture.dump();
     assert_eq!(
@@ -219,20 +240,136 @@ fn launch_background_mode_uses_the_window_helper() {
     );
     assert_eq!(
         env_value(&dump, "NTE_BRIDGE_ARGS"),
-        Some("/launcher /directly /autoplay")
+        Some("/launcher /directly")
     );
     assert!(env_value(&dump, "NTE_HELPER_LOG")
         .expect("helper log path")
         .ends_with("helper-window.log"));
-    // 直接跑的是内置窗口助手，而不是官方 exe
+    assert_eq!(env_value(&dump, "PROTON_VERB"), Some("run"));
+    assert_eq!(
+        env_value(&dump, "NTE_SESSION_CLICK"),
+        Some("1280,720,1120,636")
+    );
+    assert!(env_value(&dump, "NTE_SESSION_HELPER")
+        .unwrap()
+        .ends_with("nte-launch-helper.exe"));
+    for key in [
+        "NTE_SESSION_OUTPUT",
+        "NTE_SESSION_SIGNAL",
+        "NTE_SESSION_CANCEL",
+    ] {
+        assert!(env_value(&dump, key).unwrap().starts_with("Z:"), "{key}");
+    }
+    // 会话控制器驱动官方正常启动流程.
     assert!(env_value(&dump, "NTE_GAME_EXE").is_none());
     let args = dump
         .lines()
         .find_map(|line| line.strip_prefix("args: "))
         .expect("umu args");
-    assert!(args.contains("nte-launch-helper.exe"), "{args}");
+    assert!(args.contains("nte-session-helper.exe"), "{args}");
 
     fixture.stop(invocation);
+}
+
+#[test]
+fn launch_rejects_a_conflicting_bridge_installation_without_changing_it() {
+    let fixture = LaunchFixture::new("launch-conflicting-client");
+    let marker = fixture
+        .dir
+        .write("winroot/Client/keep.pak", b"existing game");
+
+    let error = expect_launch_error(launch_impl_with_profile(
+        &fixture.settings("background"),
+        |_| {
+            Ok(ClickProfile {
+                width: 1280,
+                height: 720,
+                x: 1120,
+                y: 636,
+            })
+        },
+    ));
+    assert!(error.contains("Client 与所选安装目录不一致"), "{error}");
+    assert_eq!(
+        std::fs::read(marker).expect("existing resource"),
+        b"existing game"
+    );
+    assert!(!fixture.dump.exists());
+}
+
+#[test]
+fn bridge_client_handles_missing_targets_and_install_directory_aliases() {
+    let dir = TempDir::new("bridge-client-paths");
+    let client = dir.join("install/client");
+    let bridge = dir.join("bridge");
+    std::fs::create_dir_all(&client).expect("create selected client");
+    std::fs::create_dir_all(&bridge).expect("create bridge");
+    symlink(dir.join("removed/Client"), bridge.join("Client")).expect("stale link");
+
+    ensure_bridge_client(&bridge, &dir.join("install")).expect("replace dangling link");
+    assert_eq!(
+        std::fs::read_link(bridge.join("Client")).expect("new link"),
+        client
+    );
+    ensure_bridge_client(&bridge, &dir.join("install")).expect("keep matching link");
+
+    let alias = dir.join("alias");
+    symlink(dir.join("install"), &alias).expect("installation alias");
+    ensure_bridge_client(&alias, &dir.join("install")).expect("same installation");
+    assert!(!std::fs::symlink_metadata(&client)
+        .expect("client metadata")
+        .file_type()
+        .is_symlink());
+}
+
+#[test]
+fn launch_reports_unwritable_runtime_config_before_starting_the_game() {
+    let fixture = LaunchFixture::new("launch-readonly-config");
+    let bin = fixture
+        .dir
+        .join("install/Client/WindowsNoEditor/HT/Binaries/Win64");
+    let config = bin.join("GameLauncher.config");
+    std::fs::write(&config, "E:/WindowsLauncher/WPGameClientSDK_64.dll").expect("Windows SDK path");
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o444))
+        .expect("readonly config");
+
+    let error = expect_launch_error(launch_impl_with_profile(
+        &fixture.settings("background"),
+        |_| {
+            Ok(ClickProfile {
+                width: 1280,
+                height: 720,
+                x: 1120,
+                y: 636,
+            })
+        },
+    ));
+    assert!(error.contains("游戏运行配置不可写"), "{error}");
+    assert!(error.contains("GameLauncher.config"), "{error}");
+    assert!(!fixture.dump.exists());
+    std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o644))
+        .expect("restore config permissions");
+
+    let cache = bin.join("patchersdk_serverlist");
+    std::fs::create_dir(&cache).expect("server cache");
+    std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o555))
+        .expect("readonly server cache");
+    let error = expect_launch_error(launch_impl_with_profile(
+        &fixture.settings("background"),
+        |_| {
+            Ok(ClickProfile {
+                width: 1280,
+                height: 720,
+                x: 1120,
+                y: 636,
+            })
+        },
+    ));
+    assert!(error.contains("patchersdk_serverlist"), "{error}");
+    std::fs::set_permissions(&cache, std::fs::Permissions::from_mode(0o755))
+        .expect("restore server cache permissions");
+
+    check_game_write_access(&bin.join("HTGame.exe")).expect("writable runtime config");
 }
 
 #[test]
@@ -285,7 +422,15 @@ fn launch_can_skip_the_presence_tuning() {
     std::fs::write(&config, "[Setting]\nautoLogin=1\n").expect("write config");
     fixture.env.set("NTE_DISABLE_PRESENCE_TUNING", "1");
 
-    let invocation = launch_impl(&fixture.settings("background")).expect("launch");
+    let invocation = launch_impl_with_profile(&fixture.settings("background"), |_| {
+        Ok(ClickProfile {
+            width: 1280,
+            height: 720,
+            x: 1120,
+            y: 636,
+        })
+    })
+    .expect("launch");
     assert_eq!(
         std::fs::read_to_string(&config).expect("read config"),
         "[Setting]\nautoLogin=1\n"
@@ -311,8 +456,21 @@ fn launch_reports_an_immediate_exit_with_the_log_tail() {
     let error = expect_launch_error(launch_impl(&fixture.settings("direct")));
     assert!(error.contains("游戏启动失败（退出码 1）"), "{error}");
 
-    let error = expect_launch_error(launch_impl(&fixture.settings("background")));
-    assert!(error.contains("后台启动失败（退出码 1）"), "{error}");
+    let mut invocation = launch_impl_with_profile(&fixture.settings("background"), |_| {
+        Ok(ClickProfile {
+            width: 1280,
+            height: 720,
+            x: 1120,
+            y: 636,
+        })
+    })
+    .expect("background monitor owns cleanup");
+    let background = invocation.background.as_ref().unwrap();
+    let error = background
+        .monitor(&mut invocation.child)
+        .expect_err("early exit fails the session");
+    assert!(error.contains("后台包装进程"), "{error}");
+    assert!(background.finished());
 }
 
 #[test]
@@ -370,4 +528,12 @@ fn launch_requires_the_expected_tools_and_files() {
     };
     let error = expect_launch_error(launch_impl(&no_game));
     assert!(error.contains("未找到 HTGame.exe"), "{error}");
+}
+
+#[test]
+fn launch_rejects_an_unverified_background_before_starting_umu() {
+    let fixture = LaunchFixture::new("launch-unknown-background");
+    let error = expect_launch_error(launch_impl(&fixture.settings("background")));
+    assert!(error.contains("尚未验证后台启动"), "{error}");
+    assert!(!fixture.dump.exists());
 }

@@ -118,6 +118,7 @@ export interface LaunchResult {
   startedAt: number;
 }
 export interface GameStatus {
+  error?: string | null;
   running: boolean;
   closing: boolean;
   pid: number;
