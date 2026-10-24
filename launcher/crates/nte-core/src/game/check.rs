@@ -5,12 +5,12 @@ use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::game::config::GameUpdateConfig;
-use crate::game::http::HttpClient;
 use crate::game::manifest::{
     parse_diff_list, parse_remote_config, parse_res_list, DiffManifest, GameManifest,
     LocalManifest, PakEntry, RemoteConfig, ResEntry,
 };
 use crate::game::pxml;
+use crate::http::HttpClient;
 use crate::update::{md5_bytes, md5_file_cancellable};
 use crate::{Error, Result};
 
