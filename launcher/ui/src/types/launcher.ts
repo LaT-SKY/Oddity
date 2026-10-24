@@ -52,6 +52,7 @@ export interface Settings {
   theme: string;
   heroMedia: string;
   minimizeToTrayOnClose: boolean;
+  showLauncherAfterGameExit: boolean;
 }
 export interface CheckItem {
   label: string;

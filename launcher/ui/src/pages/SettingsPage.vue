@@ -217,6 +217,18 @@ const launchModeHint = computed(
           />
           <i class="switch" aria-hidden="true"></i>
         </label>
+        <label class="switch-row">
+          <span
+            ><strong>游戏退出后打开启动器</strong
+            ><small>检测到游戏进程结束后，自动显示 Oddity 主界面。</small></span
+          >
+          <input
+            id="set-show-after-game-exit"
+            v-model="form.showLauncherAfterGameExit"
+            type="checkbox"
+          />
+          <i class="switch" aria-hidden="true"></i>
+        </label>
       </section>
       <TaygedoSettings v-if="state.page === 'settings'" />
     </form>

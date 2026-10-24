@@ -18,6 +18,7 @@ export const settings: Settings = {
   theme: "light",
   heroMedia: "photo",
   minimizeToTrayOnClose: true,
+  showLauncherAfterGameExit: true,
 };
 export const bootstrap = (overrides: Partial<Bootstrap> = {}): Bootstrap => ({
   ok: true,
