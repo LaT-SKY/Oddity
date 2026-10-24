@@ -9,6 +9,7 @@ import type {
   GameStatus,
   DownloadStatus,
   BulletinFeed,
+  LauncherBackgroundMedia,
   Settings,
 } from "../types/launcher";
 import { invoke, isTauri, listenGameState, listenDownloadState } from "./api";
@@ -302,7 +303,23 @@ export const ui = reactive({
   toast: { message: "", kind: "ok", visible: false },
   scrollEdge: { top: false, bottom: false },
 });
-export const media = reactive({ url: "", looping: false });
+const BUNDLED_CROP_X = 0.54;
+const BUNDLED_CROP_Y = 0.38;
+const EMPTY_BACKGROUND: LauncherBackgroundMedia = { video: null, image: null };
+
+export const media = reactive({
+  url: "",
+  image: "",
+  looping: false,
+  officialVideo: false,
+  officialImage: false,
+  cropX: BUNDLED_CROP_X,
+  cropY: BUNDLED_CROP_Y,
+  videoKey: "",
+  imageKey: "",
+  loopCut: 1,
+  initialized: !isTauri(),
+});
 let toastTimer = 0;
 let videoElement: HTMLVideoElement | null = null;
 export function setHeroVideo(video: HTMLVideoElement | null) {
@@ -574,7 +591,18 @@ export function applyTheme(theme: string) {
 const HERO_MEDIA = new Set(["video", "photo"]);
 const REDUCE_MOTION_KEY = "nte.reduceMotion";
 const INTRO_DURATION = 380;
+const BUNDLED_VIDEO_CANDIDATES = [
+  { url: "assets/hero-loop.mp4", type: 'video/mp4; codecs="avc1.42E01E"' },
+  { url: "assets/hero-loop.webm", type: 'video/webm; codecs="vp9"' },
+];
 let heroVideoRequest: Promise<boolean> | null = null;
+let heroImageRequest: Promise<void> | null = null;
+let launcherBackground: LauncherBackgroundMedia = { ...EMPTY_BACKGROUND };
+let launcherBackgroundKey = "";
+let launcherBackgroundRequest: {
+  key: string;
+  promise: Promise<LauncherBackgroundMedia>;
+} | null = null;
 let pendingHeroMedia: string | null = null;
 const introWaiters: (() => void)[] = [];
 
@@ -614,35 +642,150 @@ function startIntro() {
   schedule(finishIntro, motionReduced() ? 0 : INTRO_DURATION);
 }
 
+function heroBackgroundKey(data: Bootstrap | null = state.bootstrap) {
+  return data
+    ? `${data.settings?.distribution || ""}|${data.launcherRoot || ""}`
+    : "";
+}
+
+async function resolveLauncherBackground(): Promise<LauncherBackgroundMedia> {
+  if (!isTauri()) return EMPTY_BACKGROUND;
+  const key = heroBackgroundKey();
+  if (!key) return EMPTY_BACKGROUND;
+  if (key === launcherBackgroundKey) return launcherBackground;
+  if (launcherBackgroundRequest?.key === key)
+    return launcherBackgroundRequest.promise;
+
+  const epoch = generation;
+  const request: {
+    key: string;
+    promise: Promise<LauncherBackgroundMedia>;
+  } = {
+    key,
+    promise: Promise.resolve(EMPTY_BACKGROUND),
+  };
+  request.promise = invoke("launcher_background")
+    .then((next) => {
+      if (epoch === generation && key === heroBackgroundKey()) {
+        launcherBackground = next;
+        launcherBackgroundKey = key;
+      }
+      return launcherBackground;
+    })
+    .catch(() => launcherBackground)
+    .finally(() => {
+      if (launcherBackgroundRequest === request)
+        launcherBackgroundRequest = null;
+    });
+  launcherBackgroundRequest = request;
+  return request.promise;
+}
+
+function releaseHeroMedia() {
+  stopHeroVideo(videoElement);
+  if (media.url.startsWith("blob:")) URL.revokeObjectURL(media.url);
+  if (media.image.startsWith("blob:")) URL.revokeObjectURL(media.image);
+  media.url = "";
+  media.image = "";
+  media.initialized = !isTauri();
+  media.officialVideo = false;
+  media.officialImage = false;
+  media.cropX = BUNDLED_CROP_X;
+  media.cropY = BUNDLED_CROP_Y;
+  media.videoKey = "";
+  media.imageKey = "";
+  media.loopCut = 1;
+  launcherBackground = { ...EMPTY_BACKGROUND };
+  launcherBackgroundKey = "";
+  heroVideoRequest = null;
+  heroImageRequest = null;
+}
+
+function refreshLauncherBackground(data: Bootstrap) {
+  if (!isTauri()) return;
+  const key = heroBackgroundKey(data);
+  if (key === launcherBackgroundKey) return;
+  releaseHeroMedia();
+  const epoch = generation;
+  void resolveLauncherBackground().then(() => {
+    if (epoch !== generation || key !== heroBackgroundKey()) return;
+    if (!launcherBackground.image) media.initialized = true;
+    if (ui.introDone && state.page === "home") applyHeroMedia(state.heroMedia);
+  });
+}
+
+async function loadHeroImage() {
+  if (!isTauri() || state.page !== "home") return;
+  const epoch = generation;
+  const key = heroBackgroundKey();
+  if (!key || media.imageKey === key) return;
+  if (heroImageRequest) return heroImageRequest;
+
+  const promise = (async () => {
+    const source = await resolveLauncherBackground();
+    if (epoch !== generation || key !== heroBackgroundKey()) return;
+    media.imageKey = key;
+    media.initialized = true;
+    if (!source.image) {
+      media.officialImage = false;
+      return;
+    }
+    if (media.image.startsWith("blob:")) URL.revokeObjectURL(media.image);
+    media.image = source.image;
+    media.officialImage = true;
+  })();
+  heroImageRequest = promise;
+  promise.finally(() => {
+    if (heroImageRequest === promise) heroImageRequest = null;
+  });
+  return promise;
+}
+
 async function loadHeroVideo(video: HTMLVideoElement) {
   const epoch = generation;
-  if (media.url) return true;
+  const key = heroBackgroundKey();
+  if (media.url && media.videoKey === key) return true;
   if (heroVideoRequest) return heroVideoRequest;
 
-  const candidates = [
-    { url: "assets/hero-loop.mp4", type: 'video/mp4; codecs="avc1.42E01E"' },
-    { url: "assets/hero-loop.webm", type: 'video/webm; codecs="vp9"' },
-  ];
-  const chosen = candidates.find((candidate) =>
-    video.canPlayType(candidate.type),
-  );
-  if (!chosen) return false;
+  const promise = (async () => {
+    const source = await resolveLauncherBackground();
+    if (epoch !== generation || key !== heroBackgroundKey()) return false;
+    if (media.url && media.videoKey === key) return true;
 
-  heroVideoRequest = (async () => {
-    const response = await fetch(chosen.url, { cache: "no-store" });
-    if (!response.ok) return false;
-    const blob = await response.blob();
-    if (epoch !== generation) return false;
-    media.url = URL.createObjectURL(blob);
+    let url = "";
+    let official = false;
+    if (source.video && video.canPlayType("video/mp4")) {
+      url = source.video;
+      official = true;
+    }
+    if (!url) {
+      const chosen = BUNDLED_VIDEO_CANDIDATES.find((candidate) =>
+        video.canPlayType(candidate.type),
+      );
+      if (!chosen) return false;
+      const response = await fetch(chosen.url, { cache: "no-store" });
+      if (!response.ok) return false;
+      const blob = await response.blob();
+      if (epoch !== generation || key !== heroBackgroundKey()) return false;
+      url = URL.createObjectURL(blob);
+    }
+    if (media.url.startsWith("blob:")) URL.revokeObjectURL(media.url);
+    media.url = url;
+    media.videoKey = key;
+    media.officialVideo = official;
+    media.cropX = official ? 0.5 : BUNDLED_CROP_X;
+    media.cropY = official ? 0.5 : BUNDLED_CROP_Y;
+    media.loopCut = official ? 0.02 : 1;
     await nextTick();
-    if (epoch !== generation) return false;
+    if (epoch !== generation || key !== heroBackgroundKey()) return false;
     video.load();
     return true;
   })().catch(() => false);
-
-  const result = await heroVideoRequest;
-  if (epoch === generation) heroVideoRequest = null;
-  return result;
+  heroVideoRequest = promise;
+  promise.finally(() => {
+    if (heroVideoRequest === promise) heroVideoRequest = null;
+  });
+  return promise;
 }
 
 function canPlayHeroVideo() {
@@ -660,21 +803,16 @@ function requestHeroPlayback(video: HTMLVideoElement) {
   if (attempt && typeof attempt.catch === "function") attempt.catch(() => {});
 }
 
-export function heroEnded() {
-  if (!media.looping || !canPlayHeroVideo() || !videoElement) return;
-  videoElement.currentTime = 0;
-  requestHeroPlayback(videoElement);
-}
-
 function startHeroVideo(video: HTMLVideoElement) {
   media.looping = true;
   requestHeroPlayback(video);
 }
 
-function stopHeroVideo(video: HTMLVideoElement | null) {
+function stopHeroVideo(video: HTMLVideoElement | null, reset = true) {
   media.looping = false;
   if (!video) return;
   video.pause();
+  if (!reset) return;
   try {
     video.currentTime = 0;
   } catch {}
@@ -691,11 +829,13 @@ export function applyHeroMedia(input: string) {
     return value;
   }
 
+  if (state.page === "home") void loadHeroImage();
+
   const video = videoElement;
   if (!video) return value;
 
   if (!canPlayHeroVideo()) {
-    stopHeroVideo(video);
+    stopHeroVideo(video, state.page === "home");
     return value;
   }
 
@@ -703,11 +843,11 @@ export function applyHeroMedia(input: string) {
   loadHeroVideo(video).then((loaded) => {
     if (epoch !== generation) return;
     if (!loaded) {
-      stopHeroVideo(video);
+      stopHeroVideo(video, state.page === "home");
       return;
     }
     if (!canPlayHeroVideo()) {
-      stopHeroVideo(video);
+      stopHeroVideo(video, state.page === "home");
       return;
     }
     if (!media.looping) {
@@ -734,6 +874,7 @@ function applyBootstrap(
 ) {
   bootstrapRevision++;
   state.bootstrap = data;
+  refreshLauncherBackground(data);
   const settings = data.settings || {};
 
   const ready = isReady(data);
@@ -1491,11 +1632,9 @@ export function dispose() {
   timers.clear();
   pendingWaits.forEach((resolve) => resolve());
   pendingWaits.clear();
-  stopHeroVideo(videoElement);
+  releaseHeroMedia();
   videoElement = null;
-  if (media.url) URL.revokeObjectURL(media.url);
-  media.url = "";
-  heroVideoRequest = null;
+  launcherBackgroundRequest = null;
   pendingHeroMedia = null;
   introWaiters.length = 0;
   ui.introStarted = false;

@@ -30,6 +30,7 @@ use nte_core::manifest::Manifest;
 use nte_core::{update, version};
 
 mod attendance_commands;
+mod background_server;
 mod download_commands;
 mod native_session;
 
@@ -140,6 +141,13 @@ struct Bootstrap {
     settings: Settings,
     app_version: String,
     os: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LauncherBackgroundMedia {
+    video: Option<String>,
+    image: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1118,6 +1126,33 @@ fn bootstrap(state: State<AppState>) -> Bootstrap {
     bootstrap_impl(&settings)
 }
 
+fn launcher_background_paths(
+    settings: &Settings,
+) -> Option<nte_core::background::LauncherBackground> {
+    let root = detect_launcher_root(settings)?;
+    nte_core::background::resolve(&root)
+}
+
+#[tauri::command]
+fn launcher_background(
+    state: State<AppState>,
+    server: State<background_server::BackgroundServer>,
+) -> LauncherBackgroundMedia {
+    let settings = state.settings.lock().map(|s| s.clone()).unwrap_or_default();
+    let Some(background) = launcher_background_paths(&settings) else {
+        let _ = server.update(None, None);
+        return LauncherBackgroundMedia::default();
+    };
+    let video = background
+        .video
+        .and_then(|path| fs::canonicalize(path).ok());
+    let image = background
+        .image
+        .and_then(|path| fs::canonicalize(path).ok());
+    let (video, image) = server.update(video, image);
+    LauncherBackgroundMedia { video, image }
+}
+
 #[tauri::command]
 async fn check_update(state: State<'_, AppState>, full: bool) -> Result<CheckResult, String> {
     let settings = state
@@ -1910,7 +1945,7 @@ fn win_drag(window: WebviewWindow) -> Result<(), String> {
 #[tauri::command]
 fn play_hero_video(window: tauri::WebviewWindow) -> Result<(), String> {
     // 由原生窗口启动解码, 避免被遮挡的视频源受到自动播放限制。
-    window.eval("{ const video = document.getElementById('hero-video'); if (video instanceof HTMLVideoElement && video.autoplay) void video.play().catch(() => {}); }")
+    window.eval("{ document.querySelectorAll('video.hero__source').forEach((video) => { if (video instanceof HTMLVideoElement && video.autoplay) void video.play().catch(() => {}); }); }")
         .map_err(|error| error.to_string())
 }
 
@@ -2013,6 +2048,7 @@ fn main() {
             game: Mutex::new(GameTracker::default()),
         })
         .manage(download_commands::DownloadManager::default())
+        .manage(background_server::BackgroundServer::start())
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let minimize = window
@@ -2052,6 +2088,7 @@ fn main() {
             attendance_commands::attendance_logout,
             attendance_commands::attendance_keyring_check,
             play_hero_video,
+            launcher_background,
             bootstrap,
             check_update,
             download_commands::game_download_status,

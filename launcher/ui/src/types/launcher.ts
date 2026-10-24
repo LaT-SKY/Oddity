@@ -175,6 +175,10 @@ export interface BulletinFeed {
   items: BulletinItem[];
   errors: string[];
 }
+export interface LauncherBackgroundMedia {
+  video: string | null;
+  image: string | null;
+}
 export interface Commands {
   attendance_status: AttendanceStatus;
   attendance_refresh_game_records: AttendanceStatus;
@@ -186,6 +190,7 @@ export interface Commands {
   attendance_logout: AttendanceStatus;
   attendance_keyring_check: void;
   play_hero_video: null;
+  launcher_background: LauncherBackgroundMedia;
   bootstrap: Bootstrap;
   check_update: CheckResult;
   fetch_bulletins: BulletinFeed;
@@ -218,6 +223,7 @@ export interface CommandArgs {
   attendance_logout: { accountId: string };
   attendance_keyring_check: undefined;
   play_hero_video: undefined;
+  launcher_background: undefined;
   bootstrap: undefined;
   check_update: { full: boolean };
   fetch_bulletins: undefined;

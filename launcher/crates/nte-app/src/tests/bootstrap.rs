@@ -207,6 +207,42 @@ fn bootstrap_reports_an_unreadable_launcher_config() {
 }
 
 #[test]
+fn resolves_the_official_background_from_the_install() {
+    let install = Install::new("background");
+    let _env = isolated_env(&install.dir);
+    install.launcher_config("[General]\nGameID=1289\n[VERSION]\nVersion=1.0\n");
+    install
+        .dir
+        .write("install/NTELauncher/ResFilesM/1289/bgimgs/bg.mp4", b"video");
+    install.dir.write(
+        "install/NTELauncher/ResFilesM/1289/bgimgs/bg_0.png",
+        b"image",
+    );
+    install.dir.write_text(
+        "install/NTELauncher/ResFilesM/1289/bgimgs/config.json",
+        r#"{"video":"bg.mp4","imgs":[{"file":"bg_0.png"}]}"#,
+    );
+
+    let background = launcher_background_paths(&install.settings()).expect("find background");
+    assert_eq!(
+        background.video,
+        Some(
+            install
+                .dir
+                .join("install/NTELauncher/ResFilesM/1289/bgimgs/bg.mp4")
+        )
+    );
+    assert_eq!(
+        background.image,
+        Some(
+            install
+                .dir
+                .join("install/NTELauncher/ResFilesM/1289/bgimgs/bg_0.png")
+        )
+    );
+}
+
+#[test]
 fn bootstrap_reports_a_missing_install_when_nothing_is_found() {
     let dir = TempDir::new("bootstrap-missing");
     let _env = isolated_env(&dir);

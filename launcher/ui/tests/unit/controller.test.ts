@@ -8,6 +8,7 @@ import type {
   CheckResult,
   GameStatus,
   DownloadStatus,
+  LauncherBackgroundMedia,
   Settings,
 } from "../../src/types/launcher";
 
@@ -25,6 +26,7 @@ const backend = vi.hoisted(() => ({
   data: {} as Bootstrap,
   result: {} as CheckResult,
   status: {} as GameStatus,
+  background: { video: null, image: null } as LauncherBackgroundMedia,
   isMaximized: vi.fn(),
   onResized: vi.fn(),
   resize: async () => {},
@@ -66,6 +68,7 @@ beforeEach(() => {
   backend.data = bootstrap();
   backend.result = check();
   backend.status = session();
+  backend.background = { video: null, image: null };
   backend.downloadStatus = {
     mode: "check",
     phase: "idle",
@@ -104,6 +107,8 @@ beforeEach(() => {
               accounts: [],
               preferences: { trigger: "off", time: "08:00" },
             };
+          case "launcher_background":
+            return structuredClone(backend.background);
           case "bootstrap":
             return structuredClone(backend.data);
           case "check_update":
@@ -1229,7 +1234,7 @@ describe("导航和窗口交互", () => {
 });
 
 describe("主视觉和资源", () => {
-  it("保持循环间隙的画面, 离页后回到首帧再绘制", async () => {
+  it("保持循环间隙的画面, 离页暂停并保留当前帧", async () => {
     backend.data.settings = {
       ...settings,
       reduceMotion: false,
@@ -1277,7 +1282,6 @@ describe("主视觉和资源", () => {
     backend.invoke.mockClear();
     await vi.advanceTimersByTimeAsync(40);
     expect(video.currentTime).toBe(0);
-    expect(backend.invoke).toHaveBeenCalledWith("play_hero_video");
     expect(canvas.classList.contains("is-visible")).toBe(true);
     Object.defineProperty(video, "seeking", { value: true });
     draw.mockClear();
@@ -1294,7 +1298,7 @@ describe("主视觉和资源", () => {
     c.showPage("settings");
     await nextTick();
     expect(c.media.looping).toBe(false);
-    expect(video.currentTime).toBe(0);
+    expect(video.currentTime).toBe(6);
     expect(canvas.classList.contains("is-visible")).toBe(false);
     await vi.advanceTimersByTimeAsync(100);
     expect(draw).not.toHaveBeenCalled();
@@ -1302,10 +1306,10 @@ describe("主视觉和资源", () => {
     c.showPage("home");
     await flushPromises();
     await vi.advanceTimersByTimeAsync(40);
-    expect(canvas.classList.contains("is-visible")).toBe(false);
+    expect(canvas.classList.contains("is-visible")).toBe(true);
     Object.defineProperty(video, "seeking", { value: false });
     await vi.advanceTimersByTimeAsync(40);
-    expect(video.currentTime).toBe(0);
+    expect(video.currentTime).toBe(6);
     expect(canvas.classList.contains("is-visible")).toBe(true);
     c.applyHeroMedia("photo");
     await nextTick();
@@ -1369,6 +1373,139 @@ describe("主视觉和资源", () => {
     expect(button("hero-canvas").classList.contains("is-visible")).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
   });
+});
+
+it("官方启动器视频通过本地流交给双缓冲循环", async () => {
+  const official = "http://127.0.0.1:4321/video?token=abc&v=1";
+  backend.background = { video: official, image: null };
+  backend.data.settings = {
+    ...settings,
+    reduceMotion: false,
+    heroMedia: "video",
+  };
+  const c = await boot();
+  const video = document.getElementById("hero-video") as HTMLVideoElement;
+  expect(video.src).toBe(official);
+  expect(video.loop).toBe(false);
+  expect(c.media.officialVideo).toBe(true);
+  expect(c.media.cropX).toBe(0.5);
+  expect(c.media.cropY).toBe(0.5);
+  expect(
+    vi
+      .mocked(fetch)
+      .mock.calls.some(([url]) => String(url).includes("hero-loop")),
+  ).toBe(false);
+});
+
+it("官方静态壁纸用于照片模式并使用居中构图", async () => {
+  const official = "http://127.0.0.1:4321/image?token=abc&v=1";
+  backend.background = { video: null, image: official };
+  backend.data.settings = {
+    ...settings,
+    reduceMotion: true,
+    heroMedia: "photo",
+  };
+  const c = await boot();
+  expect(c.media.officialImage).toBe(true);
+  expect(c.media.image).toBe(official);
+  const art = document.querySelector(".hero__art") as HTMLElement;
+  expect(art.classList.contains("hero__art--official")).toBe(true);
+  expect(art.style.backgroundImage).toContain(official);
+});
+
+it("没有官方视频时回退内置视频", async () => {
+  backend.background = { video: null, image: null };
+  backend.data.settings = {
+    ...settings,
+    reduceMotion: false,
+    heroMedia: "video",
+  };
+  const c = await boot();
+  expect(fetch).toHaveBeenCalledWith("assets/hero-loop.mp4", {
+    cache: "no-store",
+  });
+  expect(c.media.officialVideo).toBe(false);
+  expect(c.media.cropX).toBeCloseTo(0.54);
+  expect(c.media.cropY).toBeCloseTo(0.38);
+});
+
+it("切换地区后重新读取背景素材", async () => {
+  const cn = "http://127.0.0.1:4321/video?token=abc&v=1";
+  const global = "http://127.0.0.1:4321/video?token=abc&v=2";
+  backend.background = { video: cn, image: null };
+  backend.data.settings = {
+    ...settings,
+    reduceMotion: false,
+    heroMedia: "video",
+  };
+  const c = await boot();
+  const video = document.getElementById("hero-video") as HTMLVideoElement;
+  expect(video.src).toBe(cn);
+
+  backend.background = { video: global, image: null };
+  backend.data.launcherRoot = "/games/global/launcher";
+  backend.data.settings = {
+    ...backend.data.settings,
+    distribution: "global",
+    globalInstallRoot: "/games/global",
+  };
+  c.form.distribution = "global";
+  c.form.globalInstallRoot = "/games/global";
+  await c.redetect();
+  await flushPromises();
+
+  expect(video.src).toBe(global);
+  expect(c.media.officialVideo).toBe(true);
+  expect(c.media.cropX).toBe(0.5);
+});
+
+it("在视频结尾切换到预载的备播元素", async () => {
+  backend.data.settings = {
+    ...settings,
+    reduceMotion: false,
+    heroMedia: "video",
+  };
+  const c = await boot();
+  const a = document.getElementById("hero-video") as HTMLVideoElement;
+  const b = document.getElementById("hero-video-b") as HTMLVideoElement;
+  const canvas = document.getElementById("hero-canvas") as HTMLCanvasElement;
+  const draw = vi.mocked(canvas.getContext("2d")!.drawImage);
+  Object.defineProperties(a, {
+    readyState: { value: 2, writable: true },
+    paused: { value: false, writable: true },
+    seeking: { value: false, writable: true },
+    duration: { value: 13 },
+    videoWidth: { value: 1920 },
+    videoHeight: { value: 1080 },
+    currentTime: { value: 12, writable: true },
+  });
+  Object.defineProperties(b, {
+    readyState: { value: 2, writable: true },
+    paused: { value: false, writable: true },
+    seeking: { value: false, writable: true },
+    duration: { value: 13 },
+    videoWidth: { value: 1920 },
+    videoHeight: { value: 1080 },
+    currentTime: { value: 0, writable: true },
+  });
+  Object.defineProperties(canvas, {
+    clientWidth: { value: 800 },
+    clientHeight: { value: 600 },
+  });
+  await vi.advanceTimersByTimeAsync(40);
+  await vi.advanceTimersByTimeAsync(40);
+  expect(draw).toHaveBeenLastCalledWith(
+    b,
+    expect.closeTo(259.2),
+    0,
+    1440,
+    1080,
+    0,
+    0,
+    800,
+    600,
+  );
+  expect(c.media.looping).toBe(true);
 });
 
 it("组件事件和双向绑定将用户操作传给控制器", async () => {
