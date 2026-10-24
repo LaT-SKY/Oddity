@@ -46,6 +46,7 @@ struct Settings {
     theme: String,
     hero_media: String,
     minimize_to_tray_on_close: bool,
+    show_launcher_after_game_exit: bool,
 }
 
 impl Default for Settings {
@@ -63,6 +64,7 @@ impl Default for Settings {
             theme: "light".to_string(),
             hero_media: "video".to_string(),
             minimize_to_tray_on_close: true,
+            show_launcher_after_game_exit: true,
         }
     }
 }
@@ -291,6 +293,19 @@ fn terminate_process_group(pgid: i32) -> Result<(), String> {
     Err("游戏进程未响应结束请求，请稍后重试。".to_string())
 }
 
+/// 游戏进程结束后是否按设置显示主界面。
+fn should_show_launcher_after_exit(app: &AppHandle) -> bool {
+    app.try_state::<AppState>()
+        .and_then(|state| {
+            state
+                .settings
+                .lock()
+                .ok()
+                .map(|settings| settings.show_launcher_after_game_exit)
+        })
+        .unwrap_or(false)
+}
+
 /// Reap the wrapper and clear the session as soon as it exits.
 ///
 /// Proton/Wine teardown can keep the original process group alive for a while
@@ -317,6 +332,9 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
         };
         if cleared {
             let _ = app.emit("game-state", GameStatus::idle());
+            if should_show_launcher_after_exit(&app) {
+                show_main(&app);
+            }
         }
     });
 }

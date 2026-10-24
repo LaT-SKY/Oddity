@@ -299,6 +299,7 @@ describe("启动与设置", () => {
         reduceMotion: false,
         heroMedia: "photo",
         minimizeToTrayOnClose: true,
+        showLauncherAfterGameExit: true,
       },
     });
     expect(text("toast")).toBe("设置已保存.");
@@ -323,6 +324,22 @@ describe("启动与设置", () => {
     expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
       settings: expect.objectContaining({
         minimizeToTrayOnClose: false,
+      }),
+    });
+  });
+
+  it("游戏退出后打开启动器配置支持切换与保存", async () => {
+    const c = await boot();
+    expect(c.form.showLauncherAfterGameExit).toBe(true);
+    const checkbox = document.querySelector<HTMLInputElement>(
+      "#set-show-after-game-exit",
+    )!;
+    expect(checkbox.checked).toBe(true);
+    c.form.showLauncherAfterGameExit = false;
+    await c.saveSettings();
+    expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
+      settings: expect.objectContaining({
+        showLauncherAfterGameExit: false,
       }),
     });
   });

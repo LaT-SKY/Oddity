@@ -91,6 +91,7 @@ cargo build --release --locked -p nte-app
 | **Wine prefix** | 游戏使用的 Wine 前缀，目录中应包含 `drive_c`。留空时使用默认目录 |
 | **Proton 路径** | Proton 安装目录，目录中应同时包含 `proton` 和 `toolmanifest.vdf` |
 | **启动方式** | 日常使用请选择 **官方后台桥接** |
+| **游戏退出后打开启动器** | 默认开启。检测到游戏进程结束后，自动显示 Oddity 主界面 |
 
 ![设置页](assets/launcher-settings.png)
 
@@ -108,7 +109,7 @@ cargo build --release --locked -p nte-app
 
 1. 前往 **更新** 页，选择地区与安装目录，点击 **检查资源**。检查通过时按钮会显示 **检查通过**；发现缺失或变更时，按钮会显示 **安装游戏** 或 **更新游戏**，点击后从官方 CDN 获取启动器文件和游戏资源。
 2. 更新完成后回到 **启动** 页，点击 **启动游戏**。Oddity 会通过 Proton 启动官方后台组件，完成登录与后续启动流程。
-3. 启动成功后，Oddity 窗口会收起到系统托盘，游戏开始运行。
+3. 启动成功后，Oddity 窗口会收起到系统托盘，游戏开始运行。游戏退出后，Oddity 默认重新显示主界面；可在设置中关闭 **游戏退出后打开启动器**。
 
 ![检查更新](assets/launcher-update.png)
 
