@@ -1899,6 +1899,7 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             attendance_commands::attendance_status,
+            attendance_commands::attendance_refresh_game_records,
             attendance_commands::attendance_login,
             attendance_commands::attendance_send_code,
             attendance_commands::attendance_login_sms,

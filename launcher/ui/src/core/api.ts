@@ -304,6 +304,23 @@ async function previewInvoke(
   switch (command) {
     case "attendance_status":
       return clone(previewAttendance);
+    case "attendance_refresh_game_records":
+      previewAttendance.accounts.forEach((account, index) => {
+        account.gameRecord = {
+          roleId: String(100000001 + index),
+          roleName: index ? `预览角色 ${index + 1}` : "海特洛调查员",
+          serverName: "预览服务器",
+          stamina: index ? 240 : 168,
+          staminaMax: 240,
+          cityStamina: index ? 180 : 420,
+          cityStaminaMax: 700,
+          activity: index ? 100 : 60,
+          weeklyRemaining: index ? 0 : 2,
+          updatedAt: Math.floor(Date.now() / 1000),
+        };
+        account.gameRecordError = null;
+      });
+      return clone(previewAttendance);
     case "attendance_keyring_check":
       return undefined;
     case "attendance_send_code": {

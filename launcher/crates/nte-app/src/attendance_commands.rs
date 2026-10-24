@@ -24,6 +24,10 @@ pub async fn attendance_status() -> Result<Status> {
     blocking(|| attendance::default_service().status()).await
 }
 #[tauri::command]
+pub async fn attendance_refresh_game_records() -> Result<Status> {
+    blocking(|| attendance::default_service().refresh_game_records()).await
+}
+#[tauri::command]
 pub async fn attendance_login(
     phone: String,
     password: String,

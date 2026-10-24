@@ -99,6 +99,11 @@ beforeEach(() => {
         args?: { settings: Settings; mode: "check" | "apply" },
       ) => {
         switch (command) {
+          case "attendance_status":
+            return {
+              accounts: [],
+              preferences: { trigger: "off", time: "08:00" },
+            };
           case "bootstrap":
             return structuredClone(backend.data);
           case "check_update":
@@ -207,6 +212,8 @@ const key = (value: string, options: KeyboardEventInit = {}) =>
 describe("启动与设置", () => {
   it("加载配置、诊断和版本, 并自动检查更新", async () => {
     const c = await boot();
+    expect(c.attendance.loaded).toBe(true);
+    expect(c.attendance.loading).toBe(false);
     expect(c.form.installRoot).toBe("/game");
     expect(wrapper!.findAll(".check-row")).toHaveLength(1);
     expect(c.displayVersion.value).toBe("0.1.0");
@@ -240,9 +247,20 @@ describe("启动与设置", () => {
   });
 
   it("启动失败仍完成入场并允许手动重新检测", async () => {
-    backend.invoke
-      .mockRejectedValueOnce(new Error("status unavailable"))
-      .mockRejectedValueOnce(new Error("bootstrap failed"));
+    const invoke = backend.invoke.getMockImplementation()!;
+    let failedStatus = false;
+    let failedBootstrap = false;
+    backend.invoke.mockImplementation(async (command, args) => {
+      if (command === "game_status" && !failedStatus) {
+        failedStatus = true;
+        throw new Error("status unavailable");
+      }
+      if (command === "bootstrap" && !failedBootstrap) {
+        failedBootstrap = true;
+        throw new Error("bootstrap failed");
+      }
+      return invoke(command, args);
+    });
     const c = await boot();
     expect(text("toast")).toBe("bootstrap failed");
     expect(button("app").classList.contains("is-intro-done")).toBe(true);
@@ -1643,6 +1661,7 @@ it("保存先提交通用设置, 再提交已加载的签到偏好", async () =>
 
 it("签到未加载时保存不提交签到偏好", async () => {
   const c = await boot();
+  c.attendance.loaded = false;
   c.attendanceForm.enabled = true;
   c.form.prefix = "/changed";
   backend.invoke.mockClear();

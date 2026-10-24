@@ -10,6 +10,7 @@ import {
   handleLaunchAction,
 } from "../core/controller";
 import HeroMedia from "../components/HeroMedia.vue";
+import HomeGameRecords from "../components/HomeGameRecords.vue";
 </script>
 
 <template>
@@ -23,6 +24,7 @@ import HeroMedia from "../components/HeroMedia.vue";
       <div class="hero__inner">
         <HeroMedia />
         <div class="hero__fade" aria-hidden="true"></div>
+        <HomeGameRecords />
         <div class="hero__content">
           <h1 class="hero__title" id="home-title">
             <span class="hero__cn">异环</span>

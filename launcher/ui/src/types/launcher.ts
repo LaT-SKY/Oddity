@@ -34,6 +34,20 @@ export interface AttendanceAccount {
   failedToday: boolean;
   lastReport: AttendanceReport | null;
   attention: AttendanceFailure | null;
+  gameRecord?: GameRecord | null;
+  gameRecordError?: AttendanceFailure | null;
+}
+export interface GameRecord {
+  roleId: string;
+  roleName: string;
+  serverName: string;
+  stamina: number | null;
+  staminaMax: number | null;
+  cityStamina: number | null;
+  cityStaminaMax: number | null;
+  activity: number | null;
+  weeklyRemaining: number | null;
+  updatedAt: number;
 }
 export interface AttendanceStatus {
   accounts: AttendanceAccount[];
@@ -162,6 +176,7 @@ export interface BulletinFeed {
 }
 export interface Commands {
   attendance_status: AttendanceStatus;
+  attendance_refresh_game_records: AttendanceStatus;
   attendance_login: AttendanceStatus;
   attendance_send_code: string;
   attendance_login_sms: AttendanceStatus;
@@ -189,6 +204,7 @@ export interface Commands {
 }
 export interface CommandArgs {
   attendance_status: undefined;
+  attendance_refresh_game_records: undefined;
   attendance_send_code: { phone: string };
   attendance_login_sms: { phone: string; code: string; deviceId: string };
   attendance_login: {

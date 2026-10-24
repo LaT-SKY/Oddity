@@ -1,5 +1,6 @@
 //! 塔吉多登录和可选签到, 所有入口共享会话、锁和执行结果。
 mod client;
+mod game_record;
 pub mod schedule;
 mod service;
 mod vault;
@@ -9,6 +10,7 @@ use std::fmt;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub use game_record::GameRecord;
 pub use service::Service;
 pub use vault::{check_keyring, KeyringVault, Vault};
 
@@ -190,6 +192,10 @@ pub struct AccountStatus {
     pub failed_today: bool,
     pub last_report: Option<Report>,
     pub attention: Option<Failure>,
+    #[serde(default)]
+    pub game_record: Option<GameRecord>,
+    #[serde(default)]
+    pub game_record_error: Option<Failure>,
 }
 impl AccountStatus {
     fn new(account: &Account) -> Self {
@@ -201,6 +207,8 @@ impl AccountStatus {
             failed_today: false,
             last_report: None,
             attention: None,
+            game_record: None,
+            game_record_error: None,
         }
     }
     fn refresh_day(&mut self) {

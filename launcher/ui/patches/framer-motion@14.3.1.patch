@@ -1,0 +1,11 @@
+diff --git a/dist/dom.d.ts b/dist/dom.d.ts
+index 1404ed30f17ddbeb6152b0cbb8d83db8685dbfb9..ae686b8d290f49b9622b37d2bc7df464a455f8ad 100644
+--- a/dist/dom.d.ts
++++ b/dist/dom.d.ts
+@@ -307,5 +307,5 @@ interface HTMLElements {
+     var: HTMLElement;
+     video: HTMLVideoElement;
+     wbr: HTMLElement;
+-    webview: HTMLWebViewElement;
++    webview: HTMLElement;
+ }
