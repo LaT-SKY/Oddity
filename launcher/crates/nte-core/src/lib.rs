@@ -16,6 +16,8 @@ pub mod manifest;
 pub mod update;
 pub mod version;
 
+pub(crate) mod http;
+
 #[cfg(test)]
 pub(crate) mod testing;
 

@@ -10,8 +10,8 @@ use md5::Digest as _;
 
 use crate::game::check::{join_install_path, PatchRef, UpdateItem, UpdateKind, UpdatePlan};
 use crate::game::config::GameUpdateConfig;
-use crate::game::http::HttpClient;
 use crate::game::manifest::{Block, PakEntry, ResEntry};
+use crate::http::HttpClient;
 use crate::update::md5_file;
 use crate::{Error, Result};
 
