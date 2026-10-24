@@ -156,6 +156,7 @@ const mock: Bootstrap = {
     theme: "light",
     heroMedia: "video",
     minimizeToTrayOnClose: true,
+    showLauncherAfterGameExit: true,
   },
   appVersion: APP_VERSION,
   os: previewOs(),

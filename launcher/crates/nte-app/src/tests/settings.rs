@@ -16,6 +16,7 @@ fn settings_default_matches_the_ui_contract() {
     assert_eq!(settings.theme, "light");
     assert_eq!(settings.hero_media, "video");
     assert!(settings.minimize_to_tray_on_close);
+    assert!(settings.show_launcher_after_game_exit);
 }
 
 #[test]
@@ -41,6 +42,7 @@ fn settings_round_trip_through_the_config_dir() {
         theme: "dark".to_string(),
         hero_media: "photo".to_string(),
         minimize_to_tray_on_close: false,
+        show_launcher_after_game_exit: false,
     };
     persist_settings(&settings).expect("persist settings");
 
@@ -48,6 +50,7 @@ fn settings_round_trip_through_the_config_dir() {
     assert!(text.contains("\"installRoot\""), "{text}");
     assert!(text.contains("\"reduceMotion\""), "{text}");
     assert!(text.contains("\"minimizeToTrayOnClose\""), "{text}");
+    assert!(text.contains("\"showLauncherAfterGameExit\""), "{text}");
     assert!(!dir.join("oddity/settings.json.tmp").exists());
 
     let loaded = load_settings();
@@ -65,6 +68,7 @@ fn settings_round_trip_through_the_config_dir() {
     assert_eq!(loaded.theme, "dark");
     assert_eq!(loaded.hero_media, "photo");
     assert!(!loaded.minimize_to_tray_on_close);
+    assert!(!loaded.show_launcher_after_game_exit);
 }
 
 #[test]
@@ -84,6 +88,7 @@ fn settings_fall_back_when_the_file_is_broken_or_partial() {
     assert_eq!(partial.launch_mode, "background");
     assert_eq!(partial.hero_media, "video");
     assert!(partial.minimize_to_tray_on_close);
+    assert!(partial.show_launcher_after_game_exit);
 }
 
 #[test]
