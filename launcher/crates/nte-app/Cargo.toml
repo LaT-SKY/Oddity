@@ -24,6 +24,7 @@ serde_json.workspace = true
 nte-core = { path = "../nte-core" }
 libc = "0.2"
 zeroize = "1"
+tauri-plugin-dialog = "2"
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

@@ -2222,6 +2222,7 @@ fn main() {
     configure_graphics();
     let settings = load_settings();
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             show_main(app);
         }))

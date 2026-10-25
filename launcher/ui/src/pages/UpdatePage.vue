@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import BaseSelect from "../components/BaseSelect.vue";
+import DirectoryField from "../components/DirectoryField.vue";
 import {
   state,
   form,
@@ -265,24 +266,21 @@ const transferActive = computed(
             @change="queueSettingsSave(0)"
           />
         </div>
-        <label class="field field--wide">
-          <span>安装目录</span>
-          <input
-            id="download-install-root"
-            v-model="currentRoot"
-            type="text"
-            spellcheck="false"
-            autocomplete="off"
-            :disabled="settingsPathsLocked"
-            @input="queueSettingsSave()"
-            @change="queueSettingsSave(0)"
-            :placeholder="
-              form.distribution === 'cn'
-                ? '~/Games/Neverness To Everness'
-                : '~/Games/Neverness To Everness Global'
-            "
-          />
-        </label>
+        <DirectoryField
+          :key="form.distribution"
+          id="download-install-root"
+          v-model="currentRoot"
+          class="field field--wide"
+          label="安装目录"
+          :disabled="settingsPathsLocked"
+          @input="queueSettingsSave()"
+          @change="queueSettingsSave(0)"
+          :placeholder="
+            form.distribution === 'cn'
+              ? '~/Games/Neverness To Everness'
+              : '~/Games/Neverness To Everness Global'
+          "
+        />
       </div>
       <p class="download-hint">
         将从当前地区的官方 CDN 获取启动器文件和游戏资源.
