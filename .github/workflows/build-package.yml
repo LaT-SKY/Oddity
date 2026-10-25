@@ -8,6 +8,10 @@ on:
   workflow_dispatch:
   workflow_call:
     inputs:
+      commit:
+        description: 已验证的发布提交
+        required: true
+        type: string
       version:
         description: 要构建的发布版本, 留空时读取仓库版本
         required: false
@@ -65,6 +69,8 @@ jobs:
     steps:
       - name: 检出源码
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit || github.sha }}
 
       - name: 安装 pnpm
         uses: pnpm/action-setup@v6
@@ -194,6 +200,8 @@ jobs:
     steps:
       - name: 检出源码
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit || github.sha }}
 
       - name: 校验必要任务
         uses: ./.github/actions/verify-checks
