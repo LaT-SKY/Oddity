@@ -1,0 +1,71 @@
+name: Nix
+
+on:
+  workflow_call:
+    inputs:
+      commit:
+        required: true
+        type: string
+    secrets:
+      CACHIX_AUTH_TOKEN:
+        required: false
+  pull_request:
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'nix/**'
+      - 'launcher/**'
+      - 'scripts/release-version.mjs'
+      - '.github/workflows/nix.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'nix/**'
+      - 'launcher/**'
+      - 'scripts/release-version.mjs'
+      - '.github/workflows/nix.yml'
+  workflow_dispatch:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nix-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nix:
+    name: Flake 与包构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit || github.sha }}
+
+      - name: 安装 Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+
+      - name: 配置 Cachix
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: cachix/cachix-action@v17
+        with:
+          name: oddity
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.event_name == 'pull_request' }}
+
+      - name: 检查 Flake
+        run: nix flake check --print-build-logs
+
+      - name: 构建源码包
+        run: nix build .#oddity --print-build-logs

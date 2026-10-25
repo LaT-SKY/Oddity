@@ -1,0 +1,143 @@
+name: 发布 Gentoo overlay
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      commit:
+        required: true
+        type: string
+    secrets:
+      GENTOO_OVERLAY_DEPLOY_KEY:
+        required: true
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布到 Gentoo overlay 的 tag，例如 oddity-v0.1.0-alpha.2'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gentoo-oddity-bin
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: 更新 oddity-bin
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      OVERLAY_REPO: LaT-SKY/oddity-overlay
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.commit || inputs.tag || github.event.release.tag_name }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: 校验 Tag 与版本
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^oddity-v(.+)$ ]]; then
+            echo "::error::tag 必须以 oddity-v 开头: $TAG"
+            exit 1
+          fi
+          version="${BASH_REMATCH[1]}"
+          node scripts/check-release-version.mjs "$version" "$TAG"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "refs/tags/$TAG^{commit}")" ]]; then
+            echo "::error::检出的提交与 tag 不一致"
+            exit 1
+          fi
+          if [[ "$(git cat-file -t "refs/tags/$TAG")" != "tag" ]]; then
+            echo "::error::Gentoo 发布只接受 annotated tag: $TAG"
+            exit 1
+          fi
+
+      - name: 下载发布 tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="oddity-${{ steps.meta.outputs.version }}-linux-x86_64.tar.gz"
+          mkdir -p dist
+          gh release download "$TAG" --pattern "$asset" --dir dist
+          test -f "dist/$asset"
+
+      - name: 生成 ebuild 与 Manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.meta.outputs.version }}"
+          asset="oddity-$version-linux-x86_64.tar.gz"
+          node scripts/render-ebuild.mjs \
+            --version "$version" \
+            --tarball "dist/$asset" \
+            --out dist/gentoo
+          test -f "dist/gentoo/games-util/oddity-bin/oddity-bin-$(node scripts/release-version.mjs --version "$version" --field gentoo).ebuild"
+
+      - name: 准备 Gentoo 版本检查
+        shell: bash
+        run: |
+          python3 -m venv "$RUNNER_TEMP/portage"
+          "$RUNNER_TEMP/portage/bin/pip" install portage==3.0.81.2
+          "$RUNNER_TEMP/portage/bin/python" scripts/test_gentoo_upgrade.py
+
+      - name: 配置部署密钥
+        shell: bash
+        env:
+          DEPLOY_KEY: ${{ secrets.GENTOO_OVERLAY_DEPLOY_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/oddity-overlay
+          chmod 600 ~/.ssh/oddity-overlay
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: 更新 overlay
+        shell: bash
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          set -euo pipefail
+          rm -rf overlay
+          GIT_SSH_COMMAND="ssh -i $HOME/.ssh/oddity-overlay -o IdentitiesOnly=yes" \
+            git clone --depth 1 "git@github.com:$OVERLAY_REPO.git" overlay
+
+          pv="$(node scripts/release-version.mjs --version "$VERSION" --field gentoo)"
+          "$RUNNER_TEMP/portage/bin/python" scripts/check-gentoo-upgrade.py \
+            overlay/games-util/oddity-bin "$pv"
+          rm -f overlay/games-util/oddity-bin/*.ebuild
+          mkdir -p overlay/games-util/oddity-bin
+          cp -a dist/gentoo/games-util/oddity-bin/. overlay/games-util/oddity-bin/
+
+          git -C overlay config user.name "github-actions[bot]"
+          git -C overlay config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C overlay add -A
+
+          if git -C overlay diff --cached --quiet; then
+            echo "没有需要提交的变更"
+            exit 0
+          fi
+
+          git -C overlay commit -m "oddity-bin: add $VERSION"
+          GIT_SSH_COMMAND="ssh -i $HOME/.ssh/oddity-overlay -o IdentitiesOnly=yes" \
+            git -C overlay push origin HEAD:main

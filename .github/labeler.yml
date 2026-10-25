@@ -24,6 +24,11 @@
           - "scripts/write-checksums.mjs"
           - "scripts/check-release-assets.mjs"
           - "scripts/build-arch-package.sh"
+          - "scripts/render-ebuild.mjs"
+          - "flake.nix"
+          - "flake.lock"
+          - "nix/**"
+          - "packaging/gentoo/**"
 "area: updater":
   - changed-files:
       - any-glob-to-any-file:

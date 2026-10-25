@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   archVersion,
   debVersion,
+  gentooVersion,
   isPrerelease,
   parseVersion,
   rpmMetadata,
@@ -36,6 +37,13 @@ test("预发布版本按 RPM 规则拆分 Version 和 Release", () => {
 test("预发布版本按 Arch 规则保留可排序分段", () => {
   assert.equal(archVersion("0.1.0-alpha.2"), "0.1.0alpha.2");
   assert.equal(archVersion("0.1.0-rc.1"), "0.1.0rc.1");
+});
+
+test("预发布版本按 Gentoo 规则转换", () => {
+  assert.equal(gentooVersion("0.1.0-alpha.2"), "0.1.0_alpha2");
+  assert.equal(gentooVersion("0.1.0-beta.10"), "0.1.0_beta10");
+  assert.equal(gentooVersion("0.1.0-rc.1"), "0.1.0_rc1");
+  assert.equal(gentooVersion("0.1.0"), "0.1.0");
 });
 
 test("预发布标识中的连字符会被替换", () => {

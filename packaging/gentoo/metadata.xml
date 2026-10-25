@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<maintainer type="person">
+		<email>miprota@163.com</email>
+		<name>LaT-SKY</name>
+	</maintainer>
+	<longdescription lang="en">
+		Native Linux launcher for Neverness To Everness. It installs game
+		resources from the official CDN and runs the game through Proton.
+	</longdescription>
+	<upstream>
+		<remote-id type="github">LaT-SKY/Oddity</remote-id>
+	</upstream>
+</pkgmetadata>

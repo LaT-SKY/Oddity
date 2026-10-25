@@ -147,6 +147,16 @@ requireFile("scripts/write-checksums.mjs");
 requireFile("scripts/check-release-assets.mjs");
 requireFile("scripts/build-arch-package.sh");
 requireFile(".github/workflows/aur.yml");
+requireFile("flake.nix");
+requireFile("flake.lock");
+requireFile("nix/package.nix");
+requireFile(".github/workflows/nix.yml");
+requireFile(".github/workflows/gentoo.yml");
+requireFile("packaging/gentoo/oddity-bin.ebuild.in");
+requireFile("packaging/gentoo/metadata.xml");
+requireFile("scripts/render-ebuild.mjs");
+requireFile("docs/nix.md");
+requireFile("docs/gentoo.md");
 
 const ignore = read(".gitignore");
 for (const required of ["internal/", "research/"]) {
