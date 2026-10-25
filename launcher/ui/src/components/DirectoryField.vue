@@ -78,29 +78,3 @@ async function browse() {
     <small v-if="error" class="field__hint" role="alert">{{ error }}</small>
   </div>
 </template>
-
-<style scoped>
-.field > label {
-  font-family: var(--font);
-  font-size: 11px;
-  font-weight: 500;
-  letter-spacing: 0.05em;
-  color: var(--faint);
-}
-
-.directory-field__controls {
-  display: flex;
-  gap: 8px;
-}
-
-.directory-field__controls input {
-  flex: 1;
-  min-width: 0;
-}
-
-.directory-field__controls button {
-  flex-shrink: 0;
-  height: 44px;
-  padding: 0 18px;
-}
-</style>

@@ -319,3 +319,21 @@
   color: var(--faint);
   overflow-wrap: anywhere;
 }
+
+/* ---------------- directory picker ---------------- */
+
+.directory-field__controls {
+  display: flex;
+  gap: var(--space-8);
+}
+
+.directory-field__controls input {
+  flex: 1;
+  min-width: 0;
+}
+
+.directory-field__controls button {
+  flex-shrink: 0;
+  height: 44px;
+  padding: 0 var(--space-18);
+}
