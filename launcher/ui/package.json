@@ -13,6 +13,7 @@
     "preview": "vite preview --host 127.0.0.1",
     "format": "prettier --write . ../../scripts/check-frontend-coverage.mjs ../../scripts/check-rust-coverage.mjs ../../scripts/prepare-release-notes-labels.mjs",
     "format:check": "prettier --check . ../../scripts/check-frontend-coverage.mjs ../../scripts/check-rust-coverage.mjs ../../scripts/prepare-release-notes-labels.mjs",
+    "lint:css": "stylelint \"src/**/*.{css,vue}\"",
     "test:e2e": "playwright test",
     "test": "vitest run",
     "test:coverage": "node ../../scripts/check-frontend-coverage.mjs"
@@ -33,7 +34,10 @@
     "@vitest/coverage-v8": "^5.0.5",
     "@vue/test-utils": "^2.5.1",
     "jsdom": "^30.1.3",
+    "postcss-html": "^2.0.0",
     "prettier": "^3.9.10",
+    "stylelint": "^17.16.0",
+    "stylelint-config-recommended": "^18.0.0",
     "typescript": "~5.9.3",
     "vite": "^8.3.4",
     "vitest": "^5.0.5",

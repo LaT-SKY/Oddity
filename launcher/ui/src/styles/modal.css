@@ -1,0 +1,147 @@
+/* 账号弹窗、账号记录与任务提示。 */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: grid;
+  place-items: center;
+  padding: var(--space-16);
+}
+.modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--modal-backdrop);
+}
+.modal__panel {
+  transform-origin: 50% 45%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(560px, 100%);
+  max-height: min(720px, 86vh);
+  background: var(--surface-solid);
+  color: var(--bone);
+  border: 1px solid var(--line);
+  border-radius: var(--window-radius);
+  box-shadow: var(--modal-shadow);
+  overflow: hidden;
+}
+.modal__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-16);
+  padding: var(--space-20) var(--space-24);
+  border-bottom: 1px solid var(--line);
+}
+.modal__head h2 {
+  margin: 0;
+  font-size: var(--text-2xl);
+}
+.modal__body {
+  padding: var(--space-20) var(--space-24);
+  overflow-y: auto;
+  min-height: 0;
+}
+.modal__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-12);
+  margin-top: var(--space-16);
+  padding-top: var(--space-12);
+}
+.account-row {
+  border-bottom: 1px solid var(--line);
+  padding: var(--space-16) 0;
+  font-size: var(--text-md);
+  overflow-wrap: anywhere;
+}
+.account-row > strong {
+  display: block;
+  margin-bottom: var(--space-8);
+}
+.account-row p {
+  margin: var(--space-6) 0;
+}
+.account-row time {
+  display: block;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  margin-top: var(--space-6);
+}
+.account-row__success {
+  color: var(--accent-text);
+}
+.account-row__tasks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-8);
+  margin: var(--space-14) 0;
+  padding: 0;
+  list-style: none;
+}
+.task-capsule {
+  appearance: none;
+  font-family: inherit;
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  max-width: 100%;
+  padding: var(--space-6) var(--space-11);
+  border: 1px solid color-mix(in srgb, var(--accent-text) 20%, transparent);
+  border-radius: var(--pill);
+  background: color-mix(in srgb, var(--accent-text) 6%, var(--surface-solid));
+  color: var(--accent-text);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  font-weight: var(--weight-medium);
+}
+.task-capsule .icon {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+.task-capsule:hover,
+.task-capsule:focus-visible {
+  background: color-mix(in srgb, var(--accent-text) 11%, var(--surface-solid));
+  border-color: color-mix(in srgb, var(--accent-text) 40%, transparent);
+}
+.task-tooltip {
+  position: fixed;
+  z-index: var(--z-tooltip);
+  width: max-content;
+  max-width: min(340px, calc(100vw - 24px));
+  padding: var(--space-13) var(--space-16);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-solid);
+  box-shadow: 0 8px 28px color-mix(in srgb, var(--bone) 12%, transparent);
+  color: var(--bone);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.task-tooltip strong {
+  display: block;
+  margin-bottom: var(--space-5);
+  color: var(--accent-text);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+}
+.task-tooltip p {
+  margin: 0;
+  color: var(--muted);
+  white-space: pre-line;
+}
+.account-row__notes {
+  margin: var(--space-12) 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.account-row__danger,
+.account-row__danger:hover:not(:disabled) {
+  color: var(--danger);
+}
