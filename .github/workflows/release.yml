@@ -249,3 +249,20 @@ jobs:
             args+=(--prerelease)
           fi
           gh release edit "$TAG" "${args[@]}"
+
+  gentoo:
+    needs: [verify, release]
+    uses: ./.github/workflows/gentoo.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+      commit: ${{ needs.verify.outputs.commit }}
+    secrets:
+      GENTOO_OVERLAY_DEPLOY_KEY: ${{ secrets.GENTOO_OVERLAY_DEPLOY_KEY }}
+
+  nix:
+    needs: [verify, release]
+    uses: ./.github/workflows/nix.yml
+    with:
+      commit: ${{ needs.verify.outputs.commit }}
+    secrets:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}

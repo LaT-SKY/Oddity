@@ -165,6 +165,13 @@ for (const file of [
   "scripts/check-release-assets.mjs",
   "scripts/build-arch-package.sh",
   ".github/workflows/aur.yml",
+  "flake.nix",
+  "nix/package.nix",
+  ".github/workflows/nix.yml",
+  ".github/workflows/gentoo.yml",
+  "packaging/gentoo/oddity-bin.ebuild.in",
+  "packaging/gentoo/metadata.xml",
+  "scripts/render-ebuild.mjs",
 ]) {
   requireFile(file);
 }
@@ -197,6 +204,36 @@ for (const needle of [
 ]) {
   if (!archTemplate.includes(needle)) {
     fail(`PKGBUILD.in 里没有引用 ${needle}`);
+  }
+}
+
+for (const [file, needles] of [
+  [
+    "flake.nix",
+    ["packages =", "oddity", "overlays.default"],
+  ],
+  [
+    "nix/package.nix",
+    ["cargoRoot", "pnpmRoot", "webkitgtk_4_1", "installPhase"],
+  ],
+  [
+    "packaging/gentoo/oddity-bin.ebuild.in",
+    ["QA_PREBUILT", "net-libs/webkit-gtk:4.1", "games-util/umu-launcher", "@UPSTREAM@", "@URL@"],
+  ],
+  [
+    ".github/workflows/nix.yml",
+    ["nix flake check", "cachix/cachix-action", "oddity"],
+  ],
+  [
+    ".github/workflows/gentoo.yml",
+    ["oddity-overlay", "render-ebuild.mjs", "GENTOO_OVERLAY_DEPLOY_KEY", "Manifest"],
+  ],
+]) {
+  const text = read(file);
+  for (const needle of needles) {
+    if (!text.includes(needle)) {
+      fail(`${file} 里没有引用 ${needle}`);
+    }
   }
 }
 

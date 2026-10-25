@@ -60,6 +60,23 @@ export function archVersion(version) {
   return `${parsed.core}${parsed.prerelease.replaceAll("-", ".")}${build}`;
 }
 
+// Gentoo 只允许 _alpha/_beta/_pre/_rc/_p 后缀, 版本不能直接使用 SemVer
+// 的 "-". 这里把 0.1.0-alpha.2 转成 0.1.0_alpha2.
+export function gentooVersion(version) {
+  const parsed = parseVersion(version);
+  if (!parsed.prerelease) return parsed.core;
+
+  const [kind, number, ...rest] = parsed.prerelease.replaceAll("-", ".").split(".");
+  if (
+    !["alpha", "beta", "pre", "rc", "p"].includes(kind) ||
+    !/^\d+$/.test(number ?? "") ||
+    rest.length > 0
+  ) {
+    throw new Error(`Gentoo 不支持这个预发布版本: ${version}`);
+  }
+  return `${parsed.core}_${kind}${number}`;
+}
+
 export function projectVersion() {
   const cargo = readFileSync(resolve(root, "launcher/Cargo.toml"), "utf8");
   const match = cargo.match(/\[workspace\.package\][\s\S]*?^version\s*=\s*"([^"]+)"/m);
@@ -80,7 +97,7 @@ function main() {
     } else if (arg === "--field") {
       field = args[++index] ?? "";
     } else if (arg === "--help" || arg === "-h") {
-      console.log("用法: node scripts/release-version.mjs [--version <版本>] [--field deb|rpm-version|rpm-release|arch|prerelease]");
+      console.log("用法: node scripts/release-version.mjs [--version <版本>] [--field deb|rpm-version|rpm-release|arch|gentoo|prerelease]");
       return;
     } else {
       throw new Error(`未知参数: ${arg}`);
@@ -103,6 +120,9 @@ function main() {
       break;
     case "arch":
       console.log(archVersion(version));
+      break;
+    case "gentoo":
+      console.log(gentooVersion(version));
       break;
     case "prerelease":
       console.log(isPrerelease(version) ? "true" : "false");

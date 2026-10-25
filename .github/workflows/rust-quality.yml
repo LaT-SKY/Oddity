@@ -59,6 +59,12 @@ jobs:
           node --test scripts/check-rust-coverage.test.mjs
           node --test scripts/release-version.test.mjs
 
+      - name: 检查 Gentoo 发布版本保护
+        run: |
+          python3 -m venv "$RUNNER_TEMP/portage"
+          "$RUNNER_TEMP/portage/bin/pip" install portage==3.0.81.2
+          "$RUNNER_TEMP/portage/bin/python" scripts/test_gentoo_upgrade.py
+
       - name: 安装 shellcheck
         run: |
           sudo apt-get update
