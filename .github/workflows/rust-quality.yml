@@ -35,6 +35,7 @@ jobs:
               - 'launcher/crates/**'
               - 'launcher/deny.toml'
               - 'scripts/check-repo.mjs'
+              - 'scripts/check-rust-coverage.mjs'
               - '.github/workflows/rust-quality.yml'
               - '.github/actions/install-linux-deps/**'
               - '.github/actions/verify-checks/**'
@@ -135,6 +136,8 @@ jobs:
     steps:
       - name: 检出源码
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: 安装 pnpm
         uses: pnpm/action-setup@v6
@@ -179,17 +182,14 @@ jobs:
         working-directory: launcher
         run: cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
 
-      - name: 写入覆盖率摘要
+      - name: 生成控制台摘要
         working-directory: launcher
-        run: |
-          cargo llvm-cov report --summary-only | tee coverage-summary.txt
-          {
-            echo "### Rust 代码覆盖率"
-            echo "下限：总行覆盖率 ≥ 80%"
-            echo '```'
-            cat coverage-summary.txt
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: cargo llvm-cov report --summary-only | tee coverage-summary.txt
+
+      - name: 校验覆盖率门槛与增量覆盖率
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+        run: node scripts/check-rust-coverage.mjs
 
       - name: 上传覆盖率报告
         uses: actions/upload-artifact@v7
@@ -199,10 +199,6 @@ jobs:
             launcher/lcov.info
             launcher/coverage-summary.txt
           if-no-files-found: error
-
-      - name: 校验覆盖率下限
-        working-directory: launcher
-        run: cargo llvm-cov report --fail-under-lines 80
 
   deny:
     name: 依赖检查策略

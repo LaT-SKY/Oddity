@@ -124,6 +124,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -133,6 +134,9 @@ jobs:
       NOTES_START: ${{ needs.verify.outputs.notes_start }}
       COMMIT: ${{ needs.verify.outputs.commit }}
     steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+
       - name: 下载构建产物
         uses: actions/download-artifact@v7
         with:
@@ -166,6 +170,9 @@ jobs:
             echo "::error::Release $TAG 已存在"
             exit 1
           fi
+
+      - name: 清洗待发布 PR 排除标签
+        run: node scripts/prepare-release-notes-labels.mjs
 
       - name: 生成 Release 说明
         shell: bash
