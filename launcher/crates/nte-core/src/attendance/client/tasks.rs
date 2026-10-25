@@ -10,6 +10,17 @@ fn count(value: &Value) -> Option<u64> {
     value.as_u64().or_else(|| value.as_str()?.parse().ok())
 }
 
+// 接口当前返回 todayGet/todayTotal; 兼容旧字段, 并在只有 total 时显示累计。
+fn coin_message(data: &Value) -> Option<String> {
+    let today = count(&data["todayGet"]).or_else(|| count(&data["todayCoin"]));
+    let limit = count(&data["todayTotal"]).or_else(|| count(&data["limitCoin"]));
+    match (today, limit) {
+        (Some(today), Some(limit)) => Some(format!("今日金币 {today}/{limit}")),
+        (Some(today), None) => Some(format!("今日金币 {today}")),
+        (None, _) => count(&data["total"]).map(|total| format!("今日金币 累计 {total}")),
+    }
+}
+
 fn minutes(value: &Value) -> Option<f64> {
     value
         .as_f64()
@@ -267,12 +278,7 @@ impl Client {
         let state = (|| -> Result<String> {
             let value = self.native("/apihub/api/getUserCoinTaskState", account, access, None)?;
             check(&value)?;
-            let today =
-                count(&value["data"]["todayCoin"]).ok_or_else(|| protocol("今日金币状态无效"))?;
-            Ok(match count(&value["data"]["limitCoin"]) {
-                Some(limit) => format!("今日金币 {today}/{limit}"),
-                None => format!("今日金币 {today}"),
-            })
+            coin_message(&value["data"]).ok_or_else(|| protocol("今日金币状态无效"))
         })();
         steps.push(match state {
             Ok(message) => Step::optional("今日金币", true, message, None),
@@ -391,7 +397,7 @@ mod tests {
                         r#"{"code":0,"data":{"list":[{"postId":"post-1","selfOperation":{"liked":false}}]}}"#
                     }
                     3 => r#"{"code":0,"data":{"postId":"post-1","selfOperation":{"liked":false}}}"#,
-                    6 => r#"{"code":0,"data":{"todayCoin":110,"limitCoin":150}}"#,
+                    6 => r#"{"code":0,"data":{"todayGet":110,"todayTotal":150,"total":530}}"#,
                     7 => {
                         r#"{"code":0,"result":{"perDayFirstLoginGiveDuration":"15","remainedDuration":120}}"#
                     }
@@ -477,5 +483,29 @@ mod tests {
                 fields.values().cloned().collect::<String>()
             ))
         );
+    }
+
+    #[test]
+    fn coin_state_accepts_current_fields_and_falls_back_to_total() {
+        assert_eq!(
+            coin_message(&serde_json::json!({
+                "todayGet": 110, "todayTotal": 150, "total": 530
+            }))
+            .as_deref(),
+            Some("今日金币 110/150")
+        );
+        assert_eq!(
+            coin_message(&serde_json::json!({"todayCoin": "110", "limitCoin": "150"})).as_deref(),
+            Some("今日金币 110/150")
+        );
+        assert_eq!(
+            coin_message(&serde_json::json!({"todayGet": 30})).as_deref(),
+            Some("今日金币 30")
+        );
+        assert_eq!(
+            coin_message(&serde_json::json!({"total": "530"})).as_deref(),
+            Some("今日金币 累计 530")
+        );
+        assert_eq!(coin_message(&serde_json::json!({})), None);
     }
 }
