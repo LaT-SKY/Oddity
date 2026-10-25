@@ -1,0 +1,96 @@
+name: 发布 AUR 包
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布到 AUR 的 tag，例如 oddity-v0.1.0-alpha.2'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aur-oddity-bin
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: 更新 oddity-bin
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - name: 校验 Tag 与版本
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^oddity-v(.+)$ ]]; then
+            echo "::error::tag 必须以 oddity-v 开头: $TAG"
+            exit 1
+          fi
+          version="${BASH_REMATCH[1]}"
+          node scripts/check-release-version.mjs "$version" "$TAG"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$(git cat-file -t "refs/tags/$TAG")" != "tag" ]]; then
+            echo "::error::AUR 发布只接受 annotated tag: $TAG"
+            exit 1
+          fi
+
+      - name: 下载发布 tarball
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="oddity-$VERSION-linux-x86_64.tar.gz"
+          mkdir -p dist
+          gh release download "$TAG" --pattern "$asset" --dir dist
+          test -f "dist/$asset"
+
+      - name: 生成 AUR PKGBUILD
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="oddity-$VERSION-linux-x86_64.tar.gz"
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/$asset"
+          node scripts/render-pkgbuild.mjs \
+            --version "$VERSION" \
+            --tarball "dist/$asset" \
+            --out dist/aur \
+            --release-url "$url"
+          test -f dist/aur/PKGBUILD
+          test -f dist/aur/oddity-bin.install
+
+      - name: 发布到 AUR
+        uses: KSXGitHub/github-actions-deploy-aur@v4.1.1
+        with:
+          pkgname: oddity-bin
+          pkgbuild: dist/aur/PKGBUILD
+          assets: dist/aur/oddity-bin.install
+          updpkgsums: 'true'
+          test: 'true'
+          commit_username: ${{ secrets.AUR_USERNAME }}
+          commit_email: ${{ secrets.AUR_EMAIL }}
+          ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          commit_message: Update oddity-bin to ${{ steps.meta.outputs.version }}
+          ssh_keyscan_types: rsa,ecdsa,ed25519

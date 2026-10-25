@@ -36,7 +36,7 @@ Oddity 是《异环》的 Linux 启动器：从官方 CDN 安装、检查和更�
 ### 2. 安装
 
 从 [Releases](https://github.com/LaT-SKY/Oddity/releases) 下载对应发行版的 `.deb`、`.rpm`、`.pkg.tar.zst` 或 `.AppImage`, 然后按[安装指南](docs/install.md#从-release-安装)安装.
-包内已经包含桌面入口和图标.
+包内已经包含桌面入口和图标. Arch Linux 也可以直接安装 AUR 的 `oddity-bin`.
 
 也可以从源码构建:
 
