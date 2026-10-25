@@ -76,13 +76,39 @@ export const attendanceForm = reactive({
 });
 export const gameRecords = reactive({
   loading: false,
+  waiting: false,
   error: "",
   nextRefresh: 0,
 });
 const GAME_RECORD_REFRESH_MS = 30 * 60 * 1000;
 let attendanceRevision = 0;
+let attendanceStatusRevision = 0;
+let gameRecordsRetryTimer: number | null = null;
+type AttendanceUpdate = "all" | "sign" | "records";
+function mergeAttendance(next: AttendanceStatus, source: AttendanceUpdate) {
+  if (source === "all" || !attendance.status) {
+    syncAttendance(next, false);
+    return;
+  }
+  attendanceStatusRevision++;
+  // 两类任务只提交各自负责的字段, 不覆盖并发完成的结果或账号变更。
+  for (const current of attendance.status.accounts) {
+    const incoming = next.accounts.find((a) => a.id === current.id);
+    if (!incoming) continue;
+    if (source === "records") {
+      current.gameRecord = incoming.gameRecord;
+      current.gameRecordError = incoming.gameRecordError;
+    } else {
+      current.lastReport = incoming.lastReport;
+      current.signedToday = incoming.signedToday;
+      current.failedToday = incoming.failedToday;
+      current.attention = incoming.attention;
+    }
+  }
+}
 export function syncAttendance(next: AttendanceStatus, syncForm = true) {
   attendanceRevision++;
+  attendanceStatusRevision++;
   const oldIds = attendance.status?.accounts.map((a) => a.id).join(",");
   if (oldIds !== next.accounts.map((a) => a.id).join(","))
     gameRecords.nextRefresh = 0;
@@ -98,25 +124,43 @@ export async function refreshGameRecords(force = false) {
   if (
     !attendance.status?.accounts.length ||
     gameRecords.loading ||
-    attendance.busy ||
-    attendance.running ||
+    (attendance.busy && !attendance.running) ||
     (!force && Date.now() < gameRecords.nextRefresh)
   )
     return;
   const epoch = generation;
   const revision = attendanceRevision;
+  if (gameRecordsRetryTimer !== null) {
+    window.clearTimeout(gameRecordsRetryTimer);
+    timers.delete(gameRecordsRetryTimer);
+    gameRecordsRetryTimer = null;
+  }
   gameRecords.loading = true;
+  gameRecords.waiting = false;
   gameRecords.error = "";
   gameRecords.nextRefresh = Date.now() + GAME_RECORD_REFRESH_MS;
   try {
     const next = await invoke("attendance_refresh_game_records");
-    // 登录、移除账号或签到已改变状态时, 不接受较早发起的查询结果。
+    // 账号变更后丢弃旧查询, 签到结果由各自字段独立合并。
     if (epoch !== generation || revision !== attendanceRevision) return;
-    syncAttendance(next, false);
+    mergeAttendance(next, "records");
   } catch (cause) {
-    if (epoch === generation) {
-      gameRecords.error = attendanceMessage(cause);
-      gameRecords.nextRefresh = Date.now() + GAME_RECORD_REFRESH_MS;
+    if (epoch === generation && revision === attendanceRevision) {
+      const busy =
+        cause &&
+        typeof cause === "object" &&
+        "kind" in cause &&
+        cause.kind === "busy";
+      gameRecords.waiting = !!busy;
+      gameRecords.error = busy ? "" : attendanceMessage(cause);
+      gameRecords.nextRefresh =
+        Date.now() + (busy ? 2000 : GAME_RECORD_REFRESH_MS);
+      if (busy)
+        gameRecordsRetryTimer = schedule(() => {
+          gameRecordsRetryTimer = null;
+          if (state.page === "home" && !document.hidden)
+            void refreshGameRecords();
+        }, 2000);
     }
   } finally {
     if (epoch === generation) gameRecords.loading = false;
@@ -130,6 +174,7 @@ function attendanceMessage(cause: unknown) {
 async function attendanceAction(
   action: () => Promise<AttendanceStatus>,
   syncForm = true,
+  source: AttendanceUpdate = "all",
 ) {
   if (attendance.busy || attendance.running)
     throw new Error("签到操作正在进行, 请稍后重试.");
@@ -139,8 +184,9 @@ async function attendanceAction(
   try {
     const next = await action();
     if (epoch === generation) {
-      syncAttendance(next, syncForm);
-      gameRecords.nextRefresh = 0;
+      if (source === "all") syncAttendance(next, syncForm);
+      else mergeAttendance(next, source);
+      if (source === "all") gameRecords.nextRefresh = 0;
     }
   } catch (cause) {
     if (epoch === generation) attendance.error = attendanceMessage(cause);
@@ -153,11 +199,13 @@ export async function loadAttendance() {
   if (attendance.busy || attendance.loading || attendance.running) return;
   const epoch = generation;
   attendance.loading = true;
+  const revision = attendanceStatusRevision;
   try {
     const next = await invoke("attendance_status");
     // 轮询不能覆盖正在进行的登录或签到结果。
     if (
       epoch !== generation ||
+      revision !== attendanceStatusRevision ||
       attendance.busy ||
       attendance.running ||
       gameRecords.loading
@@ -223,14 +271,18 @@ export function logoutAttendance(accountId: string) {
 }
 export async function runAttendance() {
   try {
-    await attendanceAction(async () => {
-      attendance.running = true;
-      try {
-        return await invoke("attendance_run");
-      } finally {
-        attendance.running = false;
-      }
-    }, false);
+    await attendanceAction(
+      async () => {
+        attendance.running = true;
+        try {
+          return await invoke("attendance_run");
+        } finally {
+          attendance.running = false;
+        }
+      },
+      false,
+      "sign",
+    );
   } catch {
     /* 错误由签到区显示。 */
   }
@@ -1742,7 +1794,13 @@ export async function init() {
 
 export function dispose() {
   generation++;
-  Object.assign(gameRecords, { loading: false, error: "", nextRefresh: 0 });
+  Object.assign(gameRecords, {
+    loading: false,
+    waiting: false,
+    error: "",
+    nextRefresh: 0,
+  });
+  gameRecordsRetryTimer = null;
   downloadStarting.value = null;
   autoSaveQueued = false;
   autoSaveRunning = false;

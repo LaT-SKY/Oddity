@@ -181,6 +181,32 @@ pub struct Report {
     pub ok: bool,
     pub steps: Vec<Step>,
 }
+impl Report {
+    fn coin_complete(&self) -> bool {
+        [
+            "BBS 金币签到",
+            "浏览帖子",
+            "点赞帖子",
+            "分享帖子",
+            "今日金币",
+        ]
+        .iter()
+        .all(|label| {
+            self.steps
+                .iter()
+                .any(|step| step.optional && step.label == *label && step.ok)
+        }) && !self.steps.iter().any(|step| {
+            step.optional && step.label != "云异环时长" && step.label != "附加任务准备" && !step.ok
+        })
+    }
+
+    fn cloud_complete(&self) -> bool {
+        self.steps
+            .iter()
+            .any(|step| step.label == "云异环时长" && step.ok)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AccountStatus {
@@ -211,6 +237,14 @@ impl AccountStatus {
             game_record_error: None,
         }
     }
+    fn tasks_complete(&self) -> bool {
+        self.signed_today
+            && self
+                .last_report
+                .as_ref()
+                .is_some_and(|report| report.coin_complete() && report.cloud_complete())
+    }
+
     fn refresh_day(&mut self) {
         let today = china_day(now());
         self.signed_today = self

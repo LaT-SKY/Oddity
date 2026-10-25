@@ -98,6 +98,11 @@ fn check(config: &LauncherConfig, quick: bool) -> Result<()> {
 }
 
 fn apply(config: &LauncherConfig, only: Option<String>) -> Result<()> {
+    let root = config
+        .root
+        .parent()
+        .ok_or_else(|| anyhow!("启动器目录没有安装根目录"))?;
+    let _install_lock = nte_core::install_lock::InstallLock::acquire(root)?;
     let remote = version::fetch(&config.version_url).context("fetch Version.ini")?;
     let url = remote
         .file_list_url
@@ -211,6 +216,13 @@ fn game_check(launcher: &LauncherConfig, args: &[String]) -> Result<()> {
 
 fn game_apply(launcher: &LauncherConfig, args: &[String]) -> Result<()> {
     let cfg = game_config(launcher)?;
+    let _install_lock = if args.iter().any(|arg| arg == "--dry-run") {
+        None
+    } else {
+        Some(nte_core::install_lock::InstallLock::acquire(
+            &cfg.install_root,
+        )?)
+    };
     let check_opts = CheckOptions {
         full: args.iter().any(|a| a == "--full"),
         include_optional: args.iter().any(|a| a == "--include-optional"),

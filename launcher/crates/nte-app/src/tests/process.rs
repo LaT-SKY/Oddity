@@ -27,6 +27,9 @@ fn game_status_reflects_the_session() {
         started_at: 99,
         log: "/tmp/launch.log".to_string(),
         closing: true,
+        exit_notified: false,
+        game_alive: Arc::new(AtomicBool::new(false)),
+        _install_lock: None,
         background: None,
     };
     let status = GameStatus::from_session(Some(&session));
@@ -194,4 +197,54 @@ fn terminates_a_group_with_members_beyond_the_leader() {
         thread::sleep(Duration::from_millis(20));
     }
     assert!(!process_group_alive(pgid));
+}
+
+#[test]
+fn reparented_game_remains_tracked_until_it_exits() {
+    let _env = EnvGuard::new();
+    let dir = super::TempDir::new("reparented-game");
+    let mut child = Command::new("bash")
+        .args([
+            "-c",
+            r#"
+        bash -c 'bash -c "exec -a HTGame.exe sleep 30" & echo $! > "$1/game.pid"; wait' _ "$1" &
+        echo $! > "$1/middle.pid"
+        wait
+        sleep 30
+    "#,
+            "probe",
+        ])
+        .arg(dir.path())
+        .process_group(0)
+        .spawn()
+        .unwrap();
+    let root = child.id();
+    let mut watch = GameProcessWatch::new(root);
+    assert!(wait_until(
+        || watch.alive() && dir.join("middle.pid").is_file() && dir.join("game.pid").is_file(),
+        Duration::from_secs(3)
+    ));
+    let middle: i32 = fs::read_to_string(dir.join("middle.pid"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let game: u32 = fs::read_to_string(dir.join("game.pid"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    unsafe {
+        libc::kill(middle, libc::SIGTERM);
+    }
+    assert!(wait_until(
+        || process_stat(game).is_some_and(|stat| stat.parent != middle as u32),
+        Duration::from_secs(3)
+    ));
+    assert!(watch.alive());
+    assert!(game_main_process_alive(root));
+    let waiter = thread::spawn(move || child.wait());
+    terminate_process_group(root as i32).unwrap();
+    waiter.join().unwrap().unwrap();
+    assert!(!watch.alive());
 }

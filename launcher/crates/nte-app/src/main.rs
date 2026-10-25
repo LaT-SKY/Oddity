@@ -97,6 +97,9 @@ struct GameSession {
     started_at: u64,
     log: String,
     closing: bool,
+    exit_notified: bool,
+    game_alive: Arc<AtomicBool>,
+    _install_lock: Option<Arc<nte_core::install_lock::InstallLock>>,
     background: Option<Arc<NativeSession>>,
 }
 
@@ -221,6 +224,7 @@ impl GameStatus {
 }
 
 struct LaunchInvocation {
+    install_lock: Arc<nte_core::install_lock::InstallLock>,
     result: LaunchResult,
     child: Child,
     pgid: i32,
@@ -340,13 +344,24 @@ fn is_game_process_name(text: &str) -> bool {
 }
 
 /// 读取进程的父进程与状态，用于沿进程树寻找游戏主进程。
-fn process_stat(pid: u32) -> Option<(u32, char)> {
+#[derive(Clone, Copy)]
+struct ProcessStat {
+    parent: u32,
+    group: u32,
+    state: char,
+    started: u64,
+}
+
+fn process_stat(pid: u32) -> Option<ProcessStat> {
     let text = fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let (_, rest) = text.rsplit_once(')')?;
-    let mut fields = rest.split_whitespace();
-    let state = fields.next()?.chars().next()?;
-    let ppid = fields.next()?.parse().ok()?;
-    Some((ppid, state))
+    let fields: Vec<_> = rest.split_whitespace().collect();
+    Some(ProcessStat {
+        state: fields.first()?.chars().next()?,
+        parent: fields.get(1)?.parse().ok()?,
+        group: fields.get(2)?.parse().ok()?,
+        started: fields.get(19)?.parse().ok()?,
+    })
 }
 
 fn is_game_process(pid: u32, state: char) -> bool {
@@ -367,51 +382,68 @@ fn is_game_process(pid: u32, state: char) -> bool {
         .any(|argument| is_game_process_name(&String::from_utf8_lossy(argument)))
 }
 
-/// 游戏主进程是否仍在以 `root_pid` 为根的进程树中。
-///
-/// Wine 收尾阶段的 wineserver、CEF 辅助进程仍会短暂留在树里，但它们不是
-/// 游戏主进程；这里只认 HTGame / GameThread，避免退出显示被清理流程拖慢。
-fn game_main_process_alive(root_pid: u32) -> bool {
-    if root_pid == 0 {
-        return false;
-    }
-    let Ok(entries) = fs::read_dir("/proc") else {
-        return false;
-    };
-    let mut states = HashMap::new();
-    for entry in entries.flatten() {
-        let Some(pid) = entry
-            .file_name()
-            .to_str()
-            .and_then(|name| name.parse::<u32>().ok())
-        else {
-            continue;
-        };
-        if let Some((ppid, state)) = process_stat(pid) {
-            states.insert(pid, (ppid, state));
+/// 记录进程身份, 父进程退出或进程组变化后仍跟踪已发现的游戏。
+struct GameProcessWatch {
+    root: u32,
+    known: HashMap<u32, u64>,
+}
+
+impl GameProcessWatch {
+    fn new(root: u32) -> Self {
+        Self {
+            root,
+            known: HashMap::new(),
         }
     }
-    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
-    for (pid, (ppid, _)) in &states {
-        children.entry(*ppid).or_default().push(*pid);
-    }
-    let mut stack = vec![root_pid];
-    let mut seen = HashSet::new();
-    while let Some(pid) = stack.pop() {
-        if !seen.insert(pid) {
-            continue;
+
+    fn alive(&mut self) -> bool {
+        if self.root == 0 {
+            return false;
         }
-        if states
-            .get(&pid)
-            .is_some_and(|(_, state)| is_game_process(pid, *state))
-        {
+        let Ok(entries) = fs::read_dir("/proc") else {
             return true;
+        };
+        let states: HashMap<_, _> = entries
+            .flatten()
+            .filter_map(|entry| {
+                let pid = entry.file_name().to_str()?.parse::<u32>().ok()?;
+                Some((pid, process_stat(pid)?))
+            })
+            .collect();
+        self.known.retain(|pid, started| {
+            states
+                .get(pid)
+                .is_some_and(|s| s.state != 'Z' && s.started == *started)
+        });
+        let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+        let mut stack = vec![self.root];
+        for (&pid, stat) in &states {
+            children.entry(stat.parent).or_default().push(pid);
+            if stat.group == self.root {
+                stack.push(pid);
+            }
         }
-        if let Some(descendants) = children.get(&pid) {
-            stack.extend(descendants);
+        let mut seen = HashSet::new();
+        while let Some(pid) = stack.pop() {
+            if !seen.insert(pid) {
+                continue;
+            }
+            if let Some(stat) = states.get(&pid) {
+                if is_game_process(pid, stat.state) {
+                    self.known.insert(pid, stat.started);
+                }
+            }
+            if let Some(descendants) = children.get(&pid) {
+                stack.extend(descendants);
+            }
         }
+        !self.known.is_empty()
     }
-    false
+}
+
+#[cfg(test)]
+fn game_main_process_alive(root_pid: u32) -> bool {
+    GameProcessWatch::new(root_pid).alive()
 }
 
 fn finish_game_early(app: &AppHandle, session: &GameSession) {
@@ -421,27 +453,43 @@ fn finish_game_early(app: &AppHandle, session: &GameSession) {
             Ok(tracker) => tracker,
             Err(_) => return,
         };
-        if tracker.session.as_ref().map(|current| current.id) == Some(session.id) {
-            tracker.session = None;
-            true
+        if let Some(current) = tracker
+            .session
+            .as_mut()
+            .filter(|current| current.id == session.id && !current.exit_notified)
+        {
+            current.exit_notified = true;
+            Some(tracker_status(&tracker))
         } else {
-            false
+            None
         }
     };
-    if cleared {
-        let _ = app.emit("game-state", GameStatus::idle());
+    if let Some(status) = cleared {
+        let _ = app.emit("game-state", status);
         if should_show_launcher_after_exit(app) {
             show_main(app);
         }
     }
 }
 
-/// 游戏主进程退出后先结束界面会话, Wine 收尾继续在监控线程中进行.
-fn watch_game_exit(app: AppHandle, session: GameSession, done: Arc<AtomicBool>) {
+/// 游戏退出后立即显示界面, 安装保护保留到后台清理结束。
+fn watch_game_exit(
+    app: AppHandle,
+    session: GameSession,
+    done: Arc<AtomicBool>,
+    alive: Arc<AtomicBool>,
+) {
     thread::spawn(move || {
         let mut seen = false;
+        let mut watch = GameProcessWatch::new(session.pid);
         while !done.load(Ordering::Acquire) {
-            if game_main_process_alive(session.pid) {
+            let running = watch.alive()
+                || session
+                    .background
+                    .as_ref()
+                    .is_some_and(|background| background.game_alive().unwrap_or(true));
+            alive.store(running, Ordering::Release);
+            if running {
                 seen = true;
             } else if seen {
                 finish_game_early(&app, &session);
@@ -454,7 +502,7 @@ fn watch_game_exit(app: AppHandle, session: GameSession, done: Arc<AtomicBool>) 
 
 fn session_alive(session: &GameSession) -> bool {
     session.background.as_ref().map_or_else(
-        || process_group_alive(session.pgid),
+        || process_group_alive(session.pgid) || session.game_alive.load(Ordering::Acquire),
         |background| !background.finished(),
     )
 }
@@ -463,11 +511,21 @@ fn session_alive(session: &GameSession) -> bool {
 fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
     thread::spawn(move || {
         let done = Arc::new(AtomicBool::new(false));
-        watch_game_exit(app.clone(), session.clone(), Arc::clone(&done));
+        let alive = Arc::clone(&session.game_alive);
+        watch_game_exit(
+            app.clone(),
+            session.clone(),
+            Arc::clone(&done),
+            Arc::clone(&alive),
+        );
         let result = if let Some(background) = &session.background {
             background.monitor(&mut child)
         } else {
-            child.wait().map(|_| ()).map_err(|error| error.to_string())
+            let result = child.wait().map(|_| ()).map_err(|error| error.to_string());
+            while process_group_alive(session.pgid) || alive.load(Ordering::Acquire) {
+                thread::sleep(Duration::from_millis(120));
+            }
+            result
         };
         done.store(true, Ordering::Release);
 
@@ -476,7 +534,7 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
                 let _ = child.wait();
             });
         }
-        let status = {
+        let (status, exit_notified) = {
             let state = app.state::<AppState>();
             let mut tracker = match state.game.lock() {
                 Ok(tracker) => tracker,
@@ -485,6 +543,10 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
             if tracker.session.as_ref().map(|current| current.id) != Some(session.id) {
                 return;
             }
+            let exit_notified = tracker
+                .session
+                .as_ref()
+                .is_some_and(|session| session.exit_notified);
             tracker.last_error = result.err();
             if session
                 .background
@@ -495,11 +557,11 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
             } else if let Some(current) = tracker.session.as_mut() {
                 current.closing = false;
             }
-            tracker_status(&tracker)
+            (tracker_status(&tracker), exit_notified)
         };
         let finished = !status.running;
         let _ = app.emit("game-state", status);
-        if finished && should_show_launcher_after_exit(&app) {
+        if finished && !exit_notified && should_show_launcher_after_exit(&app) {
             show_main(&app);
         }
     });
@@ -1599,6 +1661,10 @@ fn launch_impl_with_profile(
         }
     })?;
     let install_dir = effective_install_root(settings, Some(&launcher_root));
+    let install_lock = Arc::new(
+        nte_core::install_lock::InstallLock::acquire(&install_dir)
+            .map_err(|error| error.to_string())?,
+    );
     let official_exe = launcher_root.join(settings.distribution.client_exe());
     let direct_exe = game_exe_for(&launcher_root);
     let prefix = settings
@@ -1836,6 +1902,7 @@ fn launch_impl_with_profile(
     }
 
     Ok(LaunchInvocation {
+        install_lock,
         result: LaunchResult {
             mode,
             pid,
@@ -1917,6 +1984,9 @@ async fn launch_official(
             started_at: invocation.result.started_at,
             log: invocation.result.log.clone(),
             closing: false,
+            exit_notified: false,
+            game_alive: Arc::new(AtomicBool::new(true)),
+            _install_lock: Some(Arc::clone(&invocation.install_lock)),
             background: invocation.background.clone(),
         };
         tracker.session = Some(session.clone());
@@ -1948,7 +2018,7 @@ fn game_status(state: State<AppState>) -> GameStatus {
 
 #[tauri::command]
 async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameStatus, String> {
-    let (session_id, pgid, background) = {
+    let (session_id, pgid, background, game_alive) = {
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;
         if tracker.starting {
             return Err("游戏正在启动，请稍候。".to_string());
@@ -1966,7 +2036,12 @@ async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameSt
                     return Ok(status);
                 }
                 session.closing = true;
-                (session.id, session.pgid, session.background.clone())
+                (
+                    session.id,
+                    session.pgid,
+                    session.background.clone(),
+                    Arc::clone(&session.game_alive),
+                )
             }
             None => return Ok(GameStatus::idle()),
         }
@@ -1978,7 +2053,16 @@ async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameSt
         if let Some(background) = background {
             background.close()
         } else {
-            terminate_process_group(pgid)
+            terminate_process_group(pgid)?;
+            let deadline = Instant::now() + Duration::from_secs(2);
+            while game_alive.load(Ordering::Acquire) && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(50));
+            }
+            if game_alive.load(Ordering::Acquire) {
+                Err("游戏进程仍在运行, 请退出游戏后重试".into())
+            } else {
+                Ok(())
+            }
         }
     })
     .await

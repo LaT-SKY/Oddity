@@ -342,7 +342,7 @@ pub fn check_bundle_cancellable(
             continue;
         }
 
-        let info = map.get(&normalize_path(&path));
+        let info = map.get(&ledger_key(&path));
         let forced = config.force_hash(&path, size);
         let mtime = meta
             .modified()
@@ -355,28 +355,16 @@ pub fn check_bundle_cancellable(
             .unwrap_or(false);
 
         if let Some(info) = info {
-            if info.size != size {
-                plan.items.push(UpdateItem {
-                    path,
-                    size,
-                    md5,
-                    reason: UpdateReason::Size,
-                    kind,
-                    patches: Vec::new(),
-                    download_size: size,
-                });
+            if info.size == size && info.md5 == md5 && !forced && !opts.full && !metadata_changed {
+                // 文件元数据和账本均未变化时才复用校验结果。
                 continue;
             }
-            if info.md5 == md5
+            if info.size == size
+                && info.md5 != md5
+                && size > SMALL_HASH_LIMIT
                 && !forced
                 && !opts.full
-                && !(metadata_changed && size <= SMALL_HASH_LIMIT)
             {
-                // Fast path: the local ledger and file size agree. The official
-                // updater also trusts this unless a rule says otherwise.
-                continue;
-            }
-            if info.md5 != md5 && size > SMALL_HASH_LIMIT && !forced && !opts.full {
                 plan.items.push(UpdateItem {
                     path,
                     size,
@@ -388,9 +376,27 @@ pub fn check_bundle_cancellable(
                 });
                 continue;
             }
-            // Hash when the ledger is stale, a rule applies, --full is set,
-            // or a small file's mtime changed.
-            if forced
+            if metadata_changed
+                && info.size == size
+                && info.md5 == md5
+                && size > SMALL_HASH_LIMIT
+                && !forced
+                && !opts.full
+            {
+                plan.unverified.push(UpdateItem {
+                    path,
+                    size,
+                    md5,
+                    reason: UpdateReason::Unverified,
+                    kind,
+                    patches: Vec::new(),
+                    download_size: size,
+                });
+                continue;
+            }
+            // 账本尺寸过期时校验实际内容, 正确文件只需修复记录。
+            if info.size != size
+                || forced
                 || opts.full
                 || info.md5 != md5
                 || metadata_changed
@@ -481,7 +487,7 @@ fn attach_patches(
         if item.reason == UpdateReason::Missing || item.size == 0 {
             continue;
         }
-        let Some(info) = map.get(&normalize_path(&item.path)) else {
+        let Some(info) = map.get(&ledger_key(&item.path)) else {
             continue;
         };
         if info.md5.is_empty() || info.size == 0 {
@@ -669,7 +675,7 @@ fn local_map(local: Option<&LocalManifest>) -> BTreeMap<String, LocalInfo> {
     let Some(local) = local else { return map };
     for r in &local.res {
         map.insert(
-            normalize_path(&r.filename),
+            ledger_key(&r.filename),
             LocalInfo {
                 md5: r.md5.to_ascii_lowercase(),
                 size: r.filesize,
@@ -680,7 +686,7 @@ fn local_map(local: Option<&LocalManifest>) -> BTreeMap<String, LocalInfo> {
     for base in &local.base_versions {
         for r in &base.res {
             map.insert(
-                normalize_path(&r.filename),
+                ledger_key(&r.filename),
                 LocalInfo {
                     md5: r.md5.to_ascii_lowercase(),
                     size: r.filesize,
@@ -692,7 +698,7 @@ fn local_map(local: Option<&LocalManifest>) -> BTreeMap<String, LocalInfo> {
             for pak in &pkg.paks {
                 for e in &pak.entries {
                     map.insert(
-                        normalize_path(&e.name),
+                        ledger_key(&e.name),
                         LocalInfo {
                             md5: e.md5.to_ascii_lowercase(),
                             size: e.size,
@@ -704,6 +710,10 @@ fn local_map(local: Option<&LocalManifest>) -> BTreeMap<String, LocalInfo> {
         }
     }
     map
+}
+
+pub(crate) fn ledger_key(path: &str) -> String {
+    normalize_path(path).to_ascii_lowercase()
 }
 
 pub fn normalize_path(path: &str) -> String {
@@ -1715,5 +1725,61 @@ mod tests {
         assert_eq!(plan.remote_tag, "baseTag");
         assert_eq!(plan.checked, 0);
         assert!(plan.is_empty());
+    }
+
+    #[test]
+    fn changed_large_file_loses_ledger_trust() {
+        let dir = TempDir::new("changed-large-ledger");
+        let config = config_for(&dir);
+        let size = 21 * MB;
+        sparse(&dir.join("install/data/big.pak"), size);
+        let md5 = "ab".repeat(16);
+        write_ledger(&config, &format!("<ResList><Res filename=\"data/big.pak\" filesize=\"{size}\" md5=\"{md5}\" timestamp=\"1\"/></ResList>"));
+        let remote = bundle(manifest_res(vec![res("data/big.pak", &md5, size)]), None);
+        let quick = check_bundle(&config, &remote, CheckOptions::default()).unwrap();
+        assert_eq!(quick.unverified.len(), 1);
+        let full = check_bundle(
+            &config,
+            &remote,
+            CheckOptions {
+                full: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(full.items.len(), 1);
+        assert_eq!(full.items[0].reason, UpdateReason::Md5);
+    }
+
+    #[test]
+    fn stale_ledger_size_repairs_the_record_without_a_download() {
+        let dir = TempDir::new("stale-ledger-size");
+        let config = config_for(&dir);
+        dir.write("install/data/a.bin", b"correct");
+        let md5 = crate::update::md5_bytes(b"correct");
+        let remote = bundle(manifest_res(vec![res("data/a.bin", &md5, 7)]), None);
+        for full in [false, true] {
+            write_ledger(
+                &config,
+                "<ResList><Res filename=\"data/a.bin\" filesize=\"2\" md5=\"old\"/></ResList>",
+            );
+            let plan = check_bundle(
+                &config,
+                &remote,
+                CheckOptions {
+                    full,
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert!(plan.items.is_empty());
+            assert_eq!(plan.verified.len(), 1);
+            let report = crate::game::download::apply_plan(&config, &plan, &Default::default());
+            assert!(report.ledger_error.is_none());
+            assert_eq!(report.downloaded_bytes, 0);
+            let ledger = load_local_ledger(&config).unwrap().unwrap();
+            assert_eq!(ledger.res[0].filesize, 7);
+            assert_eq!(ledger.res[0].md5, md5);
+        }
     }
 }

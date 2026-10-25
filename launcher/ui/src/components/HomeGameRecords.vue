@@ -51,10 +51,13 @@ const index = computed(() =>
 const record = computed(() => account.value?.gameRecord);
 const failure = computed(() => account.value?.gameRecordError);
 const error = computed(
-  () => failure.value?.message || gameRecords.error || attendance.error,
+  () =>
+    failure.value?.message ||
+    gameRecords.error ||
+    (!accounts.value.length ? attendance.error : ""),
 );
 const busy = computed(
-  () => gameRecords.loading || attendance.busy || attendance.running,
+  () => gameRecords.loading || (attendance.busy && !attendance.running),
 );
 const needsLogin = computed(() =>
   ["auth", "verification"].includes(failure.value?.kind ?? ""),
@@ -263,6 +266,13 @@ function percent(data: GameRecord) {
             </p>
             <p v-else-if="!error" class="game-records__hint">
               等待获取角色信息.
+            </p>
+            <p
+              v-if="gameRecords.waiting"
+              class="game-records__hint"
+              role="status"
+            >
+              正在等待账号任务完成, 稍后自动刷新.
             </p>
             <div v-if="error || needsLogin" class="game-records__status">
               <p

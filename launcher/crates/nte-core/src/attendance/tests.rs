@@ -1182,3 +1182,60 @@ fn unnamed_role_uses_id_and_failed_signin_keeps_role_name() {
         .iter()
         .any(|step| step.label == "角色 9007199254740993"));
 }
+
+#[test]
+fn failed_optional_tasks_retry_without_repeating_completed_groups() {
+    for failed in ["/cloud/game/getUserInfo", "/apihub/api/getUserTasks"] {
+        let (_dir, server, _vault, service) = fixture();
+        service
+            .login("13800138000", "test-password", false)
+            .unwrap();
+        server.route(failed, r#"{"code":500,"message":"temporary error"}"#);
+        let first = service.run(None).unwrap();
+        assert!(first.accounts[0].signed_today);
+        assert!(!first.accounts[0].tasks_complete());
+        let sign_hits = server.hits("/apihub/api/signin");
+        let coin_hits = server.hits("/apihub/api/getUserTasks");
+        let cloud_hits = server.hits("/cloud/game/getUserInfo");
+        server.route("/apihub/api/getUserTasks", completed_tasks());
+        server.route(
+            "/cloud/game/getUserInfo",
+            r#"{"code":0,"result":{"perDayFirstLoginGiveDuration":"15","remainedDuration":"120"}}"#,
+        );
+        let second = service.run(None).unwrap();
+        assert!(second.accounts[0].tasks_complete());
+        assert_eq!(server.hits("/apihub/api/signin"), sign_hits);
+        assert_eq!(
+            server.hits("/apihub/api/getUserTasks"),
+            coin_hits + usize::from(failed.contains("Tasks"))
+        );
+        assert_eq!(
+            server.hits("/cloud/game/getUserInfo"),
+            cloud_hits + usize::from(failed.contains("cloud"))
+        );
+        service.run(None).unwrap();
+        assert_eq!(server.hits("/apihub/api/signin"), sign_hits);
+    }
+}
+
+#[test]
+fn optional_retry_preparation_failure_preserves_successful_signin() {
+    let (_dir, server, vault, service) = fixture();
+    service
+        .login("13800138000", "test-password", false)
+        .unwrap();
+    server.route("/cloud/game/getUserInfo", r#"{"code":500}"#);
+    assert!(service.run(None).unwrap().accounts[0].signed_today);
+    vault.fail_save.store(true, Ordering::Relaxed);
+    let failed = service.run(None).unwrap();
+    assert!(failed.accounts[0].signed_today);
+    assert!(failed.accounts[0].attention.is_none());
+    assert!(!failed.accounts[0].tasks_complete());
+    vault.fail_save.store(false, Ordering::Relaxed);
+    server.route(
+        "/cloud/game/getUserInfo",
+        r#"{"code":0,"result":{"perDayFirstLoginGiveDuration":"15","remainedDuration":"120"}}"#,
+    );
+    assert!(service.run(None).unwrap().accounts[0].tasks_complete());
+    assert_eq!(server.hits("/apihub/api/getUserTasks"), 1);
+}

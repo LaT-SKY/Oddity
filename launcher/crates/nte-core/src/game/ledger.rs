@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::time::UNIX_EPOCH;
 
-use crate::game::check::{join_install_path, UpdateKind, UpdatePlan};
+use crate::game::check::{join_install_path, ledger_key, UpdateKind, UpdatePlan};
 use crate::game::config::GameUpdateConfig;
 use crate::game::manifest::{GameManifest, ResEntry};
 use crate::game::pxml;
@@ -88,18 +88,7 @@ pub fn update_after_apply(
             check,
             blocks,
         };
-        if !upsert(&mut manifest, fresh) {
-            // A path can be new (for example an optional tag pack). Keep it in
-            // the root ledger; the official parser accepts root Res entries.
-            manifest.res.push(ResEntry {
-                filename: path.clone(),
-                filesize: item.size(),
-                md5: item.md5().into(),
-                timestamp,
-                check,
-                blocks: Vec::new(),
-            });
-        }
+        upsert(&mut manifest, fresh);
     }
 
     let xml = serialize(&manifest);
@@ -108,28 +97,40 @@ pub fn update_after_apply(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let tmp = path.with_extension("xml.nte-new");
-    fs::write(&tmp, encoded)?;
-    fs::rename(&tmp, &path).map_err(Error::Io)?;
+    let mut tmp = crate::paths::TemporaryFile::new(&path)?;
+    use std::io::Write;
+    tmp.file.write_all(&encoded)?;
+    tmp.commit(&path, &|| false)?;
     Ok(())
 }
 
-fn upsert(manifest: &mut GameManifest, fresh: ResEntry) -> bool {
-    for r in &mut manifest.res {
-        if r.filename.eq_ignore_ascii_case(&fresh.filename) {
-            *r = fresh.clone();
+fn upsert(manifest: &mut GameManifest, fresh: ResEntry) {
+    let key = ledger_key(&fresh.filename);
+    let mut found = false;
+    let mut update = |entry: &mut ResEntry| {
+        if ledger_key(&entry.filename) != key {
             return true;
         }
-    }
+        if found {
+            return false;
+        }
+        *entry = fresh.clone();
+        found = true;
+        true
+    };
+    // 同一路径仅保留一个权威记录, 根记录优先。
+    manifest.res.retain_mut(&mut update);
     for base in &mut manifest.base_versions {
-        for r in &mut base.res {
-            if r.filename.eq_ignore_ascii_case(&fresh.filename) {
-                *r = fresh.clone();
-                return true;
+        base.res.retain_mut(&mut update);
+        for package in &mut base.packages {
+            for pak in &mut package.paks {
+                pak.entries.retain(|entry| ledger_key(&entry.name) != key);
             }
         }
     }
-    false
+    if !found {
+        manifest.res.push(fresh);
+    }
 }
 
 fn serialize(m: &GameManifest) -> String {
@@ -508,5 +509,86 @@ mod tests {
         .expect("update");
         let manifest = read_ledger(&config);
         assert_eq!(manifest.res[0].filename, name);
+    }
+
+    #[test]
+    fn duplicate_paths_are_removed_and_a_second_check_stays_clean() {
+        use crate::game::check::{check_bundle, CheckOptions, RemoteBundle};
+        use crate::game::manifest::RemoteConfig;
+        let dir = TempDir::new("ledger-duplicates");
+        let config = config_for(&dir);
+        dir.write("install/data/a.bin", b"good");
+        write_ledger(&config, "<ResList><Res filename=\"/data/a.bin\" md5=\"old\" filesize=\"1\"/><BaseVersion><ResList><Res filename=\"DATA\\a.bin\" md5=\"old\" filesize=\"2\"/></ResList></BaseVersion></ResList>");
+        let item = res_item(
+            "data/a.bin",
+            &crate::update::md5_bytes(b"good"),
+            4,
+            false,
+            vec![],
+        );
+        let UpdateKind::Res { res } = item.kind.clone() else {
+            unreachable!()
+        };
+        update_after_apply(
+            &config,
+            &plan_with(vec![item]),
+            &["data/a.bin".into()],
+            true,
+        )
+        .unwrap();
+        let ledger = read_ledger(&config);
+        assert_eq!(ledger.res.len(), 1);
+        assert!(ledger.base_versions[0].res.is_empty());
+        let remote = RemoteBundle {
+            config: RemoteConfig::default(),
+            manifest: GameManifest {
+                res: vec![res],
+                ..Default::default()
+            },
+            diff: None,
+        };
+        let plan = check_bundle(
+            &config,
+            &remote,
+            CheckOptions {
+                full: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(plan.items.is_empty());
+    }
+
+    #[test]
+    fn ledger_commit_does_not_follow_a_preexisting_temporary_symlink() {
+        let dir = TempDir::new("ledger-temp-symlink");
+        let config = config_for(&dir);
+        fs::create_dir_all(&config.patcher_dir).unwrap();
+        let outside = dir.write("outside", b"preserve");
+        std::os::unix::fs::symlink(&outside, config.patcher_dir.join("ResList.xml.nte-new"))
+            .unwrap();
+        dir.write("install/data/a.bin", b"good");
+        let item = res_item(
+            "data/a.bin",
+            &crate::update::md5_bytes(b"good"),
+            4,
+            false,
+            vec![],
+        );
+        update_after_apply(
+            &config,
+            &plan_with(vec![item]),
+            &["data/a.bin".into()],
+            true,
+        )
+        .unwrap();
+        assert_eq!(dir.read("outside"), b"preserve");
+        assert!(
+            !fs::symlink_metadata(config.patcher_dir.join("ResList.xml"))
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(read_ledger(&config).res.len(), 1);
     }
 }

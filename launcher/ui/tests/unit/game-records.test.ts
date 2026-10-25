@@ -204,3 +204,111 @@ it("默认收起为胶囊, 胶囊与 Esc 收起, 选中账号移除后显示剩�
   await wrapper.get(".game-records").trigger("keydown", { key: "Escape" });
   expect(capsule.attributes("aria-expanded")).toBe("false");
 });
+
+it("启动时已签到遇到临时忙碌会自动重试, 不留下错误提示", async () => {
+  status.accounts[0].signedToday = true;
+  status.accounts[0].gameRecord = record();
+  api.invoke.mockImplementation(async (command) => {
+    if (command === "attendance_refresh_game_records" && requests() === 1)
+      throw { kind: "busy", message: "账号或签到任务正在处理, 请稍后重试" };
+    return structuredClone(status);
+  });
+  await boot();
+  expect(requests()).toBe(1);
+  expect(wrapper.text()).toContain("稍后自动刷新");
+  expect(wrapper.find(".game-records__error").exists()).toBe(false);
+  await vi.advanceTimersByTimeAsync(2000);
+  await flushPromises();
+  expect(requests()).toBe(2);
+  expect(c.gameRecords.waiting).toBe(false);
+  expect(wrapper.text()).not.toContain("稍后自动刷新");
+  expect(c.gameRecords.error).toBe("");
+});
+
+it.each([true, false])(
+  "签到和查询并发完成时分别保留结果, 查询先返回: %s",
+  async (recordsFirst) => {
+    await boot();
+    let resolveSign!: (value: AttendanceStatus) => void;
+    let resolveRecord!: (value: AttendanceStatus) => void;
+    const signed = structuredClone(status);
+    signed.accounts[0].signedToday = true;
+    const records = structuredClone(status);
+    records.accounts[0].gameRecord = record({ stamina: 120 });
+    api.invoke.mockImplementation(
+      (command) =>
+        new Promise<AttendanceStatus>((done) => {
+          if (command === "attendance_run") resolveSign = done;
+          if (command === "attendance_refresh_game_records")
+            resolveRecord = done;
+        }),
+    );
+    const sign = c.runAttendance();
+    await flushPromises();
+    expect(
+      wrapper.get('[aria-label="刷新游戏状态"]').attributes("disabled"),
+    ).toBeUndefined();
+    const query = c.refreshGameRecords(true);
+    await flushPromises();
+    expect(resolveRecord).toBeTypeOf("function");
+    if (recordsFirst) {
+      resolveRecord(records);
+      await query;
+      resolveSign(signed);
+    } else {
+      resolveSign(signed);
+      await sign;
+      resolveRecord(records);
+    }
+    await Promise.all([sign, query]);
+    await flushPromises();
+    expect(c.attendance.status?.accounts[0].signedToday).toBe(true);
+    expect(c.attendance.status?.accounts[0].gameRecord?.stamina).toBe(120);
+    expect(wrapper.text()).toContain("120 / 240");
+  },
+);
+
+it("退出后清理临时忙碌重试, 旧账号查询失败不会污染新状态", async () => {
+  await boot();
+  let reject!: (cause: unknown) => void;
+  api.invoke.mockImplementationOnce(
+    () =>
+      new Promise((_done, fail) => {
+        reject = fail;
+      }),
+  );
+  const pending = c.refreshGameRecords(true);
+  c.syncAttendance({ ...status, accounts: [] });
+  reject({ kind: "busy", message: "旧任务忙碌" });
+  await pending;
+  expect(c.gameRecords.waiting).toBe(false);
+  expect(c.gameRecords.error).toBe("");
+  c.syncAttendance(structuredClone(status));
+  api.invoke.mockRejectedValue({ kind: "busy", message: "忙碌" });
+  await c.refreshGameRecords(true);
+  const before = requests();
+  wrapper.unmount();
+  c.dispose();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(requests()).toBe(before);
+});
+
+it("较早的状态读取不能覆盖已经完成的签到", async () => {
+  await boot();
+  const old = structuredClone(status);
+  const signed = structuredClone(status);
+  signed.accounts[0].signedToday = true;
+  let resolveStatus!: (value: AttendanceStatus) => void;
+  api.invoke.mockImplementation((command) => {
+    if (command === "attendance_status")
+      return new Promise<AttendanceStatus>((done) => {
+        resolveStatus = done;
+      });
+    return Promise.resolve(signed);
+  });
+  const loading = c.loadAttendance();
+  await c.runAttendance();
+  resolveStatus(old);
+  await loading;
+  expect(c.attendance.status?.accounts[0].signedToday).toBe(true);
+});

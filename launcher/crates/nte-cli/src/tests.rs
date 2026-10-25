@@ -345,8 +345,10 @@ fn check_reports_fetch_failures() {
 
 #[test]
 fn apply_downloads_missing_files() {
-    let root = temp_dir("apply");
-    let _cleanup = Cleanup(root.clone());
+    let install = temp_dir("apply");
+    let _cleanup = Cleanup(install.clone());
+    let root = install.join("NTELauncher");
+    fs::create_dir_all(&root).unwrap();
     let server = HttpServer::start();
     let content = b"new content";
     let zip = zip_one("data/new.txt", content);
@@ -390,8 +392,10 @@ fn apply_downloads_missing_files() {
 
 #[test]
 fn apply_reports_version_failures() {
-    let root = temp_dir("apply-errors");
-    let _cleanup = Cleanup(root.clone());
+    let install = temp_dir("apply-errors");
+    let _cleanup = Cleanup(install.clone());
+    let root = install.join("NTELauncher");
+    fs::create_dir_all(&root).unwrap();
     let server = HttpServer::start();
     let config = launcher_config(&root, &server.url("/Version.ini"));
 
@@ -711,4 +715,24 @@ fn game_apply_verifies_unknown_files_and_repairs_corruption() {
     game_apply(&launcher, &[]).expect("repair unknown file");
     assert_eq!(update::md5_file(&install.resource_path(path)).unwrap(), md5);
     assert!(game::check::load_local_ledger(&cfg).unwrap().is_some());
+}
+
+#[test]
+fn installation_lock_blocks_both_cli_writers_before_network_requests() {
+    let install = temp_dir("lock-cli-writers");
+    let _cleanup = Cleanup(install.clone());
+    let root = install.join("NTELauncher");
+    game_fixture(&root, "1289");
+    let server = HttpServer::start();
+    rewrite_cdn(&root, &server.base());
+    let config = launcher_config(&root, &server.url("/Version.ini"));
+    let _lock = nte_core::install_lock::InstallLock::acquire(&install).unwrap();
+    assert!(apply(&config, None)
+        .unwrap_err()
+        .to_string()
+        .contains("其他任务"));
+    assert!(game_apply(&config, &[])
+        .unwrap_err()
+        .to_string()
+        .contains("其他任务"));
 }
