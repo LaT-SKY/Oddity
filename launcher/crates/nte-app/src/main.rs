@@ -661,6 +661,17 @@ fn data_dir() -> PathBuf {
     data_base().join("oddity")
 }
 
+#[tauri::command]
+async fn export_logs(destination: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        nte_core::logs::export_logs(&data_dir().join("logs"), Path::new(&destination))
+            .map(|path| path.display().to_string())
+            .map_err(|error| format!("{error:#}"))
+    })
+    .await
+    .map_err(|error| format!("日志导出任务失败: {error}"))?
+}
+
 fn legacy_data_dir() -> PathBuf {
     data_base().join("TheBetterNTE")
 }
@@ -1640,6 +1651,32 @@ fn open_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+fn open_directory_impl(path: &Path) -> Result<(), String> {
+    let path = path
+        .canonicalize()
+        .map_err(|error| format!("读取文件夹失败: {error}"))?;
+    if !path.is_dir() {
+        return Err("指定路径不是文件夹".into());
+    }
+    let status = Command::new("xdg-open")
+        .arg(path)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|error| format!("打开文件夹失败: {error}"))?;
+    if !status.success() {
+        return Err(format!("系统默认文件管理器返回 {status}"));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn open_directory(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || open_directory_impl(Path::new(&path)))
+        .await
+        .map_err(|error| format!("打开文件夹任务失败: {error}"))?
+}
+
 fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
     launch_impl_with_profile(settings, |path| {
         validated_click_profile(path).map_err(|error| error.to_string())
@@ -2283,6 +2320,8 @@ fn main() {
             download_commands::game_download_cancel,
             fetch_bulletins,
             save_settings,
+            export_logs,
+            open_directory,
             open_url,
             launch_official,
             game_status,

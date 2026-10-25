@@ -54,7 +54,9 @@ jobs:
           node-version: 24
 
       - name: 检查版本号、链接、纳入版本管理的路径
-        run: node scripts/check-repo.mjs
+        run: |
+          node scripts/check-repo.mjs
+          node --test scripts/check-rust-coverage.test.mjs
 
       - name: 安装 shellcheck
         run: |

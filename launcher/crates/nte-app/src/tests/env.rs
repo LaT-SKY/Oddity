@@ -154,6 +154,35 @@ fn standalone_build_embeds_frontend_assets() {
 }
 
 #[test]
+fn open_directory_uses_default_opener_and_reports_failures() {
+    let mut env = EnvGuard::new();
+    let dir = TempDir::new("open-directory");
+    let destination = dir.join("日志 导出");
+    std::fs::create_dir(&destination).unwrap();
+    write_script(
+        dir.path(),
+        "xdg-open",
+        "#!/bin/sh\nprintf '%s' \"$1\" > \"$1/opener-argument\"\n",
+    );
+    env.set("PATH", dir.path());
+    open_directory_impl(&destination).unwrap();
+    assert_eq!(
+        std::fs::read_to_string(destination.join("opener-argument")).unwrap(),
+        destination.canonicalize().unwrap().to_str().unwrap()
+    );
+    assert!(open_directory_impl(&destination.join("opener-argument")).is_err());
+    assert!(open_directory_impl(&dir.join("missing")).is_err());
+    write_script(dir.path(), "xdg-open", "#!/bin/sh\nexit 4\n");
+    assert!(open_directory_impl(&destination)
+        .unwrap_err()
+        .contains("系统默认文件管理器"));
+    env.set("PATH", dir.join("empty"));
+    assert!(open_directory_impl(&destination)
+        .unwrap_err()
+        .contains("打开文件夹失败"));
+}
+
+#[test]
 fn launcher_builder_registers_native_dialogs() {
     let app = launcher_builder::<tauri::test::MockRuntime>()
         .build(tauri::test::mock_context(tauri::test::noop_assets()))

@@ -960,12 +960,14 @@ export function applyHeroMedia(input: string) {
   return value;
 }
 
-function toast(message: string, kind = "ok", duration = 3400) {
+export function toast(message: string, kind = "ok", duration = 3400) {
   window.clearTimeout(toastTimer);
   Object.assign(ui.toast, { message, kind, visible: true });
-  toastTimer = schedule(() => {
-    ui.toast.visible = false;
-  }, duration);
+  if (duration > 0) {
+    toastTimer = schedule(() => {
+      ui.toast.visible = false;
+    }, duration);
+  }
 }
 
 function applyBootstrap(
