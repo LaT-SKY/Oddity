@@ -1,7 +1,7 @@
 name: 功能请求
-description: 提出新功能或使用体验改进
+description: 提出全新功能或能力
 title: "[FEATURE] "
-labels: ["feature", "enhancement"]
+labels: ["feature"]
 body:
   - type: markdown
     attributes:

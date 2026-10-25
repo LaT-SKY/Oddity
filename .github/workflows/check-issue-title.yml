@@ -106,11 +106,6 @@ jobs:
                 .map((mapping) => mapping.prefix),
             );
 
-            // 功能请求模板会同时带上 feature 和 enhancement，按功能请求补全。
-            if (labelPrefixes.has("FEATURE") && labelPrefixes.has("ENHANCEMENT")) {
-              labelPrefixes.delete("ENHANCEMENT");
-            }
-
             let prefix;
             let description;
 
