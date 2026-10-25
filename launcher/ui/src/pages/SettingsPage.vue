@@ -13,6 +13,7 @@ import {
 } from "../core/controller";
 import TaygedoSettings from "../components/TaygedoSettings.vue";
 import BaseSelect from "../components/BaseSelect.vue";
+import DirectoryField from "../components/DirectoryField.vue";
 
 const themeOptions = [
   { label: "亮色（默认）", value: "light" },
@@ -146,60 +147,44 @@ const launchModeHint = computed(
               @change="queueSettingsSave(0)"
             />
           </div>
-          <label class="field field--wide">
-            <span>国服安装目录</span>
-            <input
-              id="set-install"
-              v-model="form.installRoot"
-              type="text"
-              spellcheck="false"
-              autocomplete="off"
-              placeholder="/path/to/Neverness To Everness"
-              :disabled="settingsPathsLocked"
-              @input="queueSettingsSave()"
-              @change="queueSettingsSave(0)"
-            />
-          </label>
-          <label class="field field--wide">
-            <span>国际服安装目录</span>
-            <input
-              id="set-global-install"
-              v-model="form.globalInstallRoot"
-              type="text"
-              spellcheck="false"
-              autocomplete="off"
-              placeholder="~/Games/Neverness To Everness Global"
-              :disabled="settingsPathsLocked"
-              @input="queueSettingsSave()"
-              @change="queueSettingsSave(0)"
-            />
-          </label>
-          <label class="field">
-            <span>Wine prefix</span>
-            <input
-              id="set-prefix"
-              v-model="form.prefix"
-              type="text"
-              spellcheck="false"
-              autocomplete="off"
-              placeholder="~/.local/share/oddity/prefix"
-              @input="queueSettingsSave()"
-              @change="queueSettingsSave(0)"
-            />
-          </label>
-          <label class="field field--wide">
-            <span>Proton 路径</span>
-            <input
-              id="set-proton"
-              v-model="form.protonPath"
-              type="text"
-              spellcheck="false"
-              autocomplete="off"
-              placeholder="~/.local/share/Steam/compatibilitytools.d/GE-Proton..."
-              @input="queueSettingsSave()"
-              @change="queueSettingsSave(0)"
-            />
-          </label>
+          <DirectoryField
+            id="set-install"
+            v-model="form.installRoot"
+            class="field field--wide"
+            label="国服安装目录"
+            placeholder="/path/to/Neverness To Everness"
+            :disabled="settingsPathsLocked"
+            @input="queueSettingsSave()"
+            @change="queueSettingsSave(0)"
+          />
+          <DirectoryField
+            id="set-global-install"
+            v-model="form.globalInstallRoot"
+            class="field field--wide"
+            label="国际服安装目录"
+            placeholder="~/Games/Neverness To Everness Global"
+            :disabled="settingsPathsLocked"
+            @input="queueSettingsSave()"
+            @change="queueSettingsSave(0)"
+          />
+          <DirectoryField
+            id="set-prefix"
+            v-model="form.prefix"
+            class="field"
+            label="Wine prefix"
+            placeholder="~/.local/share/oddity/prefix"
+            @input="queueSettingsSave()"
+            @change="queueSettingsSave(0)"
+          />
+          <DirectoryField
+            id="set-proton"
+            v-model="form.protonPath"
+            class="field field--wide"
+            label="Proton 路径"
+            placeholder="~/.local/share/Steam/compatibilitytools.d/GE-Proton..."
+            @input="queueSettingsSave()"
+            @change="queueSettingsSave(0)"
+          />
           <div class="field">
             <span>启动方式</span>
             <BaseSelect

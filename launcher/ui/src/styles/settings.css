@@ -40,7 +40,8 @@
   grid-column: 1 / -1;
 }
 
-.field > span {
+.field > span,
+.field > label {
   font-family: var(--font);
   font-size: var(--text-xs);
   font-weight: var(--weight-medium);

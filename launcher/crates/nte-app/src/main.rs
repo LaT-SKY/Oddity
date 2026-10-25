@@ -2214,6 +2214,11 @@ fn install_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+fn launcher_builder<R: tauri::Runtime>() -> tauri::Builder<R> {
+    let builder = tauri::Builder::<R>::new();
+    builder.plugin(tauri_plugin_dialog::init())
+}
+
 fn main() {
     if attendance_commands::headless_entry() {
         return;
@@ -2221,7 +2226,7 @@ fn main() {
     migrate_legacy_dirs();
     configure_graphics();
     let settings = load_settings();
-    tauri::Builder::default()
+    launcher_builder()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             show_main(app);
         }))

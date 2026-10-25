@@ -152,3 +152,13 @@ fn standalone_build_embeds_frontend_assets() {
     assert!(assets.iter().any(|path| path.ends_with(".js")));
     assert!(assets.iter().any(|path| path.ends_with(".css")));
 }
+
+#[test]
+fn launcher_builder_registers_native_dialogs() {
+    let app = launcher_builder::<tauri::test::MockRuntime>()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .expect("launcher initialization");
+    assert!(app
+        .try_state::<tauri_plugin_dialog::Dialog<tauri::test::MockRuntime>>()
+        .is_some());
+}
