@@ -14,6 +14,7 @@ import {
 import TaygedoSettings from "../components/TaygedoSettings.vue";
 import BaseSelect from "../components/BaseSelect.vue";
 import DirectoryField from "../components/DirectoryField.vue";
+import LogExport from "../components/LogExport.vue";
 
 const themeOptions = [
   { label: "亮色（默认）", value: "light" },
@@ -223,6 +224,7 @@ const launchModeHint = computed(
         </label>
       </section>
       <TaygedoSettings v-if="state.page === 'settings'" />
+      <LogExport />
     </form>
 
     <section class="diagnostics">

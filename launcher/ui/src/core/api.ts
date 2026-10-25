@@ -538,6 +538,9 @@ async function previewInvoke(
       return clone(mockDownload);
     case "open_url":
       return null;
+    case "export_logs":
+    case "open_directory":
+      throw new Error("请在 Oddity 桌面应用中导出日志");
     case "launch_official":
       previewGame.running = true;
       previewGame.closing = false;

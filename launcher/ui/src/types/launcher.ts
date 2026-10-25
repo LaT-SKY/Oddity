@@ -195,6 +195,8 @@ export interface Commands {
   check_update: CheckResult;
   fetch_bulletins: BulletinFeed;
   save_settings: Bootstrap;
+  export_logs: string;
+  open_directory: null;
   open_url: null;
   launch_official: LaunchResult;
   game_status: GameStatus;
@@ -228,6 +230,8 @@ export interface CommandArgs {
   check_update: { full: boolean };
   fetch_bulletins: undefined;
   save_settings: { settings: Settings };
+  export_logs: { destination: string };
+  open_directory: { path: string };
   open_url: { url: string };
   launch_official: undefined;
   game_status: undefined;
