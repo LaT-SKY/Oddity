@@ -1,0 +1,343 @@
+/* 设计变量。颜色、间距、字体、圆角、动效参数与层级集中在这里。 */
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/assets/fonts/SpaceGrotesk.ttf") format("truetype");
+  font-weight: 300 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "NTE Display";
+  src: url("/assets/fonts/NTESerifSC-Black-subset.woff2") format("woff2");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  color-scheme: light;
+
+  /* 颜色 */
+  --bg: #f2efe6;
+  --bg-2: #e9e4d8;
+  --surface: rgba(255, 253, 247, 0.72);
+  --surface-2: rgba(255, 253, 247, 0.5);
+  --surface-solid: #faf7ee;
+  --input-bg: #fffdf7;
+  --titlebar-bg: rgba(242, 239, 230, 0.84);
+  --rail-bg: rgba(242, 239, 230, 0.6);
+  --app-bg:
+    radial-gradient(
+      1100px 520px at 16% -12%,
+      rgba(128, 154, 26, 0.1),
+      transparent 62%
+    ),
+    radial-gradient(
+      900px 600px at 100% 0%,
+      rgba(72, 124, 134, 0.06),
+      transparent 60%
+    ),
+    var(--bg);
+  --hero-bg: #e5dfd0;
+  --hero-shell-bg: rgba(255, 253, 247, 0.36);
+  --hero-text-shadow: none;
+  --hero-fade:
+    radial-gradient(
+      78% 95% at 0% 100%,
+      #f2efe6 0%,
+      rgba(242, 239, 230, 0.99) 25%,
+      rgba(242, 239, 230, 0.95) 42%,
+      rgba(242, 239, 230, 0.68) 60%,
+      rgba(242, 239, 230, 0.18) 80%,
+      rgba(242, 239, 230, 0) 92%
+    ),
+    linear-gradient(
+      0deg,
+      rgba(242, 239, 230, 0.94) 0%,
+      rgba(242, 239, 230, 0.5) 20%,
+      transparent 45%
+    ),
+    linear-gradient(
+      90deg,
+      rgba(242, 239, 230, 0.55) 0%,
+      rgba(242, 239, 230, 0.1) 26%,
+      transparent 48%
+    );
+
+  /* AAA text colors on #f2efe6: text 15.6:1, soft 11.9:1,
+     muted 10.0:1, faint 8.4:1; hover worst 7.6:1. */
+  --bone: #141814;
+  --text-soft: #252a25;
+  --muted: #343934;
+  --faint: #414641;
+  --ink: #101410;
+  --line: rgba(20, 24, 20, 0.14);
+  --line-strong: rgba(20, 24, 20, 0.28);
+  --control-border: rgba(20, 24, 20, 0.42);
+  --field-border: rgba(20, 24, 20, 0.18);
+  --hover: rgba(20, 24, 20, 0.035);
+  --pressed: rgba(20, 24, 20, 0.06);
+
+  --signal: #c8f04b;
+  --signal-strong: #3f5600;
+  --signal-ink: #101505;
+  --signal-dim: rgba(79, 103, 0, 0.12);
+  --accent-text: #3f5600;
+  --nav-active-color: #2f3d08;
+  --nav-active-bg: rgba(108, 138, 12, 0.16);
+  --nav-active-bar: #3f5600;
+  --dot-signal: #3f5600;
+  --danger: #8a1c11;
+  --warn: #6b4700;
+  --dot-warn: #6b4700;
+  --warn-line: rgba(107, 71, 0, 0.36);
+  --warn-fill: rgba(107, 71, 0, 0.07);
+  --warn-fill-strong: rgba(107, 71, 0, 0.13);
+  --danger-line: rgba(138, 28, 17, 0.34);
+  --danger-fill: rgba(138, 28, 17, 0.07);
+  --win-close: #8a1c11;
+  --win-close-bg: rgba(138, 28, 17, 0.08);
+
+  --primary-bg: #c8f04b;
+  --primary-fg: #101505;
+  --primary-hover: #d3f76a;
+  --primary-shadow: 0 12px 32px rgba(84, 103, 16, 0.18);
+  --primary-icon-bg: rgba(16, 21, 5, 0.14);
+  --primary-border: rgba(20, 24, 20, 0.28);
+  --ghost-bg: rgba(20, 24, 20, 0.055);
+  --ghost-hover: rgba(20, 24, 20, 0.09);
+  --focus: #3f5600;
+  --scroll-thumb: rgba(20, 24, 20, 0.2);
+  --switch-bg: #918d83;
+  --switch-knob: #fffdf7;
+  --switch-on-bg: #3f5600;
+  --switch-on-knob: #c8f04b;
+  --selection-bg: #171b17;
+  --selection-fg: #e9f6c3;
+  --toast-bg: #171b17;
+  --toast-fg: #f6f2e8;
+  --toast-border: rgba(246, 242, 232, 0.2);
+  --toast-error: #ffc0b7;
+  --modal-shadow: 0 20px 60px rgba(20, 24, 20, 0.16);
+  --modal-backdrop: rgba(20, 24, 20, 0.42);
+  --meter-track: rgba(20, 24, 20, 0.12);
+  --tag-border: rgba(20, 24, 20, 0.18);
+  --input-focus-border: rgba(63, 86, 0, 0.52);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 256 256'%3E%3Cpath fill='%233f5600' d='M213.66 101.66l-80 80a8 8 0 0 1-11.32 0l-80-80a8 8 0 0 1 11.32-11.32L128 164.69l74.34-74.35a8 8 0 0 1 11.32 11.32Z'/%3E%3C/svg%3E");
+  --grain-blend: multiply;
+  --grain-opacity: 0.022;
+  --window-border: rgba(20, 24, 20, 0.12);
+
+  /* 组件阴影 */
+  --hero-inset-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  --switch-knob-shadow: 0 1px 2px rgba(20, 24, 20, 0.18);
+
+  /* 间距。编号即像素值, 只收录用到的档位; 奇数档用于光学微调。 */
+  --space-2: 2px;
+  --space-3: 3px;
+  --space-4: 4px;
+  --space-5: 5px;
+  --space-6: 6px;
+  --space-7: 7px;
+  --space-8: 8px;
+  --space-9: 9px;
+  --space-10: 10px;
+  --space-11: 11px;
+  --space-12: 12px;
+  --space-13: 13px;
+  --space-14: 14px;
+  --space-16: 16px;
+  --space-18: 18px;
+  --space-20: 20px;
+  --space-22: 22px;
+  --space-24: 24px;
+  --space-26: 26px;
+  --space-28: 28px;
+  --space-30: 30px;
+  --space-34: 34px;
+
+  /* 字体 */
+  --font-display:
+    "NTE Display", "Noto Serif CJK SC", "Source Han Serif SC", "Songti SC",
+    serif;
+  --font:
+    "Space Grotesk", "MiSans", "Noto Sans CJK SC", "Noto Sans SC",
+    "Source Han Sans SC", sans-serif;
+  --mono:
+    "Maple Mono NF CN", "JetBrains Mono", "Noto Sans Mono", "SFMono-Regular",
+    ui-monospace, monospace;
+  --text-2xs: 10px;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 17px;
+  --text-2xl: 20px;
+  --text-3xl: 24px;
+  --text-4xl: 30px;
+  --text-5xl: 34px;
+  --text-display: 50px;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-black: 900;
+
+  /* 圆角 */
+  --r-icon: 7px;
+  --r-control: 8px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 24px;
+  --r-xl: 30px;
+  --window-radius: 24px;
+  --pill: 999px;
+
+  /* 动效 */
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fade: 120ms;
+  --duration-fast: 140ms;
+  --duration-quick: 160ms;
+  --duration-base: 180ms;
+  --duration-slow: 200ms;
+  --duration-intro: 320ms;
+  --duration-instant: 0.001ms;
+  --duration-spin: 1s;
+  --duration-pulse: 1.1s;
+
+  /* 层级 */
+  --z-hero-art: 1;
+  --z-hero-video: 2;
+  --z-hero-fade: 3;
+  --z-hero-content: 4;
+  --z-rail: 4;
+  --z-titlebar: 10;
+  --z-scroll-edge: 20;
+  --z-select: 70;
+  --z-grain: 80;
+  --z-toast: 120;
+  --z-modal: 1000;
+  --z-tooltip: 1010;
+}
+
+/* 深色主题只覆盖颜色类变量, 间距、字体、圆角、动效和层级沿用 :root。 */
+:root:has(.app[data-theme="dark"]) {
+  color-scheme: dark;
+}
+
+.app[data-theme="dark"],
+.toast[data-theme="dark"],
+.modal[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #070807;
+  --bg-2: #0c0e0c;
+  --surface: rgba(18, 21, 18, 0.55);
+  --surface-2: rgba(12, 14, 12, 0.42);
+  --surface-solid: #121512;
+  --input-bg: rgba(7, 8, 7, 0.6);
+  --titlebar-bg: rgba(7, 8, 7, 0.72);
+  --rail-bg: rgba(7, 8, 7, 0.35);
+  --app-bg:
+    radial-gradient(
+      1100px 520px at 16% -12%,
+      rgba(200, 240, 75, 0.06),
+      transparent 62%
+    ),
+    radial-gradient(
+      900px 600px at 100% 0%,
+      rgba(120, 190, 220, 0.035),
+      transparent 60%
+    ),
+    var(--bg);
+  --hero-bg: #0c0e0c;
+  --hero-shell-bg: rgba(237, 232, 220, 0.035);
+  --hero-text-shadow: 0 10px 48px rgba(0, 0, 0, 0.38);
+  --hero-fade:
+    radial-gradient(
+      78% 95% at 0% 100%,
+      #070807 0%,
+      rgba(7, 8, 7, 0.99) 25%,
+      rgba(7, 8, 7, 0.94) 42%,
+      rgba(7, 8, 7, 0.66) 60%,
+      rgba(7, 8, 7, 0.16) 80%,
+      rgba(7, 8, 7, 0) 92%
+    ),
+    linear-gradient(
+      0deg,
+      rgba(7, 8, 7, 0.92) 0%,
+      rgba(7, 8, 7, 0.4) 20%,
+      transparent 45%
+    ),
+    linear-gradient(
+      90deg,
+      rgba(7, 8, 7, 0.62) 0%,
+      rgba(7, 8, 7, 0.12) 26%,
+      transparent 48%
+    );
+
+  --bone: #ede8dc;
+  --text-soft: #d8d4c9;
+  --muted: #b8beb2;
+  --faint: #a8aea3;
+  --ink: #0a0c08;
+  --line: rgba(237, 232, 220, 0.14);
+  --line-strong: rgba(237, 232, 220, 0.28);
+  --control-border: rgba(237, 232, 220, 0.3);
+  --field-border: rgba(237, 232, 220, 0.18);
+  --hover: rgba(237, 232, 220, 0.06);
+  --pressed: rgba(237, 232, 220, 0.1);
+
+  --signal: #c8f04b;
+  --signal-strong: #c8f04b;
+  --signal-ink: #0a0c08;
+  --signal-dim: rgba(200, 240, 75, 0.16);
+  --accent-text: #c8f04b;
+  --nav-active-color: #c8f04b;
+  --nav-active-bg: rgba(200, 240, 75, 0.07);
+  --nav-active-bar: #c8f04b;
+  --dot-signal: #c8f04b;
+  --danger: #ffb4a8;
+  --warn: #f0c86a;
+  --dot-warn: #f0c86a;
+  --warn-line: rgba(240, 200, 106, 0.38);
+  --warn-fill: rgba(240, 200, 106, 0.08);
+  --warn-fill-strong: rgba(240, 200, 106, 0.15);
+  --danger-line: rgba(255, 180, 168, 0.4);
+  --danger-fill: rgba(255, 180, 168, 0.08);
+  --win-close: #ffb2a7;
+  --win-close-bg: rgba(226, 104, 90, 0.16);
+
+  --primary-bg: #c8f04b;
+  --primary-fg: #0a0c08;
+  --primary-hover: #d3f76a;
+  --primary-shadow: 0 12px 32px rgba(200, 240, 75, 0.12);
+  --primary-icon-bg: rgba(7, 8, 7, 0.14);
+  --primary-border: transparent;
+  --ghost-bg: rgba(237, 232, 220, 0.06);
+  --ghost-hover: rgba(237, 232, 220, 0.1);
+  --focus: #c8f04b;
+  --scroll-thumb: rgba(237, 232, 220, 0.16);
+  --switch-bg: #5a5e56;
+  --switch-knob: #ede8dc;
+  --switch-on-bg: #c8f04b;
+  --switch-on-knob: #0a0c08;
+  --selection-bg: #c8f04b;
+  --selection-fg: #0a0c08;
+  --toast-bg: #121512;
+  --toast-fg: #ede8dc;
+  --toast-border: rgba(237, 232, 220, 0.28);
+  --toast-error: #ffc0b7;
+  --modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  --modal-backdrop: rgba(0, 0, 0, 0.62);
+  --meter-track: rgba(237, 232, 220, 0.1);
+  --tag-border: rgba(237, 232, 220, 0.14);
+  --input-focus-border: rgba(200, 240, 75, 0.52);
+  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 256 256'%3E%3Cpath fill='%23a8aea3' d='M213.66 101.66l-80 80a8 8 0 0 1-11.32 0l-80-80a8 8 0 0 1 11.32-11.32L128 164.69l74.34-74.35a8 8 0 0 1 11.32 11.32Z'/%3E%3C/svg%3E");
+  --grain-blend: soft-light;
+  --grain-opacity: 0.035;
+  --window-border: rgba(237, 232, 220, 0.1);
+}

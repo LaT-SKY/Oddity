@@ -23,7 +23,7 @@
 - Rust 代码必须通过 Clippy 检查
 - Shell 脚本必须通过 ShellCheck。
 - 前端使用 Vite + TypeScript + Vue 3, TS 开启了严格模式。
-- Prettier 统一格式。
+- Prettier 统一格式, Stylelint 检查 CSS 的错误写法和无效声明; 两者职责不重叠。
 - 不要顺手格式化无关文件，也不要把重构和新功能混在同一个 PR 里。
 
 ## 前端目录
@@ -34,7 +34,8 @@
 - `components/layout/`: 标题栏、导航栏等布局组件。
 - `pages/`: 启动、更新、公告和设置页面。
 - `core/`: 命令桥接、状态与交互控制。
-- `styles/`, `types/`: 全局样式和类型定义。
+- `styles/`: 按职责拆分的全局样式, 入口为 `main.css`, 设计变量集中在 `tokens.css`。
+- `types/`: 类型定义。
 
 静态资源放在 `public/assets/`, 单元与组件测试放在 `tests/unit/`, 浏览器测试放在 `tests/e2e/`。
 
@@ -58,6 +59,7 @@
 cd launcher
 pnpm --dir ui install --frozen-lockfile
 pnpm --dir ui run format:check
+pnpm --dir ui run lint:css
 pnpm --dir ui run test:coverage
 pnpm --dir ui run build
 pnpm --dir ui run test:e2e

@@ -1,0 +1,229 @@
+/* 更新页。 */
+
+/* ---------------- update page ---------------- */
+
+.page--update {
+  overflow-y: auto;
+}
+
+.update-card {
+  padding: var(--space-24) var(--space-26) var(--space-22);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background:
+    radial-gradient(90% 130% at 0% 0%, var(--signal-dim), transparent 60%),
+    var(--surface-2);
+}
+
+.update-card__title {
+  margin: 0 0 var(--space-16);
+  font-family: var(--font);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.01em;
+  color: var(--bone);
+}
+
+.download-fields {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.7fr) minmax(0, 2fr);
+  gap: var(--space-16);
+  margin-top: var(--space-24);
+}
+
+.download-hint {
+  margin: var(--space-12) 0 0;
+  color: var(--faint);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.download-progress {
+  margin-top: var(--space-24);
+  padding-top: var(--space-18);
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.download-progress__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-16);
+  font-variant-numeric: tabular-nums;
+}
+
+.download-progress progress {
+  width: 100%;
+  height: 8px;
+  margin-top: var(--space-10);
+  accent-color: var(--signal);
+}
+
+.download-progress p {
+  overflow: hidden;
+  margin: var(--space-8) 0 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .download-fields {
+    grid-template-columns: 1fr;
+  }
+  .update-card {
+    padding: var(--space-24);
+  }
+}
+
+.update-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-16);
+}
+
+.update-icon {
+  width: 52px;
+  height: 52px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--signal-dim);
+  color: var(--accent-text);
+}
+
+.update-icon .icon {
+  width: 24px;
+  height: 24px;
+}
+
+.update-state__copy h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-black);
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--bone);
+}
+
+.update-state__copy p {
+  margin: var(--space-6) 0 0;
+  font-size: var(--text-md);
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-18);
+  flex-wrap: wrap;
+  margin-top: var(--space-24);
+}
+
+.update-actions .btn {
+  height: 48px;
+  padding: 0 var(--space-22);
+  font-size: var(--text-md);
+}
+
+.update-actions .btn--link {
+  height: auto;
+  padding: var(--space-2) 0;
+}
+
+.update-card.is-idle .update-icon {
+  background: var(--hover);
+  color: var(--muted);
+}
+
+.update-card.is-warn .update-icon {
+  background: var(--warn-fill);
+  color: var(--warn);
+}
+
+.update-card.is-error .update-icon {
+  background: var(--danger-fill);
+  color: var(--danger);
+}
+
+.update-card.is-checking .update-icon .icon {
+  animation: spin var(--duration-spin) linear infinite;
+}
+
+.update-files {
+  margin-top: var(--space-28);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--line);
+}
+
+.update-files__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-14) 0 var(--space-10);
+  color: var(--faint);
+  font-size: var(--text-sm);
+}
+
+.update-files__head span:last-child {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.update-files__body {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.update-file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  padding: var(--space-9) 0;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+}
+
+.update-file:last-child {
+  border-bottom: 0;
+}
+
+.update-file__tag {
+  flex: none;
+  padding: var(--space-2) var(--space-7);
+  border-radius: var(--pill);
+  background: var(--warn-fill);
+  color: var(--warn);
+  font-size: var(--text-2xs);
+}
+
+.update-file__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.update-file__more {
+  padding: var(--space-10) 0;
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+
+.download-progress__meta--size {
+  margin-top: var(--space-4);
+  color: var(--muted);
+}
+
+.download-progress__stage {
+  color: var(--bone);
+}
+
+.download-progress__file-size {
+  font-variant-numeric: tabular-nums;
+}
