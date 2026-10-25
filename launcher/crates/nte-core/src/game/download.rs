@@ -12,7 +12,7 @@ use crate::game::check::{join_install_path, PatchRef, UpdateItem, UpdateKind, Up
 use crate::game::config::GameUpdateConfig;
 use crate::game::manifest::{Block, PakEntry, ResEntry};
 use crate::http::HttpClient;
-use crate::update::md5_file;
+use crate::update::md5_file_cancellable;
 use crate::{Error, Result};
 
 #[derive(Debug, Clone)]
@@ -228,6 +228,42 @@ pub fn apply_plan_observed_full(
         .collect();
 
     let mut report = ApplyReport::default();
+    if !plan.unverified.is_empty() {
+        report.failed = plan.unverified.len();
+        report.results = plan
+            .unverified
+            .iter()
+            .map(|item| ApplyResult {
+                path: item.path.clone(),
+                bytes: 0,
+                ok: false,
+                error: Some("资源尚未完整校验, 请先执行完整校验".into()),
+                skipped: false,
+            })
+            .collect();
+        return report;
+    }
+    if !opts.dry_run {
+        let storage_paths = [
+            config.patcher_dir.join("ResList.xml"),
+            staging.join("Res"),
+            staging.join("Patch"),
+            staging.join("Pak"),
+        ];
+        for path in storage_paths {
+            let valid = path
+                .strip_prefix(&config.install_root)
+                .map_err(|_| Error::Integrity("资源暂存目录超出安装目录".into()))
+                .and_then(|relative| {
+                    crate::paths::ensure_no_symlink(&config.install_root, relative)
+                });
+            if let Err(error) = valid {
+                report.failed = 1;
+                report.ledger_error = Some(error.to_string());
+                return report;
+            }
+        }
+    }
     if selected.is_empty() {
         report.cancelled = cancelled();
         if opts.update_ledger && !opts.dry_run && !report.cancelled && !plan.verified.is_empty() {
@@ -456,6 +492,15 @@ fn run_item(
     progress: &Progress<'_>,
     allow_ranges: bool,
 ) -> Result<()> {
+    let relative = crate::paths::relative_path(&item.path)?;
+    let check_paths = || -> Result<()> {
+        crate::paths::ensure_no_symlink(&config.install_root, &relative)?;
+        let staging_relative = staging
+            .strip_prefix(&config.install_root)
+            .map_err(|_| Error::Integrity("资源暂存目录超出安装目录".into()))?;
+        crate::paths::ensure_no_symlink(&config.install_root, staging_relative)
+    };
+    check_paths()?;
     let prepared = prepare_item(
         config,
         opts,
@@ -474,7 +519,8 @@ fn run_item(
                 if progress.cancelled() {
                     return Err(Error::Cancelled);
                 }
-                install_temp(&temp, target)
+                check_paths()?;
+                install_temp(&temp, target, &|| progress.cancelled())
             });
             if installed.is_ok() {
                 remove_patch_temps(staging, item);
@@ -486,17 +532,19 @@ fn run_item(
                 if progress.cancelled() {
                     return Err(Error::Cancelled);
                 }
+                check_paths()?;
                 progress.stage(ApplyStage::Patch);
                 let final_path = apply_patch_chain(item, target, staging, &patches, progress)?;
                 progress.stage(ApplyStage::Verify);
-                if !verify(&final_path, item.size, &item.md5)? {
+                if !verify_cancellable(&final_path, item.size, &item.md5, &|| progress.cancelled())?
+                {
                     return Err(Error::Integrity(format!(
                         "patched output mismatch for {}",
                         target.display()
                     )));
                 }
                 progress.stage(ApplyStage::Install);
-                install_temp(&final_path, target)
+                install_temp(&final_path, target, &|| progress.cancelled())
             });
             match applied {
                 Ok(()) => {
@@ -515,7 +563,8 @@ fn run_item(
                         if progress.cancelled() {
                             return Err(Error::Cancelled);
                         }
-                        install_temp(&temp, target)
+                        check_paths()?;
+                        install_temp(&temp, target, &|| progress.cancelled())
                     });
                     if installed.is_ok() {
                         remove_patch_temps(staging, item);
@@ -554,7 +603,9 @@ fn prepare_item(
 
     if !item.patches.is_empty() && target.is_file() {
         if let Some(final_temp) = chain_final_temp(staging, item) {
-            if verify(&final_temp, item.size, &item.md5).unwrap_or(false) {
+            if final_temp.is_file()
+                && verify_cancellable(&final_temp, item.size, &item.md5, &|| progress.cancelled())?
+            {
                 return Ok(Prepared::File(final_temp));
             }
         }
@@ -806,13 +857,24 @@ fn download_to_temp(
     progress: &Progress<'_>,
     allow_ranges: bool,
 ) -> Result<u64> {
+    let relative = temp
+        .strip_prefix(&config.install_root)
+        .map_err(|_| Error::Integrity("资源暂存目录超出安装目录".into()))?;
+    crate::paths::ensure_no_symlink(&config.install_root, relative)?;
+    let index = range_index_path(temp);
+    crate::paths::ensure_no_symlink(
+        &config.install_root,
+        index
+            .strip_prefix(&config.install_root)
+            .map_err(|_| Error::Integrity("资源暂存目录超出安装目录".into()))?,
+    )?;
     if let Some(parent) = temp.parent() {
         fs::create_dir_all(parent)?;
     }
     if temp.is_file() {
         let length = fs::metadata(temp)?.len();
         if length == expected_size {
-            if verify(temp, expected_size, expected_md5)? {
+            if verify_cancellable(temp, expected_size, expected_md5, &|| progress.cancelled())? {
                 fs::remove_file(range_index_path(temp)).ok();
                 return Ok(0);
             }
@@ -861,7 +923,9 @@ fn download_to_temp(
             }
             let existing = temp.metadata().map(|meta| meta.len()).unwrap_or(0);
             match fetch_to_file(http, &attempt_url, temp, existing, expected_size, progress) {
-                Ok(bytes) => match verify(temp, expected_size, expected_md5) {
+                Ok(bytes) => match verify_cancellable(temp, expected_size, expected_md5, &|| {
+                    progress.cancelled()
+                }) {
                     Ok(true) => return Ok(bytes),
                     Ok(false) => {
                         fs::remove_file(temp).ok();
@@ -900,13 +964,24 @@ fn download_range_to_temp(
     expected_md5: &str,
     progress: &Progress<'_>,
 ) -> Result<u64> {
+    let relative = temp
+        .strip_prefix(&config.install_root)
+        .map_err(|_| Error::Integrity("资源暂存目录超出安装目录".into()))?;
+    crate::paths::ensure_no_symlink(&config.install_root, relative)?;
+    let index = range_index_path(temp);
+    crate::paths::ensure_no_symlink(
+        &config.install_root,
+        index
+            .strip_prefix(&config.install_root)
+            .map_err(|_| Error::Integrity("资源暂存目录超出安装目录".into()))?,
+    )?;
     if let Some(parent) = temp.parent() {
         fs::create_dir_all(parent)?;
     }
     if temp.is_file() {
         let length = fs::metadata(temp)?.len();
         if length == size {
-            if verify(temp, size, expected_md5)? {
+            if verify_cancellable(temp, size, expected_md5, &|| progress.cancelled())? {
                 return Ok(0);
             }
             fs::remove_file(temp)?;
@@ -942,21 +1017,23 @@ fn download_range_to_temp(
                 size.saturating_sub(existing),
                 progress,
             ) {
-                Ok(bytes) => match verify(temp, size, expected_md5) {
-                    Ok(true) => return Ok(bytes),
-                    Ok(false) => {
-                        fs::remove_file(temp).ok();
-                        last_error = Some(Error::Integrity(format!(
-                            "PatcherPak entry md5 mismatch for {}",
-                            temp.display()
-                        )));
-                        break;
+                Ok(bytes) => {
+                    match verify_cancellable(temp, size, expected_md5, &|| progress.cancelled()) {
+                        Ok(true) => return Ok(bytes),
+                        Ok(false) => {
+                            fs::remove_file(temp).ok();
+                            last_error = Some(Error::Integrity(format!(
+                                "PatcherPak entry md5 mismatch for {}",
+                                temp.display()
+                            )));
+                            break;
+                        }
+                        Err(error) => {
+                            last_error = Some(error);
+                            break;
+                        }
                     }
-                    Err(error) => {
-                        last_error = Some(error);
-                        break;
-                    }
-                },
+                }
                 Err(Error::Cancelled) => return Err(Error::Cancelled),
                 Err(error @ Error::Unsupported(_)) => {
                     last_error = Some(error);
@@ -1101,7 +1178,7 @@ fn download_ranges(
     if progress.cancelled() {
         return Err(Error::Cancelled);
     }
-    if !verify(temp, expected_size, expected_md5)? {
+    if !verify_cancellable(temp, expected_size, expected_md5, &|| progress.cancelled())? {
         fs::remove_file(temp).ok();
         fs::remove_file(index_path).ok();
         return Err(Error::Integrity(format!(
@@ -1433,39 +1510,44 @@ pub fn res_url(config: &GameUpdateConfig, md5: &str, size: u64) -> String {
 }
 
 fn verify(path: &Path, expected_size: u64, expected_md5: &str) -> Result<bool> {
+    verify_cancellable(path, expected_size, expected_md5, &|| false)
+}
+
+fn verify_cancellable(
+    path: &Path,
+    expected_size: u64,
+    expected_md5: &str,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<bool> {
     let metadata = fs::metadata(path)?;
     if metadata.len() != expected_size {
         return Ok(false);
     }
-    let got = md5_file(path)?;
+    let got = md5_file_cancellable(path, cancelled)?;
     Ok(got.eq_ignore_ascii_case(expected_md5))
 }
 
-fn install_temp(temp: &Path, target: &Path) -> Result<()> {
+fn install_temp(temp: &Path, target: &Path, cancelled: &dyn Fn() -> bool) -> Result<()> {
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)?;
     }
-    let adjacent = adjacent_temp(target);
-    if adjacent.exists() {
-        fs::remove_file(&adjacent)?;
+    let mut adjacent = crate::paths::TemporaryFile::new(target)?;
+    if cancelled() {
+        return Err(Error::Cancelled);
     }
-    match fs::rename(temp, &adjacent) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
-            fs::copy(temp, &adjacent)?;
-            fs::remove_file(temp)?;
+    match fs::rename(temp, &adjacent.path) {
+        Ok(()) => {
+            adjacent.file = File::open(&adjacent.path)?;
         }
-        Err(error) => return Err(Error::Io(error)),
+        Err(error) if error.kind() == std::io::ErrorKind::CrossesDevices => {
+            let mut output = &adjacent.file;
+            crate::update::copy_cancellable(&mut File::open(temp)?, &mut output, cancelled)?;
+        }
+        Err(error) => return Err(error.into()),
     }
-    File::open(&adjacent)?.sync_all()?;
-    fs::rename(&adjacent, target)?;
+    adjacent.commit(target, cancelled)?;
+    fs::remove_file(temp).ok();
     Ok(())
-}
-
-fn adjacent_temp(target: &Path) -> PathBuf {
-    let mut name = target.as_os_str().to_os_string();
-    name.push(".oddity-new");
-    PathBuf::from(name)
 }
 
 fn path_tag(path: &str) -> String {
@@ -1631,6 +1713,35 @@ mod tests {
             size,
             path_tag(path)
         ))
+    }
+
+    #[test]
+    fn resource_install_rejects_symlinks_and_traversal_before_download() {
+        let dir = TempDir::new("resource-path-boundary");
+        let outside = TempDir::new("resource-outside");
+        let config = config_for(&dir);
+        fs::create_dir_all(&config.install_root).unwrap();
+        std::os::unix::fs::symlink(outside.path(), config.install_root.join("data")).unwrap();
+        outside.write("victim.bin", b"kept");
+        for path in ["data/victim.bin", "../victim.bin"] {
+            let plan = plan_of(vec![res_item(path, &crate::update::md5_bytes(b"good"), 4)]);
+            let report = apply_plan(&config, &plan, &ApplyOptions::default());
+            assert_eq!(report.failed, 1);
+            assert_eq!(report.downloaded_bytes, 0);
+            assert_eq!(outside.read("victim.bin"), b"kept");
+        }
+    }
+
+    #[test]
+    fn apply_refuses_unverified_plans_without_mutation() {
+        let dir = TempDir::new("apply-unverified");
+        let config = config_for(&dir);
+        let mut plan = plan_of(Vec::new());
+        plan.unverified.push(res_item("data/unknown.bin", "aa", 4));
+        let report = apply_plan(&config, &plan, &ApplyOptions::default());
+        assert_eq!(report.failed, 1);
+        assert!(!report.results[0].ok);
+        assert!(!config.patcher_dir.exists());
     }
 
     #[test]
@@ -2222,17 +2333,6 @@ mod tests {
     }
 
     #[test]
-    fn install_temp_uses_unique_adjacent_names() {
-        let target = Path::new("/game/Content/pakchunk0-Windows_0_P.pak");
-        let other = Path::new("/game/Content/pakchunk0-Windows_0_P.ucas");
-        assert_ne!(adjacent_temp(target), adjacent_temp(other));
-        assert_eq!(
-            adjacent_temp(target),
-            PathBuf::from("/game/Content/pakchunk0-Windows_0_P.pak.oddity-new")
-        );
-    }
-
-    #[test]
     fn cleanup_stale_parts_removes_unreferenced_downloads() {
         let dir = TempDir::new("dl-cleanup");
         let config = config_for(&dir);
@@ -2299,5 +2399,44 @@ mod tests {
         for (path, content) in expected {
             assert_eq!(dir.read(format!("install/{path}")), content);
         }
+    }
+
+    #[test]
+    fn cancellation_after_patch_creation_keeps_the_installed_file() {
+        let dir = TempDir::new("patch-final-cancel");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let old = b"version one: reusable game bytes\n";
+        let new = b"version two: reusable game bytes!\n";
+        dir.write("install/data/a.bin", old);
+        let bytes = include_bytes!("../../tests/fixtures/reusable-game.hdiff");
+        let hash = crate::update::md5_bytes(bytes);
+        server.route(res_path(&hash, bytes.len() as u64), bytes);
+        let item = patch_item(
+            "data/a.bin",
+            &crate::update::md5_bytes(old),
+            old.len() as u64,
+            &crate::update::md5_bytes(new),
+            new.len() as u64,
+            &[(&hash, bytes.len() as u64)],
+        );
+        let final_path =
+            chain_final_temp(&config.patcher_dir.join("tmp/nte-native"), &item).unwrap();
+        let cancelled = || final_path.is_file();
+        let report = apply_plan_observed_full(
+            &config,
+            &plan_of(vec![item]),
+            &ApplyOptions::default(),
+            &mut |_| {},
+            &mut |_, _| {},
+            &mut |_, _| {},
+            &mut |_| {},
+            &cancelled,
+        );
+        assert!(report.cancelled);
+        assert_eq!(dir.read("install/data/a.bin"), old);
+        assert!(!config.patcher_dir.join("ResList.xml").exists());
+        assert_eq!(server.targets().len(), 1);
     }
 }

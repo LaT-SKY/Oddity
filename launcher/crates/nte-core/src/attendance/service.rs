@@ -48,6 +48,10 @@ impl Service<KeyringVault> {
 }
 impl<V: Vault> Service<V> {
     fn lock(&self, wait: bool) -> Result<FileLock> {
+        self.lock_named("lock", wait, false)
+    }
+    // 顺序固定为账号集合、任务、状态锁; 网络任务只持有前两者。
+    fn lock_named(&self, name: &str, wait: bool, shared: bool) -> Result<FileLock> {
         fs::create_dir_all(&self.dir).map_err(storage_error)?;
         fs::set_permissions(&self.dir, fs::Permissions::from_mode(0o700)).map_err(storage_error)?;
         let file = OpenOptions::new()
@@ -56,13 +60,26 @@ impl<V: Vault> Service<V> {
             .read(true)
             .write(true)
             .mode(0o600)
-            .open(self.dir.join("lock"))
+            .open(self.dir.join(name))
             .map_err(storage_error)?;
         if wait {
-            file.lock().map_err(storage_error)?;
+            if shared {
+                file.lock_shared()
+            } else {
+                file.lock()
+            }
+            .map_err(storage_error)?;
         } else {
-            file.try_lock().map_err(|_| {
-                Failure::new(FailureKind::Busy, "账号或签到任务正在处理, 请稍后重试")
+            if shared {
+                file.try_lock_shared()
+            } else {
+                file.try_lock()
+            }
+            .map_err(|error| match error {
+                std::fs::TryLockError::WouldBlock => {
+                    Failure::new(FailureKind::Busy, "账号或同类任务正在处理, 请稍后重试")
+                }
+                std::fs::TryLockError::Error(error) => storage_error(error),
             })?;
         }
         Ok(FileLock(file))
@@ -145,6 +162,7 @@ impl<V: Vault> Service<V> {
             .map_err(storage_error)
     }
     pub fn login(&self, phone: &str, password: &str, remember_password: bool) -> Result<Status> {
+        let _accounts_lock = self.lock_named("accounts.lock", false, false)?;
         let password = Zeroizing::new(password.to_string());
         if phone.len() != 11
             || !phone.bytes().all(|b| b.is_ascii_digit())
@@ -188,6 +206,7 @@ impl<V: Vault> Service<V> {
         Ok(status)
     }
     pub fn send_code(&self, phone: &str) -> Result<String> {
+        let _accounts_lock = self.lock_named("accounts.lock", false, false)?;
         validate_phone(phone)?;
         let _lock = self.lock(false)?;
         let existing = self.vault.load_all()?;
@@ -199,6 +218,7 @@ impl<V: Vault> Service<V> {
         Ok(device)
     }
     pub fn login_sms(&self, phone: &str, code: &str, device_id: &str) -> Result<Status> {
+        let _accounts_lock = self.lock_named("accounts.lock", false, false)?;
         validate_phone(phone)?;
         let code = Zeroizing::new(code.trim().to_string());
         if code.is_empty()
@@ -251,6 +271,7 @@ impl<V: Vault> Service<V> {
         Ok(status)
     }
     pub fn logout(&self, account_id: &str, executable: &Path) -> Result<Status> {
+        let _accounts_lock = self.lock_named("accounts.lock", false, false)?;
         let _lock = self.lock(false)?;
         let mut status = self.status_locked()?;
         let last = status.accounts.len() == 1 && status.accounts[0].id == account_id;
@@ -297,125 +318,206 @@ impl<V: Vault> Service<V> {
             )),
         }
     }
+    fn prepare_session(&self, id: &str) -> Result<(Account, Session)> {
+        let _lock = self.lock(true)?;
+        let mut account = self
+            .vault
+            .load_all()?
+            .into_iter()
+            .find(|a| account_id(&a.phone) == id)
+            .ok_or_else(|| Failure::new(FailureKind::Auth, "账号凭据不存在, 请重新登录"))?;
+        let session = self.session(&account)?;
+        account.uid = session.uid.clone();
+        account.refresh_token = session.refresh.clone();
+        account.laohu_token = session.laohu_token.clone();
+        account.laohu_user_id = session.laohu_user.clone();
+        self.vault.save(&account)?;
+        Ok((account, session))
+    }
     fn cloud_duration(&self, account: &mut Account) -> Step {
         let result = (|| -> Result<Step> {
-            if account.laohu_token.is_empty() || account.laohu_user_id.is_empty() {
-                let Some(password) = account.password.as_deref().filter(|p| !p.is_empty()) else {
-                    return Ok(Step::optional(
-                        "云异环时长",
-                        true,
-                        "已跳过: 缺少老虎会话且未保存密码",
-                        None,
-                    ));
-                };
-                let (token, user) =
-                    self.client
-                        .login_laohu(&account.phone, password, &account.device_id)?;
-                account.laohu_token = token;
-                account.laohu_user_id = user;
-                self.vault.save(account)?;
+            {
+                let _lock = self.lock(true)?;
+                // 查询可能已轮换令牌, 云任务不能用旧快照覆盖凭据。
+                *account = self
+                    .vault
+                    .load_all()?
+                    .into_iter()
+                    .find(|a| a.phone == account.phone)
+                    .ok_or_else(|| Failure::new(FailureKind::Auth, "账号凭据不存在, 请重新登录"))?;
+                if account.laohu_token.is_empty() || account.laohu_user_id.is_empty() {
+                    let Some(password) = account.password.as_deref().filter(|p| !p.is_empty())
+                    else {
+                        return Ok(Step::optional(
+                            "云异环时长",
+                            true,
+                            "已跳过: 缺少老虎会话且未保存密码",
+                            None,
+                        ));
+                    };
+                    let (token, user) =
+                        self.client
+                            .login_laohu(&account.phone, password, &account.device_id)?;
+                    account.laohu_token = token;
+                    account.laohu_user_id = user;
+                    self.vault.save(account)?;
+                }
             }
             self.client.cloud_duration(account)
         })();
         result.unwrap_or_else(|e| Step::optional_failure("云异环时长", e))
     }
     pub fn refresh_game_records(&self) -> Result<Status> {
-        // 与登录、签到共用锁, 防止轮换令牌覆盖或移除的账号重新出现。
-        let _lock = self.lock(false)?;
-        let mut status = self.status_locked()?;
-        if status.accounts.is_empty() {
-            return Ok(status);
-        }
-        let accounts = self.vault.load_all()?;
-        for current in &mut status.accounts {
-            let result = (|| {
-                let mut account = accounts
-                    .iter()
-                    .find(|a| account_id(&a.phone) == current.id)
-                    .cloned()
-                    .ok_or_else(|| Failure::new(FailureKind::Auth, "账号凭据不存在, 请重新登录"))?;
-                let session = self.session(&account)?;
-                account.uid = session.uid;
-                account.refresh_token = session.refresh;
-                account.laohu_token = session.laohu_token;
-                account.laohu_user_id = session.laohu_user;
-                self.vault.save(&account)?;
-                self.client.game_record(&account, &session.access)
-            })();
-            match result {
-                Ok(record) => {
-                    current.game_record = Some(record);
-                    current.game_record_error = None;
-                }
-                Err(mut error) => {
-                    error.message = error.message.replace("; 自动任务已暂停", "");
-                    current.game_record_error = Some(error);
-                }
-            }
-        }
-        self.write(&status)?;
-        Ok(status)
-    }
-    pub fn run(&self, automatic: Option<Trigger>) -> Result<Status> {
-        let _lock = self.lock(automatic.is_some())?;
-        let mut status = self.status_locked()?;
-        if let Some(trigger) = automatic {
-            if matches!(trigger, Trigger::Off | Trigger::Manual)
-                || status.preferences.trigger != trigger
-                || status.accounts.iter().all(|a| a.signed_today)
-            {
+        let _accounts_lock = self.lock_named("accounts.lock", false, true)?;
+        let _task_lock = self.lock_named("records.lock", false, false)?;
+        let accounts = {
+            let _lock = self.lock(false)?;
+            let status = self.status_locked()?;
+            if status.accounts.is_empty() {
                 return Ok(status);
             }
-        } else if status.accounts.is_empty() {
-            return Err(Failure::new(FailureKind::Auth, "请先登录塔吉多账号"));
+            self.vault.load_all()?;
+            status.accounts
+        };
+        for current in accounts {
+            let result = self
+                .prepare_session(&current.id)
+                .and_then(|(account, session)| self.client.game_record(&account, &session.access));
+            let _lock = self.lock(true)?;
+            let mut status = self.status_locked()?;
+            if let Some(current) = status.accounts.iter_mut().find(|a| a.id == current.id) {
+                match result {
+                    Ok(record) => {
+                        current.game_record = Some(record);
+                        current.game_record_error = None;
+                    }
+                    Err(mut error) => {
+                        error.message = error.message.replace("; 自动任务已暂停", "");
+                        current.game_record_error = Some(error);
+                    }
+                }
+            }
+            self.write(&status)?;
         }
-        let accounts = self.vault.load_all()?;
-        status.accounts = accounts
-            .iter()
-            .map(|account| {
-                let id = account_id(&account.phone);
-                status
-                    .accounts
-                    .iter()
-                    .find(|a| a.id == id)
-                    .cloned()
-                    .unwrap_or_else(|| AccountStatus::new(account))
-            })
-            .collect();
-        self.write(&status)?;
-        for (index, mut account) in accounts.into_iter().enumerate() {
-            let current = &status.accounts[index];
-            if current.signed_today || current.attention.as_ref().is_some_and(Failure::needs_login)
+        self.status()
+    }
+    pub fn run(&self, automatic: Option<Trigger>) -> Result<Status> {
+        let _accounts_lock = self.lock_named("accounts.lock", automatic.is_some(), true)?;
+        let _task_lock = self.lock_named("attendance.lock", automatic.is_some(), false)?;
+        let status = {
+            let _lock = self.lock(automatic.is_some())?;
+            let mut status = self.status_locked()?;
+            if let Some(trigger) = automatic {
+                if matches!(trigger, Trigger::Off | Trigger::Manual)
+                    || status.preferences.trigger != trigger
+                    || status.accounts.iter().all(AccountStatus::tasks_complete)
+                {
+                    return Ok(status);
+                }
+            } else if status.accounts.is_empty() {
+                return Err(Failure::new(FailureKind::Auth, "请先登录塔吉多账号"));
+            }
+            let accounts = self.vault.load_all()?;
+            status.accounts = accounts
+                .iter()
+                .map(|account| {
+                    let id = account_id(&account.phone);
+                    status
+                        .accounts
+                        .iter()
+                        .find(|a| a.id == id)
+                        .cloned()
+                        .unwrap_or_else(|| AccountStatus::new(account))
+                })
+                .collect();
+            self.write(&status)?;
+            status
+        };
+        for current in &status.accounts {
+            if current.tasks_complete()
+                || current.attention.as_ref().is_some_and(Failure::needs_login)
             {
                 continue;
             }
+            let previous = current
+                .last_report
+                .as_ref()
+                .filter(|report| china_day(report.at) == china_day(now()))
+                .cloned();
+            let signed = previous.as_ref().is_some_and(|report| report.ok);
+            let coin_complete = previous.as_ref().is_some_and(Report::coin_complete);
+            let cloud_complete = previous.as_ref().is_some_and(Report::cloud_complete);
             let result = (|| -> Result<Vec<Step>> {
-                let session = self.session(&account)?;
-                account.uid = session.uid;
-                account.refresh_token = session.refresh;
-                account.laohu_token = session.laohu_token;
-                account.laohu_user_id = session.laohu_user;
-                // 保存轮换令牌后才继续签到, 避免丢失有效会话。
-                self.vault.save(&account)?;
-                let mut steps = self.client.sign(&account, &session.access);
-                if !steps.iter().any(|s| {
+                let (mut account, session) = self.prepare_session(&current.id)?;
+                // 当天已成功的任务保留结果, 金币剩余次数仍以服务端为准。
+                let mut steps: Vec<Step> = if signed {
+                    previous
+                        .as_ref()
+                        .unwrap()
+                        .steps
+                        .iter()
+                        .filter(|step| !step.optional)
+                        .cloned()
+                        .collect()
+                } else {
+                    self.client.sign(&account, &session.access)
+                };
+                if coin_complete {
+                    steps.extend(
+                        previous
+                            .as_ref()
+                            .unwrap()
+                            .steps
+                            .iter()
+                            .filter(|step| {
+                                step.optional
+                                    && step.label != "云异环时长"
+                                    && step.label != "附加任务准备"
+                            })
+                            .cloned(),
+                    );
+                } else if !steps.iter().any(|s| {
                     s.kind
                         .is_some_and(|k| matches!(k, FailureKind::Auth | FailureKind::Verification))
                 }) {
                     steps.extend(self.client.coin_tasks(&account, &session.access));
                 }
-                steps.push(self.cloud_duration(&mut account));
+                if cloud_complete {
+                    steps.extend(
+                        previous
+                            .as_ref()
+                            .unwrap()
+                            .steps
+                            .iter()
+                            .filter(|step| step.label == "云异环时长")
+                            .cloned(),
+                    );
+                } else {
+                    steps.push(self.cloud_duration(&mut account));
+                }
                 Ok(steps)
             })();
-            let steps =
-                result.unwrap_or_else(|error| vec![Step::from_result("登录与准备", Err(error))]);
+            let steps = result.unwrap_or_else(|error| {
+                if signed {
+                    let mut steps = previous.as_ref().unwrap().steps.clone();
+                    steps.retain(|step| step.label != "附加任务准备");
+                    steps.push(Step::optional_failure("附加任务准备", error));
+                    steps
+                } else {
+                    vec![Step::from_result("登录与准备", Err(error))]
+                }
+            });
             let report = Report {
                 at: now(),
                 ok: steps.iter().any(|s| !s.optional)
                     && steps.iter().filter(|s| !s.optional).all(|s| s.ok),
                 steps,
             };
-            let current = &mut status.accounts[index];
+            let _lock = self.lock(true)?;
+            let mut latest = self.status_locked()?;
+            let Some(current) = latest.accounts.iter_mut().find(|a| a.id == current.id) else {
+                continue;
+            };
             current.attention = report.steps.iter().filter(|s| !s.optional).find_map(|s| {
                 s.kind
                     .filter(|k| matches!(k, FailureKind::Auth | FailureKind::Verification))
@@ -423,9 +525,9 @@ impl<V: Vault> Service<V> {
             });
             current.last_report = Some(report);
             current.refresh_day();
-            self.write(&status)?;
+            self.write(&latest)?;
         }
-        Ok(status)
+        self.status()
     }
 }
 

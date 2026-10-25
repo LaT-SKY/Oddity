@@ -144,7 +144,7 @@ impl NativeSession {
         let mut result = self.drive(child);
         // 状态读取失败不能结束已经启动的游戏, 关闭按钮仍可显式结束本轮会话.
         while !self.closing.load(Ordering::Acquire) {
-            match self.own_game_alive() {
+            match self.game_alive() {
                 Ok(true) => {
                     let _ = child.try_wait();
                     thread::sleep(self.timeouts.poll);
@@ -259,7 +259,7 @@ impl NativeSession {
                             return Err("游戏已退出, 官方后台会话未按时完成清理.".into());
                         }
                     } else if child_exited
-                        && !self.own_game_alive()?
+                        && !self.game_alive()?
                         && !self
                             .owned_processes()?
                             .iter()
@@ -289,7 +289,7 @@ impl NativeSession {
         }
     }
 
-    fn own_game_alive(&self) -> Result<bool, String> {
+    pub(crate) fn game_alive(&self) -> Result<bool, String> {
         Ok(self
             .owned_processes()?
             .iter()
@@ -304,7 +304,7 @@ impl NativeSession {
         if self.finished() {
             return Ok(());
         }
-        if !allow_game && self.own_game_alive()? {
+        if !allow_game && self.game_alive()? {
             return Err("本轮游戏仍在运行, 已保留官方后台会话.".into());
         }
         create_signal(&self.cancel, true)?;
@@ -744,16 +744,16 @@ record('SESSION_EXITED code=0')
 "#
         );
         let mut child = fake_wrapper(&directory, &session, &body);
-        wait_until(|| session.own_game_alive().unwrap());
+        wait_until(|| session.game_alive().unwrap());
         let monitored = Arc::clone(&session);
         let monitor = thread::spawn(move || monitored.monitor(&mut child));
         thread::sleep(Duration::from_millis(200));
         assert!(!session.cancel.exists());
-        assert!(session.own_game_alive().unwrap());
+        assert!(session.game_alive().unwrap());
         session.close().unwrap();
         monitor.join().unwrap().unwrap();
         assert!(session.finished());
-        assert!(!session.own_game_alive().unwrap());
+        assert!(!session.game_alive().unwrap());
     }
 
     #[test]

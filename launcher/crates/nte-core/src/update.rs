@@ -7,6 +7,7 @@ use md5::{Digest, Md5};
 
 use crate::http::HttpClient;
 use crate::manifest::{Manifest, ManifestFile};
+use crate::paths::{ensure_no_symlink, relative_path as safe_relative_path};
 use crate::{Error, Result};
 
 #[derive(Debug, Default)]
@@ -113,7 +114,13 @@ fn download(url: &str) -> Result<Vec<u8>> {
 }
 
 pub fn apply_file(root: &Path, zip_base: &str, f: &ManifestFile) -> Result<usize> {
-    let url = format!("{}{}.zip", zip_base.trim_end_matches('/'), f.path);
+    let relative = safe_relative_path(&f.path)?;
+    ensure_no_symlink(root, &relative)?;
+    let url = format!(
+        "{}/{}.zip",
+        zip_base.trim_end_matches('/'),
+        f.path.trim_start_matches('/')
+    );
     let zip_bytes = download(&url)?;
     if let Some(expect) = &f.zip_checksum {
         let got = md5_bytes(&zip_bytes);
@@ -166,52 +173,15 @@ pub fn apply_file(root: &Path, zip_base: &str, f: &ManifestFile) -> Result<usize
             f.path, f.checksum
         )));
     }
-    let rel = f
-        .path
-        .trim_start_matches('/')
-        .replace('/', std::path::MAIN_SEPARATOR_STR);
-    let dest: PathBuf = root.join(rel);
+    ensure_no_symlink(root, &relative)?;
+    let dest: PathBuf = root.join(relative);
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent)?;
     }
-    let tmp = dest.with_extension("nte-new");
-    fs::write(&tmp, &content)?;
-    fs::rename(&tmp, &dest)?;
+    let mut temporary = crate::paths::TemporaryFile::new(&dest)?;
+    temporary.file.write_all(&content)?;
+    temporary.commit(&dest, &|| false)?;
     Ok(zip_bytes.len())
-}
-
-fn safe_relative_path(value: &str) -> Result<PathBuf> {
-    let normalized = value.trim_start_matches('/').replace('\\', "/");
-    let mut path = PathBuf::new();
-    for part in normalized.split('/') {
-        if part.is_empty() || part == "." || part == ".." || part.contains(':') {
-            return Err(Error::Parse(format!("无效的清单路径: {value}")));
-        }
-        path.push(part);
-    }
-    if path.as_os_str().is_empty() {
-        return Err(Error::Parse("清单路径为空".into()));
-    }
-    Ok(path)
-}
-
-fn ensure_no_symlink(root: &Path, relative: &Path) -> Result<()> {
-    let mut current = root.to_path_buf();
-    for part in relative.components() {
-        current.push(part);
-        match fs::symlink_metadata(&current) {
-            Ok(metadata) if metadata.file_type().is_symlink() => {
-                return Err(Error::Integrity(format!(
-                    "安装路径包含符号链接: {}",
-                    current.display()
-                )));
-            }
-            Ok(_) => {}
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => return Err(Error::Io(error)),
-        }
-    }
-    Ok(())
 }
 
 /// Download a launcher ZIP into a persistent staging file, then verify and install it.
@@ -230,8 +200,10 @@ pub fn apply_file_resumable(
         .filter(|value| value.len() == 32 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
         .unwrap_or_else(|| md5_bytes(file.path.as_bytes()));
     let staging = root.join(".oddity-downloads").join("launcher");
+    ensure_no_symlink(root, Path::new(".oddity-downloads/launcher"))?;
     fs::create_dir_all(&staging)?;
     let part = staging.join(format!("{key}.part"));
+    ensure_no_symlink(&staging, Path::new(&format!("{key}.part")))?;
     if let Some(size) = file.zip_size {
         if part.is_file() && fs::metadata(&part)?.len() > size {
             fs::remove_file(&part)?;
@@ -246,9 +218,7 @@ pub fn apply_file_resumable(
         if part.is_file() {
             let length = fs::metadata(&part)?.len();
             if file.zip_size == Some(length) {
-                if file.zip_checksum.as_ref().is_some_and(|checksum| {
-                    md5_file(&part).is_ok_and(|hash| hash.eq_ignore_ascii_case(checksum))
-                }) {
+                if launcher_hash_matches(&part, file.zip_checksum.as_deref(), cancelled)? {
                     verified = true;
                     break;
                 }
@@ -297,9 +267,7 @@ pub fn apply_file_resumable(
         let size_ok = file
             .zip_size
             .is_none_or(|size| fs::metadata(&part).is_ok_and(|metadata| metadata.len() == size));
-        let hash_ok = file.zip_checksum.as_ref().is_none_or(|checksum| {
-            md5_file(&part).is_ok_and(|hash| hash.eq_ignore_ascii_case(checksum))
-        });
+        let hash_ok = launcher_hash_matches(&part, file.zip_checksum.as_deref(), cancelled)?;
         if size_ok && hash_ok {
             verified = true;
             break;
@@ -326,38 +294,67 @@ pub fn apply_file_resumable(
     let entry = archive
         .by_index(0)
         .map_err(|error| Error::Parse(format!("ZIP {}: {error}", file.path)))?;
+    ensure_no_symlink(root, &relative)?;
     let destination = root.join(&relative);
     if let Some(parent) = destination.parent() {
         fs::create_dir_all(parent)?;
     }
-    let temporary = destination.with_extension("oddity-new");
-    if temporary.exists() {
-        fs::remove_file(&temporary)?;
-    }
-    let mut output = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temporary)?;
-    let written = std::io::copy(&mut entry.take(file.size.saturating_add(1)), &mut output)?;
-    output.sync_all()?;
+    let mut temporary = crate::paths::TemporaryFile::new(&destination)?;
+    let written = copy_cancellable(
+        &mut entry.take(file.size.saturating_add(1)),
+        &mut temporary.file,
+        cancelled,
+    )?;
     if written != file.size {
-        fs::remove_file(&temporary).ok();
         return Err(Error::Integrity(format!(
             "启动器文件大小不符: {}",
             file.path
         )));
     }
-    // 官方清单中可能有零字节占位文件，ZIP 校验仍需通过。
-    if file.size != 0 && !md5_file(&temporary)?.eq_ignore_ascii_case(&file.checksum) {
-        fs::remove_file(&temporary).ok();
+    // 零字节占位文件仍须通过 ZIP 校验。
+    if file.size != 0
+        && !md5_file_cancellable(&temporary.path, cancelled)?.eq_ignore_ascii_case(&file.checksum)
+    {
         return Err(Error::Integrity(format!(
             "启动器文件哈希不符: {}",
             file.path
         )));
     }
-    fs::rename(&temporary, &destination)?;
+    ensure_no_symlink(root, &relative)?;
+    temporary.commit(&destination, cancelled)?;
     fs::remove_file(&part).ok();
     Ok(downloaded)
+}
+
+fn launcher_hash_matches(
+    path: &Path,
+    checksum: Option<&str>,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<bool> {
+    match checksum {
+        Some(checksum) => Ok(md5_file_cancellable(path, cancelled)?.eq_ignore_ascii_case(checksum)),
+        None => Ok(true),
+    }
+}
+
+pub(crate) fn copy_cancellable(
+    reader: &mut impl Read,
+    writer: &mut impl Write,
+    cancelled: &dyn Fn() -> bool,
+) -> Result<u64> {
+    let mut buffer = vec![0; 1024 * 1024];
+    let mut total = 0;
+    loop {
+        if cancelled() {
+            return Err(Error::Cancelled);
+        }
+        let size = reader.read(&mut buffer)?;
+        if size == 0 {
+            return Ok(total);
+        }
+        writer.write_all(&buffer[..size])?;
+        total += size as u64;
+    }
 }
 
 #[cfg(test)]
@@ -401,6 +398,25 @@ mod tests {
             writer.write_all(contents).expect("write zip entry");
         }
         writer.finish().expect("finish zip").into_inner()
+    }
+
+    #[test]
+    fn launcher_install_rejects_traversal_and_symlinks() {
+        let dir = TempDir::new("launcher-path-boundary");
+        let outside = TempDir::new("launcher-outside");
+        std::os::unix::fs::symlink(outside.path(), dir.join("data")).unwrap();
+        for path in [
+            "/../outside.bin",
+            "/data/outside.bin",
+            "data/../outside.bin",
+            "",
+        ] {
+            let file = manifest_file(path, &md5_bytes(b"good"), 4);
+            assert!(apply_file(dir.path(), "http://127.0.0.1:1", &file).is_err());
+            assert!(apply_file_resumable(dir.path(), &[], &file, &mut |_| {}, &|| false).is_err());
+        }
+        assert!(!outside.join("outside.bin").exists());
+        assert!(!dir.join("outside.bin").exists());
     }
 
     #[test]
@@ -654,5 +670,79 @@ mod tests {
         let file = manifest_file("/p.bin", "0000", 4);
         let error = apply_file(dir.path(), &server.base(), &file).expect_err("404");
         assert!(error.to_string().contains("p.bin.zip"), "{error}");
+    }
+
+    #[test]
+    fn same_stem_files_install_concurrently_without_sharing_temporary_files() {
+        let dir = TempDir::new("launcher-same-stem");
+        let server = HttpServer::start();
+        let contents = [vec![11; 2 * 1024 * 1024], vec![12; 2 * 1024 * 1024]];
+        let files: Vec<_> = ["same.dll", "same.exe"]
+            .into_iter()
+            .zip(&contents)
+            .map(|(path, content)| {
+                let zip = zip_one(path, content);
+                server.route(format!("/{path}.zip"), &zip);
+                ManifestFile {
+                    path: path.into(),
+                    size: content.len() as u64,
+                    checksum: md5_bytes(content),
+                    zip_size: Some(zip.len() as u64),
+                    zip_checksum: Some(md5_bytes(&zip)),
+                }
+            })
+            .collect();
+        let bases = [server.base()];
+        let barrier = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            for file in &files {
+                scope.spawn(|| {
+                    barrier.wait();
+                    apply_file_resumable(dir.path(), &bases, file, &mut |_| {}, &|| false).unwrap();
+                });
+            }
+        });
+        assert_eq!(dir.read("same.dll"), contents[0]);
+        assert_eq!(dir.read("same.exe"), contents[1]);
+    }
+
+    #[test]
+    fn cancellation_during_extraction_preserves_target_and_verified_zip() {
+        let dir = TempDir::new("launcher-extraction-cancel");
+        dir.write("file.dll", b"old");
+        let content = vec![7; 3 * 1024 * 1024];
+        let zip = zip_one("file.dll", &content);
+        let zip_md5 = md5_bytes(&zip);
+        let part = format!(".oddity-downloads/launcher/{zip_md5}.part");
+        dir.write(&part, &zip);
+        let file = ManifestFile {
+            path: "file.dll".into(),
+            size: content.len() as u64,
+            checksum: md5_bytes(&content),
+            zip_size: Some(zip.len() as u64),
+            zip_checksum: Some(zip_md5),
+        };
+        let bases = ["http://127.0.0.1:1/unused".into()];
+        let cancelled = || {
+            fs::read_dir(dir.path()).unwrap().flatten().any(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("file.dll.oddity-new-")
+                    && entry.metadata().unwrap().len() > 0
+            })
+        };
+        assert!(matches!(
+            apply_file_resumable(dir.path(), &bases, &file, &mut |_| {}, &cancelled),
+            Err(Error::Cancelled)
+        ));
+        assert_eq!(dir.read("file.dll"), b"old");
+        assert_eq!(dir.read(&part), zip);
+        assert!(!cancelled());
+        assert_eq!(
+            apply_file_resumable(dir.path(), &bases, &file, &mut |_| {}, &|| false).unwrap(),
+            0
+        );
+        assert_eq!(dir.read("file.dll"), content);
     }
 }

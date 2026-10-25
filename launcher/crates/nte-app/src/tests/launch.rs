@@ -186,7 +186,9 @@ fn launch_official_mode_sets_the_proton_environment() {
     let wine = std::fs::read_to_string(&fixture.wine_log).expect("read wine log");
     assert!(wine.contains("NoTrayItemsDisplay"), "{wine}");
 
+    assert!(nte_core::install_lock::InstallLock::acquire(&fixture.dir.join("install")).is_err());
     fixture.stop(invocation);
+    assert!(nte_core::install_lock::InstallLock::acquire(&fixture.dir.join("install")).is_ok());
 }
 
 #[test]

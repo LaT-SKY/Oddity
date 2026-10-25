@@ -17,52 +17,85 @@ pub struct Manifest {
     pub files: Vec<ManifestFile>,
 }
 
-fn attr(tag: &str, name: &str) -> Option<String> {
-    let needle = format!("{name}=\"");
-    let start = tag.find(&needle)? + needle.len();
-    let rest = &tag[start..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+fn attr(tag: &quick_xml::events::BytesStart<'_>, name: &str) -> Option<String> {
+    tag.attributes()
+        .filter_map(std::result::Result::ok)
+        .find(|attr| attr.key.as_ref() == name)
+        .and_then(|attr| {
+            quick_xml::escape::unescape(&attr.value)
+                .ok()
+                .map(|v| v.into_owned())
+        })
 }
 
 impl Manifest {
-    pub fn parse(xml: &str) -> Self {
+    pub fn parse(xml: &str) -> Result<Self> {
+        use quick_xml::events::Event;
         let mut m = Manifest::default();
-        if let Some(i) = xml.find("<Url ") {
-            if let Some(end) = xml[i..].find('>') {
-                let tag = &xml[i..i + end];
-                m.base_url = attr(tag, "BaseUrl");
+        let mut reader = quick_xml::Reader::from_str(xml);
+        let mut depth = 0usize;
+        let mut root_seen = false;
+        loop {
+            let event = reader
+                .read_event()
+                .map_err(|error| Error::Parse(format!("启动器清单 XML 无效: {error}")))?;
+            match &event {
+                Event::Start(tag) | Event::Empty(tag) => {
+                    if depth == 0 {
+                        if root_seen {
+                            return Err(Error::Parse("启动器清单包含多个根节点".into()));
+                        }
+                        root_seen = true;
+                    }
+                    for attribute in tag.attributes() {
+                        let attribute = attribute.map_err(|error| {
+                            Error::Parse(format!("启动器清单属性无效: {error}"))
+                        })?;
+                        quick_xml::escape::unescape(&attribute.value)
+                            .map_err(|error| Error::Parse(error.to_string()))?;
+                    }
+                    if matches!(event, Event::Start(_)) {
+                        depth += 1;
+                    }
+                }
+                Event::End(_) => {
+                    depth = depth
+                        .checked_sub(1)
+                        .ok_or_else(|| Error::Parse("启动器清单节点未配对".into()))?;
+                }
+                Event::Text(text) if depth == 0 && !text.trim_ascii().is_empty() => {
+                    return Err(Error::Parse("启动器清单根节点外存在文本".into()));
+                }
+                _ => {}
+            }
+            match event {
+                Event::Start(tag) | Event::Empty(tag) => match tag.name().as_ref() {
+                    "Url" => m.base_url = attr(&tag, "BaseUrl"),
+                    "ProductVersion" => m.product_version = attr(&tag, "Version"),
+                    "BuildInfo" => m.build_time = attr(&tag, "Time"),
+                    "File" => {
+                        if let Some(path) = attr(&tag, "Path") {
+                            m.files.push(ManifestFile {
+                                path,
+                                checksum: attr(&tag, "Checksum").unwrap_or_default(),
+                                size: attr(&tag, "Size").and_then(|s| s.parse().ok()).unwrap_or(0),
+                                zip_checksum: attr(&tag, "ZipChecksum"),
+                                zip_size: attr(&tag, "ZipSize").and_then(|s| s.parse().ok()),
+                            });
+                        }
+                    }
+                    _ => {}
+                },
+                Event::Eof => {
+                    if depth != 0 || !root_seen {
+                        return Err(Error::Parse("启动器清单不完整".into()));
+                    }
+                    break;
+                }
+                _ => {}
             }
         }
-        if let Some(i) = xml.find("<ProductVersion") {
-            if let Some(end) = xml[i..].find('>') {
-                let tag = &xml[i..i + end];
-                m.product_version = attr(tag, "Version");
-            }
-        }
-        if let Some(i) = xml.find("<BuildInfo") {
-            if let Some(end) = xml[i..].find('>') {
-                let tag = &xml[i..i + end];
-                m.build_time = attr(tag, "Time");
-            }
-        }
-        let mut rest = xml;
-        while let Some(i) = rest.find("<File ") {
-            let tail = &rest[i..];
-            let Some(end) = tail.find("/>") else { break };
-            let tag = &tail[..end + 2];
-            if let Some(path) = attr(tag, "Path") {
-                m.files.push(ManifestFile {
-                    path,
-                    checksum: attr(tag, "Checksum").unwrap_or_default(),
-                    size: attr(tag, "Size").and_then(|s| s.parse().ok()).unwrap_or(0),
-                    zip_checksum: attr(tag, "ZipChecksum"),
-                    zip_size: attr(tag, "ZipSize").and_then(|s| s.parse().ok()),
-                });
-            }
-            rest = &tail[end + 2..];
-        }
-        m
+        Ok(m)
     }
 
     pub fn from_url(url: &str) -> Result<Self> {
@@ -77,10 +110,13 @@ impl Manifest {
         use std::io::Read;
         resp.body_mut()
             .as_reader()
-            .take(16 * 1024 * 1024)
+            .take(16 * 1024 * 1024 + 1)
             .read_to_string(&mut body)
             .map_err(|e| Error::Http(format!("read {url}: {e}")))?;
-        let m = Self::parse(&body);
+        if body.len() > 16 * 1024 * 1024 {
+            return Err(Error::Parse("启动器清单超过读取上限".into()));
+        }
+        let m = Self::parse(&body)?;
         if m.files.is_empty() {
             return Err(Error::Parse(format!("no <File> entries at {url}")));
         }
@@ -94,9 +130,23 @@ mod tests {
     use crate::testing::HttpServer;
 
     #[test]
+    fn attributes_are_exact_and_independent_of_order() {
+        let manifest = Manifest::parse(
+            r#"<File ZipSize="99" ZipChecksum="ZIP" Size="4" Checksum="CONTENT" Path="/a&amp;b"/>"#,
+        )
+        .unwrap();
+        let file = &manifest.files[0];
+        assert_eq!(file.size, 4);
+        assert_eq!(file.checksum, "CONTENT");
+        assert_eq!(file.zip_size, Some(99));
+        assert_eq!(file.zip_checksum.as_deref(), Some("ZIP"));
+        assert_eq!(file.path, "/a&b");
+    }
+
+    #[test]
     fn parses_manifest_attributes() {
         let xml = r#"<AllFiles><Url BaseUrl="https://cdn.test/base/"/><ProductVersion Version="1.4.16"/><BuildInfo Time="2024-01-01T00:00:00"/><File Path="/a/b.dat" Checksum="ABC" Size="12" ZipChecksum="DEF" ZipSize="34"/><File Path="/c.dat" Size="bad"/><File Checksum="none"/></AllFiles>"#;
-        let m = Manifest::parse(xml);
+        let m = Manifest::parse(xml).unwrap();
         assert_eq!(m.base_url.as_deref(), Some("https://cdn.test/base/"));
         assert_eq!(m.product_version.as_deref(), Some("1.4.16"));
         assert_eq!(m.build_time.as_deref(), Some("2024-01-01T00:00:00"));
@@ -115,19 +165,19 @@ mod tests {
     }
 
     #[test]
-    fn parses_an_empty_manifest() {
-        let m = Manifest::parse("");
-        assert!(m.base_url.is_none());
-        assert!(m.product_version.is_none());
-        assert!(m.build_time.is_none());
-        assert!(m.files.is_empty());
-    }
-
-    #[test]
-    fn parse_stops_at_an_unterminated_file_tag() {
-        let m = Manifest::parse("<File Path=\"/a\" Size=\"1\"/><File Path=\"/b\"");
-        assert_eq!(m.files.len(), 1);
-        assert_eq!(m.files[0].path, "/a");
+    fn rejects_incomplete_or_malformed_documents() {
+        for xml in [
+            "",
+            "<AllFiles><File Path=\"/a\"/>",
+            "<AllFiles><File Path=\"/a\"/><File Path=\"/b\"",
+            "<AllFiles></Wrong>",
+            "<AllFiles/><AllFiles/>",
+        ] {
+            assert!(Manifest::parse(xml).is_err(), "{xml}");
+        }
+        let server = HttpServer::start();
+        server.route("/cut.xml", "<AllFiles><File Path=\"/a\"/>");
+        assert!(Manifest::from_url(&server.url("/cut.xml")).is_err());
     }
 
     #[test]

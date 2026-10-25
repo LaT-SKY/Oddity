@@ -317,6 +317,9 @@ fn commands_reject_overlapping_tasks_and_running_games() {
         started_at: 0,
         log: String::new(),
         closing: false,
+        exit_notified: false,
+        game_alive: Arc::new(AtomicBool::new(false)),
+        _install_lock: None,
         background: Some(background.clone()),
     });
     assert!(game_download_start(
@@ -505,4 +508,19 @@ fn automatic_check_uses_detection_without_persisting_it() {
         .unwrap()
         .install_root
         .is_none());
+}
+
+#[test]
+fn installation_lock_blocks_gui_before_contacting_the_cdn() {
+    let fixture = Fixture::new(Distribution::Cn, true);
+    let _lock = nte_core::install_lock::InstallLock::acquire(fixture.dir.path()).unwrap();
+    let error = run_task(
+        fixture.app.handle(),
+        &fixture.settings,
+        "apply",
+        false,
+        &AtomicBool::new(false),
+    )
+    .unwrap_err();
+    assert!(error.contains("其他任务"), "{error}");
 }

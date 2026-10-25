@@ -111,9 +111,15 @@ impl Drop for TempDir {
     }
 }
 
+struct ResponseGate {
+    entered: std::sync::mpsc::Sender<()>,
+    resume: std::sync::mpsc::Receiver<()>,
+}
+
 #[derive(Clone)]
 struct Route {
     body: Vec<u8>,
+    gate: Option<Arc<Mutex<ResponseGate>>>,
 }
 
 #[derive(Default)]
@@ -173,8 +179,27 @@ impl HttpServer {
             path.as_ref().to_string(),
             Route {
                 body: body.as_ref().to_vec(),
+                gate: None,
             },
         );
+    }
+
+    /// 暂停指定响应, 让并发测试控制完成顺序; 超时防止失败测试挂起。
+    pub fn route_blocked(
+        &self,
+        path: &str,
+        body: &str,
+    ) -> (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) {
+        let (entered, started) = std::sync::mpsc::channel();
+        let (release, resume) = std::sync::mpsc::channel();
+        self.state.lock().unwrap().routes.insert(
+            path.into(),
+            Route {
+                body: body.as_bytes().to_vec(),
+                gate: Some(Arc::new(Mutex::new(ResponseGate { entered, resume }))),
+            },
+        );
+        (started, release)
     }
 
     /// 记录到的请求目标（含查询串），按到达顺序排列。
@@ -266,6 +291,11 @@ fn serve(mut stream: TcpStream, state: &Arc<Mutex<ServerState>>) -> std::io::Res
 }
 
 fn write_route(stream: &mut TcpStream, route: &Route, range: Option<&str>) -> std::io::Result<()> {
+    if let Some(gate) = &route.gate {
+        let gate = gate.lock().unwrap();
+        let _ = gate.entered.send(());
+        let _ = gate.resume.recv_timeout(Duration::from_secs(5));
+    }
     let Some((start, end)) = range.and_then(|value| parse_range(value, route.body.len())) else {
         return write_simple(stream, 200, &route.body);
     };

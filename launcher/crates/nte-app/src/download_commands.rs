@@ -169,6 +169,14 @@ fn run_task<R: Runtime>(
     cancel: &AtomicBool,
 ) -> Result<(), String> {
     let install_root = selected_install_root(settings);
+    let _install_lock = if mode == "apply" {
+        Some(
+            nte_core::install_lock::InstallLock::acquire(&install_root)
+                .map_err(|error| error.to_string())?,
+        )
+    } else {
+        None
+    };
     let launcher_plan =
         install::plan_launcher_cancellable(settings.distribution, &install_root, full, &|| {
             cancel.load(Ordering::Relaxed)

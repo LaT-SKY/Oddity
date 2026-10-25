@@ -165,3 +165,68 @@ fn game_record_refresh_respects_lock_keyring_empty_roles_and_authentication_erro
     );
     assert_eq!(server.hits("/apihub/api/signin"), 0);
 }
+
+#[test]
+fn records_and_sign_in_overlap_and_merge_in_either_completion_order() {
+    use std::time::Duration;
+    for records_first in [true, false] {
+        let (_dir, server, vault, service) = fixture();
+        service.login("13800138000", "password", false).unwrap();
+        server.route("/apihub/awapi/yh/roleHome", record_response());
+        let (started, release) = if records_first {
+            server.route_blocked("/apihub/awapi/yh/roleHome", record_response())
+        } else {
+            server.route_blocked("/apihub/api/signin", r#"{"code":0}"#)
+        };
+        std::thread::scope(|scope| {
+            let worker = scope.spawn(|| {
+                if records_first {
+                    service.refresh_game_records()
+                } else {
+                    service.run(None)
+                }
+            });
+            started.recv_timeout(Duration::from_secs(3)).unwrap();
+            // 同类任务仍然互斥, 账号替换和删除不能穿过执行中的任务。
+            let duplicate = if records_first {
+                service.refresh_game_records()
+            } else {
+                service.run(None)
+            };
+            assert_eq!(duplicate.unwrap_err().kind, FailureKind::Busy);
+            assert_eq!(
+                service
+                    .login("13800138000", "new-password", false)
+                    .unwrap_err()
+                    .kind,
+                FailureKind::Busy
+            );
+            let id = service.status().unwrap().accounts[0].id.clone();
+            assert_eq!(
+                service
+                    .logout(&id, std::path::Path::new("/unused"))
+                    .unwrap_err()
+                    .kind,
+                FailureKind::Busy
+            );
+            server.route("/usercenter/api/refreshToken", r#"{"code":0,"data":{"accessToken":"latest-access","refreshToken":"latest-refresh"}}"#);
+            let parallel = if records_first {
+                service.run(None)
+            } else {
+                service.refresh_game_records()
+            };
+            assert!(parallel.is_ok());
+            release
+                .send(())
+                .expect("另一类任务必须在暂停的响应释放前完成");
+            worker.join().unwrap().unwrap();
+        });
+        let status = service.status().unwrap();
+        let account = &status.accounts[0];
+        assert!(account.signed_today);
+        assert!(account.last_report.as_ref().unwrap().ok);
+        assert_eq!(account.game_record.as_ref().unwrap().stamina, Some(0));
+        assert!(account.game_record_error.is_none());
+        assert_eq!(vault.load_all().unwrap()[0].refresh_token, "latest-refresh");
+    }
+}

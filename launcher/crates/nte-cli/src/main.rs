@@ -98,6 +98,11 @@ fn check(config: &LauncherConfig, quick: bool) -> Result<()> {
 }
 
 fn apply(config: &LauncherConfig, only: Option<String>) -> Result<()> {
+    let root = config
+        .root
+        .parent()
+        .ok_or_else(|| anyhow!("启动器目录没有安装根目录"))?;
+    let _install_lock = nte_core::install_lock::InstallLock::acquire(root)?;
     let remote = version::fetch(&config.version_url).context("fetch Version.ini")?;
     let url = remote
         .file_list_url
@@ -108,17 +113,24 @@ fn apply(config: &LauncherConfig, only: Option<String>) -> Result<()> {
         .map(|(d, _)| d.to_string())
         .unwrap_or(url.clone());
     let manifest = Manifest::from_url(&url).context("fetch AllFiles.xml")?;
-    let report = update::check(&config.root, &manifest, true)?;
+    let report = update::check(&config.root, &manifest, false)?;
     let mut todo: Vec<_> = report.missing.into_iter().chain(report.changed).collect();
     if let Some(filter) = only {
         todo.retain(|f| f.path.contains(&filter));
     }
     println!("[apply] files={}", todo.len());
+    let mut failed = 0;
     for f in &todo {
         match update::apply_file(&config.root, &base_dir, f) {
             Ok(n) => println!("  ok {} <- {} B", f.path, n),
-            Err(e) => println!("  FAIL {}: {e}", f.path),
+            Err(e) => {
+                failed += 1;
+                println!("  FAIL {}: {e}", f.path);
+            }
         }
+    }
+    if failed > 0 {
+        anyhow::bail!("{failed} launcher update file(s) failed");
     }
     Ok(())
 }
@@ -204,17 +216,27 @@ fn game_check(launcher: &LauncherConfig, args: &[String]) -> Result<()> {
 
 fn game_apply(launcher: &LauncherConfig, args: &[String]) -> Result<()> {
     let cfg = game_config(launcher)?;
+    let _install_lock = if args.iter().any(|arg| arg == "--dry-run") {
+        None
+    } else {
+        Some(nte_core::install_lock::InstallLock::acquire(
+            &cfg.install_root,
+        )?)
+    };
     let check_opts = CheckOptions {
         full: args.iter().any(|a| a == "--full"),
         include_optional: args.iter().any(|a| a == "--include-optional"),
     };
-    let plan = game::check::check(&cfg, check_opts).context("check game resources")?;
-    if plan.items.is_empty() {
-        println!(
-            "[apply] nothing to do (local={} remote={})",
-            plan.local_version, plan.remote_version
-        );
-        return Ok(());
+    let mut plan = game::check::check(&cfg, check_opts).context("check game resources")?;
+    if !plan.unverified.is_empty() {
+        plan = game::check::check(
+            &cfg,
+            CheckOptions {
+                full: true,
+                ..check_opts
+            },
+        )
+        .context("verify game resources")?;
     }
     let opts = ApplyOptions {
         dry_run: args.iter().any(|a| a == "--dry-run"),
@@ -231,7 +253,7 @@ fn game_apply(launcher: &LauncherConfig, args: &[String]) -> Result<()> {
         })
         .collect();
     let selected_bytes: u64 = selected.iter().map(|i| i.download_size).sum();
-    if selected.is_empty() {
+    if selected.is_empty() && !plan.items.is_empty() {
         println!("[apply] no files match the selected filter");
         return Ok(());
     }
@@ -276,7 +298,7 @@ fn game_apply(launcher: &LauncherConfig, args: &[String]) -> Result<()> {
         report.downloaded_bytes
     );
     if let Some(e) = &report.ledger_error {
-        println!("  WARN ledger update failed: {e}");
+        return Err(anyhow!("ledger update failed: {e}"));
     }
     if report.failed > 0 {
         return Err(anyhow!("{} game update file(s) failed", report.failed));
