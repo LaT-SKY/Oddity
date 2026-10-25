@@ -108,6 +108,8 @@ jobs:
           assets: dist/aur/oddity-bin.install
           updpkgsums: 'true'
           test: 'true'
+          # makepkg 会在 AUR 仓库内留下下载的源码包和构建产物, 触发 AUR 的 488 KiB 文件大小限制
+          post_process: 'rm -rf src pkg *.tar.gz *.pkg.tar.zst'
           commit_username: ${{ secrets.AUR_USERNAME }}
           commit_email: ${{ secrets.AUR_EMAIL }}
           ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
