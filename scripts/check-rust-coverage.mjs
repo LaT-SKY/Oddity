@@ -198,8 +198,18 @@ if (base) {
         }
       }
     } else {
-      executable = changedLines.size;
-      missed.push(...changedLines);
+      const sourceLines = readFileSync(join(root, filePath), "utf8").split(
+        "\n",
+      );
+      // 外部模块声明没有可执行代码, LLVM 不会为仅含声明的 lib.rs 生成记录.
+      const moduleDeclaration =
+        /^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+(?:r#)?[A-Za-z_]\w*\s*;\s*(?:\/\/.*)?$/;
+      for (const line of changedLines) {
+        if (!moduleDeclaration.test(sourceLines[line - 1] ?? "")) {
+          executable += 1;
+          missed.push(line);
+        }
+      }
     }
 
     if (executable > 0) {
