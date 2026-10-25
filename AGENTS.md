@@ -14,7 +14,7 @@ Oddity is a Linux launcher for *Neverness To Everness* (NTE).
 - `nte-core`: Shared business logic, independent of Tauri and CLI.
 - `nte-cli`: Command-line interface built on `nte-core`.
 - `nte-app`: Tauri application, UI and process lifecycle.
-- `launcher/ui`: Plain HTML, CSS and ES modules.
+- `launcher/ui`: Vite + TypeScript + Vue 3 frontend.
 
 Prefer reusable logic in `nte-core` over duplication.
 
@@ -27,6 +27,15 @@ Prefer reusable logic in `nte-core` over duplication.
 - User-facing text should use formal Chinese with consistent terminology and ASCII punctuation.
 - Use judgment when adding tests. Test meaningful behavior, not implementation details.
 - Verify relevant changes when practical, and report anything left unverified.
+
+## Technical Research
+
+When encountering unfamiliar functionality, do not immediately implement it from scratch. First search GitHub for similar open-source projects that are actively maintained and have clear licensing, and compare their implementation approaches, dependencies, and known issues. Prefer proven designs; do not directly copy incompatible code or code of unknown origin.
+
+## Branches and PRs
+
+- Before creating a branch or submitting a PR, confirm that your branch is based on the latest `origin/main`.
+- Do not use PRs as a dumping ground for irrelevant remarks that are not meant for maintainers.
 
 ## Decision Management
 
