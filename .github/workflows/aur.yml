@@ -1,6 +1,21 @@
 name: 发布 AUR 包
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+      commit:
+        required: true
+        type: string
+    secrets:
+      AUR_USERNAME:
+        required: true
+      AUR_EMAIL:
+        required: true
+      AUR_SSH_PRIVATE_KEY:
+        required: true
   release:
     types:
       - published
@@ -31,7 +46,7 @@ jobs:
       - name: 检出源码
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag || github.event.release.tag_name }}
+          ref: ${{ inputs.commit || inputs.tag || github.event.release.tag_name }}
           fetch-depth: 0
           fetch-tags: true
 
@@ -53,6 +68,10 @@ jobs:
           node scripts/check-release-version.mjs "$version" "$TAG"
           echo "VERSION=$version" >> "$GITHUB_ENV"
           echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$(git rev-parse HEAD)" != "$(git rev-parse "refs/tags/$TAG^{commit}")" ]]; then
+            echo "::error::检出的提交与 tag 不一致"
+            exit 1
+          fi
           if [[ "$(git cat-file -t "refs/tags/$TAG")" != "tag" ]]; then
             echo "::error::AUR 发布只接受 annotated tag: $TAG"
             exit 1

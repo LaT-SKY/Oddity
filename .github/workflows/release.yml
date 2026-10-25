@@ -124,6 +124,17 @@ jobs:
       commit: ${{ needs.verify.outputs.commit }}
       version: ${{ needs.verify.outputs.version }}
 
+  aur:
+    needs: [verify, release]
+    uses: ./.github/workflows/aur.yml
+    with:
+      tag: ${{ inputs.tag || github.ref_name }}
+      commit: ${{ needs.verify.outputs.commit }}
+    secrets:
+      AUR_USERNAME: ${{ secrets.AUR_USERNAME }}
+      AUR_EMAIL: ${{ secrets.AUR_EMAIL }}
+      AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+
   release:
     name: 创建 GitHub Release
     needs: [verify, build]
