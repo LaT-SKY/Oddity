@@ -7,6 +7,11 @@ on:
       - main
   workflow_dispatch:
   workflow_call:
+    inputs:
+      version:
+        description: 要构建的发布版本, 留空时读取仓库版本
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -38,17 +43,25 @@ jobs:
               - 'launcher/packaging/**'
               - 'launcher/scripts/install-desktop.sh'
               - 'launcher/ui/**'
+              - 'packaging/**'
               - 'scripts/check-packaging.mjs'
+              - 'scripts/release-version.mjs'
+              - 'scripts/stage-release.mjs'
+              - 'scripts/render-pkgbuild.mjs'
+              - 'scripts/write-checksums.mjs'
+              - 'scripts/check-release-assets.mjs'
+              - 'scripts/build-arch-package.sh'
               - '.github/workflows/build-package.yml'
+              - '.github/workflows/release.yml'
               - '.github/actions/install-linux-deps/**'
               - '.github/actions/verify-checks/**'
 
   build:
-    name: 构建二进制文件和 Debian 打包
+    name: 构建 Linux 发行包
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
     steps:
       - name: 检出源码
         uses: actions/checkout@v7
@@ -83,6 +96,24 @@ jobs:
         with:
           workspaces: launcher
 
+      - name: 缓存 Tauri 打包工具
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/tauri
+          key: tauri-tools-${{ runner.os }}-v1
+
+      - name: 读取版本
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          version="$INPUT_VERSION"
+          if [[ -z "$version" ]]; then
+            version="$(node scripts/release-version.mjs)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - name: 检查打包元数据
         run: node scripts/check-packaging.mjs
 
@@ -107,27 +138,48 @@ jobs:
           done
           test -f "$tmp/share/icons/hicolor/scalable/apps/oddity.svg"
 
-      - name: 构建 Debian 包
+      - name: 构建 Debian 与 AppImage
         working-directory: launcher/crates/nte-app
-        run: ../../ui/node_modules/.bin/tauri build --bundles deb --ci
+        run: ../../ui/node_modules/.bin/tauri build --bundles deb,appimage --ci
 
-      - name: 校验 Debian 包
+      - name: 构建 RPM
+        working-directory: launcher/crates/nte-app
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          deb="$(find launcher/target/release/bundle/deb -name '*.deb' -print -quit)"
-          test -n "$deb"
-          dpkg-deb --info "$deb"
-          dpkg-deb --contents "$deb"
-          dpkg-deb --contents "$deb" | grep -q 'usr/bin/oddity'
-          dpkg-deb --contents "$deb" | grep -Eqi 'usr/share/applications/.*oddity.*\.desktop'
+          set -euo pipefail
+          if [[ "$VERSION" == *-* ]]; then
+            core="$(node ../../../scripts/release-version.mjs --version "$VERSION" --field rpm-version)"
+            release="$(node ../../../scripts/release-version.mjs --version "$VERSION" --field rpm-release)"
+            config="$(printf '{"version":"%s","bundle":{"linux":{"rpm":{"release":"%s"}}}}' "$core" "$release")"
+            ../../ui/node_modules/.bin/tauri bundle --bundles rpm --ci --config "$config"
+          else
+            ../../ui/node_modules/.bin/tauri bundle --bundles rpm --ci
+          fi
+
+      - name: 整理发布资产
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/stage-release.mjs --version "$VERSION" --out dist/release
+
+      - name: 构建 Arch 软件包
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: ./scripts/build-arch-package.sh "$VERSION" "dist/release/oddity-${VERSION}-linux-x86_64.tar.gz" dist/release
+
+      - name: 生成校验和
+        run: node scripts/write-checksums.mjs --dir dist/release
+
+      - name: 校验发布资产
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: node scripts/check-release-assets.mjs --version "$VERSION" --dir dist/release
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v7
         with:
           name: oddity-linux-x86_64
-          path: |
-            launcher/target/release/oddity
-            launcher/target/release/nte-cli
-            launcher/target/release/bundle/deb/*.deb
+          path: dist/release/*
           if-no-files-found: error
 
   build-package:

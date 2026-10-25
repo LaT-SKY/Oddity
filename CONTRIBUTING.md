@@ -78,14 +78,18 @@ cd ..
 ```bash
 node scripts/check-repo.mjs
 node scripts/check-packaging.mjs
+node --test scripts/release-version.test.mjs
 ```
 
-如果改动涉及 UI、桌面入口或打包，再构建一次 Debian 包：
+如果改动涉及 UI、桌面入口或打包，本地至少构建一次 Debian 包：
 
 ```bash
 cd launcher/crates/nte-app
 ../../ui/node_modules/.bin/tauri build --bundles deb --ci
 ```
+
+完整发布流程会在 Ubuntu 22.04 上构建 `.deb`、`.rpm`、`.pkg.tar.zst` 和 `.AppImage`，
+并校验包版本、依赖、桌面入口和图标。
 
 至少运行与改动相关的检查，如果你不确定，那就把全部检查跑完。
 

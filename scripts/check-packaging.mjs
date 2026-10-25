@@ -79,8 +79,8 @@ try {
 }
 
 if (config) {
-  if (config.productName !== "Oddity") {
-    fail(`tauri.conf.json：productName 应该是 "Oddity"`);
+  if (config.productName !== "oddity") {
+    fail(`tauri.conf.json：productName 应该是 "oddity"`);
   }
   if (config.identifier !== "io.github.oddity.Launcher") {
     fail(`tauri.conf.json：意外的 identifier 值，实际是 "${config.identifier}"`);
@@ -90,6 +90,98 @@ if (config) {
   }
   for (const icon of config.bundle?.icon ?? []) {
     requireFile(`launcher/crates/nte-app/${icon}`);
+  }
+}
+
+const tauriDir = "launcher/crates/nte-app";
+const configFile = (relativePath) => resolve(root, tauriDir, relativePath);
+
+if (config) {
+  const bundle = config.bundle ?? {};
+  const linux = bundle.linux ?? {};
+
+  if (!bundle.publisher?.includes("LaT-SKY")) {
+    fail("tauri.conf.json: bundle.publisher 应该包含 LaT-SKY");
+  }
+  if (bundle.homepage !== "https://github.com/LaT-SKY/Oddity") {
+    fail("tauri.conf.json: bundle.homepage 不正确");
+  }
+  if (bundle.category !== "Game") {
+    fail('tauri.conf.json: bundle.category 应该是 "Game"');
+  }
+  if (!bundle.shortDescription || !bundle.longDescription) {
+    fail("tauri.conf.json: 缺少 shortDescription 或 longDescription");
+  }
+  if (bundle.license !== "GPL-3.0-or-later") {
+    fail("tauri.conf.json: bundle.license 应该是 GPL-3.0-or-later");
+  }
+
+  for (const size of iconSizes) {
+    if (!(bundle.icon ?? []).some((icon) => icon.endsWith(`/${size}x${size}.png`))) {
+      fail(`tauri.conf.json: bundle.icon 缺少 ${size}x${size}.png`);
+    }
+  }
+
+  for (const section of ["deb", "rpm"]) {
+    const template = linux[section]?.desktopTemplate;
+    if (!template) {
+      fail(`tauri.conf.json: 缺少 linux.${section}.desktopTemplate`);
+    } else if (!existsSync(configFile(template))) {
+      fail(`tauri.conf.json: linux.${section}.desktopTemplate 找不到 ${template}`);
+    }
+  }
+
+  for (const section of ["deb", "rpm", "appimage"]) {
+    const files = linux[section]?.files ?? {};
+    if (!files["/usr/bin/nte-cli"]) {
+      fail(`tauri.conf.json: linux.${section}.files 缺少 /usr/bin/nte-cli`);
+    }
+  }
+
+  for (const dependency of ["libsecret-1-0", "xdg-utils"]) {
+    if (!(linux.deb?.depends ?? []).includes(dependency)) {
+      fail(`tauri.conf.json: linux.deb.depends 缺少 ${dependency}`);
+    }
+  }
+  for (const dependency of ["libsecret-1.so.0()(64bit)", "xdg-utils"]) {
+    if (!(linux.rpm?.depends ?? []).includes(dependency)) {
+      fail(`tauri.conf.json: linux.rpm.depends 缺少 ${dependency}`);
+    }
+  }
+  for (const section of ["deb", "rpm"]) {
+    if (!(linux[section]?.recommends ?? []).includes("umu-launcher")) {
+      fail(`tauri.conf.json: linux.${section}.recommends 缺少 umu-launcher`);
+    }
+  }
+}
+
+for (const file of [
+  "packaging/arch/PKGBUILD.in",
+  "packaging/arch/oddity-bin.install",
+  "scripts/release-version.mjs",
+  "scripts/stage-release.mjs",
+  "scripts/render-pkgbuild.mjs",
+  "scripts/write-checksums.mjs",
+  "scripts/check-release-assets.mjs",
+  "scripts/build-arch-package.sh",
+]) {
+  requireFile(file);
+}
+
+const archTemplate = read("packaging/arch/PKGBUILD.in");
+for (const needle of [
+  "pkgname=oddity-bin",
+  "webkit2gtk-4.1",
+  "libsecret",
+  "xdg-utils",
+  "source_x86_64",
+  "@PKGVER@",
+  "@UPSTREAM@",
+  "@SOURCE@",
+  "@SHA256@",
+]) {
+  if (!archTemplate.includes(needle)) {
+    fail(`PKGBUILD.in 里没有引用 ${needle}`);
   }
 }
 

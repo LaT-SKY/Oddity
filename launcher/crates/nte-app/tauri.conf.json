@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Oddity",
+  "productName": "oddity",
   "version": "0.1.0-alpha.1",
   "identifier": "io.github.oddity.Launcher",
   "build": {
@@ -39,11 +39,63 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "LaT-SKY <miprota@163.com>",
+    "homepage": "https://github.com/LaT-SKY/Oddity",
+    "shortDescription": "Native Linux launcher for Neverness To Everness",
+    "longDescription": "Oddity installs and updates Neverness To Everness from the official CDN and runs the game through Proton on Linux.",
+    "category": "Game",
+    "copyright": "Copyright (C) 2026 LaT-SKY",
+    "license": "GPL-3.0-or-later",
     "icon": [
+      "icons/16x16.png",
+      "icons/22x22.png",
+      "icons/24x24.png",
       "icons/32x32.png",
+      "icons/48x48.png",
+      "icons/64x64.png",
       "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.png"
-    ]
+      "icons/256x256.png",
+      "icons/512x512.png"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "libsecret-1-0",
+          "xdg-utils"
+        ],
+        "recommends": [
+          "umu-launcher"
+        ],
+        "section": "games",
+        "desktopTemplate": "../../packaging/oddity.desktop",
+        "files": {
+          "/usr/bin/nte-cli": "../../target/release/nte-cli",
+          "/usr/share/doc/oddity/LICENSE": "../../../LICENSE",
+          "/usr/share/doc/oddity/THIRD_PARTY.md": "../../../THIRD_PARTY.md"
+        }
+      },
+      "rpm": {
+        "depends": [
+          "libsecret-1.so.0()(64bit)",
+          "xdg-utils"
+        ],
+        "recommends": [
+          "umu-launcher"
+        ],
+        "desktopTemplate": "../../packaging/oddity.desktop",
+        "files": {
+          "/usr/bin/nte-cli": "../../target/release/nte-cli",
+          "/usr/share/licenses/oddity/LICENSE": "../../../LICENSE",
+          "/usr/share/licenses/oddity/THIRD_PARTY.md": "../../../THIRD_PARTY.md"
+        }
+      },
+      "appimage": {
+        "files": {
+          "/usr/bin/nte-cli": "../../target/release/nte-cli",
+          "/usr/share/licenses/oddity/LICENSE": "../../../LICENSE",
+          "/usr/share/licenses/oddity/THIRD_PARTY.md": "../../../THIRD_PARTY.md"
+        }
+      }
+    }
   }
 }

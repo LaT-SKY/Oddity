@@ -33,7 +33,12 @@ Oddity 是《异环》的 Linux 启动器：从官方 CDN 安装、检查和更�
 
 各发行版的依赖安装命令、Proton 与游戏准备步骤见 **[安装指南](docs/install.md)**。
 
-### 2. 构建并安装
+### 2. 安装
+
+从 [Releases](https://github.com/LaT-SKY/Oddity/releases) 下载对应发行版的 `.deb`、`.rpm`、`.pkg.tar.zst` 或 `.AppImage`, 然后按[安装指南](docs/install.md#从-release-安装)安装.
+包内已经包含桌面入口和图标.
+
+也可以从源码构建:
 
 ```bash
 git clone https://github.com/LaT-SKY/Oddity.git

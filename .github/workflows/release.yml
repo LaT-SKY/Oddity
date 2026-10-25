@@ -117,6 +117,8 @@ jobs:
     name: 构建发布产物
     needs: verify
     uses: ./.github/workflows/build-package.yml
+    with:
+      version: ${{ needs.verify.outputs.version }}
 
   release:
     name: 创建 GitHub Release
@@ -143,31 +145,19 @@ jobs:
           name: oddity-linux-x86_64
           path: dist
 
-      - name: 准备发布文件
+      - name: 校验构建产物
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p release
-          oddity="$(find dist -type f -name oddity -print -quit)"
-          cli="$(find dist -type f -name nte-cli -print -quit)"
-          deb="$(find dist -type f -name '*.deb' -print -quit)"
-          for path in "$oddity" "$cli" "$deb"; do
-            if [[ -z "$path" ]]; then
-              echo "::error::构建产物不完整"
-              exit 1
-            fi
-          done
-          cp "$oddity" "release/oddity-${VERSION}-linux-x86_64"
-          cp "$cli" "release/nte-cli-${VERSION}-linux-x86_64"
-          cp "$deb" "release/oddity_${VERSION}_amd64.deb"
-          (cd release && sha256sum -- * > SHA256SUMS)
-
-      - name: 检查 Release 是否已存在
-        shell: bash
-        run: |
-          set -euo pipefail
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "::error::Release $TAG 已存在"
+          if [[ -d dist/release ]]; then
+            mv dist/release/* dist/
+            rmdir dist/release
+          fi
+          test -f dist/SHA256SUMS
+          (cd dist && sha256sum -c SHA256SUMS)
+          count="$(find dist -maxdepth 1 -type f | wc -l)"
+          if [[ "$count" -lt 6 ]]; then
+            echo "::error::构建产物不完整"
             exit 1
           fi
 
@@ -190,21 +180,55 @@ jobs:
           fi
           gh api "${args[@]}" --jq .body > release-notes.md
           {
+            echo
+            echo "### 安装"
+            echo
+            echo '- Arch Linux: 下载 oddity-bin-*.pkg.tar.zst，执行 sudo pacman -U oddity-bin-*.pkg.tar.zst'
+            echo '- Debian / Ubuntu: 下载 .deb，执行 sudo apt install ./oddity_*.deb'
+            echo '- Fedora / openSUSE: 下载 .rpm，执行 sudo dnf install ./oddity-*.rpm 或 sudo zypper install ./oddity-*.rpm'
+            echo '- AppImage: 执行 chmod +x oddity-*.AppImage && ./oddity-*.AppImage'
+          } >> release-notes.md
+          {
             echo "### Oddity ${VERSION}"
             echo
             cat release-notes.md
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: 创建 Release
+      - name: 创建或复用 Draft Release
         shell: bash
         run: |
           set -euo pipefail
-          args=(
-            --verify-tag
-            --title "Oddity ${VERSION}"
-            --notes-file release-notes.md
-          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            draft="$(gh release view "$TAG" --json isDraft --jq .isDraft)"
+            if [[ "$draft" != "true" ]]; then
+              echo "::error::Release $TAG 已发布，不能覆盖"
+              exit 1
+            fi
+            args=(--title "Oddity ${VERSION}" --notes-file release-notes.md)
+            if [[ "$PRERELEASE" == "true" ]]; then
+              args+=(--prerelease)
+            fi
+            gh release edit "$TAG" "${args[@]}"
+          else
+            args=(--verify-tag --draft --title "Oddity ${VERSION}" --notes-file release-notes.md)
+            if [[ "$PRERELEASE" == "true" ]]; then
+              args+=(--prerelease)
+            fi
+            gh release create "$TAG" "${args[@]}"
+          fi
+
+      - name: 上传发布资产
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" dist/* --clobber
+
+      - name: 发布 Release
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--draft=false)
           if [[ "$PRERELEASE" == "true" ]]; then
             args+=(--prerelease)
           fi
-          gh release create "$TAG" "${args[@]}" release/*
+          gh release edit "$TAG" "${args[@]}"

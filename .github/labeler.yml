@@ -17,6 +17,13 @@
           - "launcher/packaging/**"
           - "launcher/scripts/install-desktop.sh"
           - "launcher/crates/nte-app/tauri.conf.json"
+          - "packaging/**"
+          - "scripts/release-version.mjs"
+          - "scripts/stage-release.mjs"
+          - "scripts/render-pkgbuild.mjs"
+          - "scripts/write-checksums.mjs"
+          - "scripts/check-release-assets.mjs"
+          - "scripts/build-arch-package.sh"
 "area: updater":
   - changed-files:
       - any-glob-to-any-file:

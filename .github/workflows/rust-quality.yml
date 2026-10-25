@@ -57,6 +57,7 @@ jobs:
         run: |
           node scripts/check-repo.mjs
           node --test scripts/check-rust-coverage.test.mjs
+          node --test scripts/release-version.test.mjs
 
       - name: 安装 shellcheck
         run: |
