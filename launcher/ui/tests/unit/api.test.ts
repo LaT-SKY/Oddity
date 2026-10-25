@@ -58,7 +58,6 @@ describe("浏览器命令桥接", () => {
     const data = await invoke("bootstrap");
     expect(data.installRoot).toBe("/game/");
     expect(data.launcherRoot).toBe("/game/NTELauncher");
-    expect(data.bridgeRoot).toBe("/data/oddity/winroot");
     expect(data.protonPath).toBe("/steam/compatibilitytools.d/Query/proton");
     expect(data.protonName).toBe("Query");
   });
@@ -94,7 +93,14 @@ describe("浏览器命令桥接", () => {
     const { invoke } = await import("../../src/core/api");
     const update = invoke("check_update", { full: true });
     await vi.advanceTimersByTimeAsync(620);
-    expect(await update).toMatchObject({ missing: 0, changed: 0, files: 667 });
+    expect(await update).toMatchObject({
+      installed: true,
+      distribution: "cn",
+      installRoot: "~/Games/Neverness To Everness",
+      missing: 0,
+      changed: 0,
+      files: 667,
+    });
     expect(
       await invoke("save_settings", {
         settings: { ...settings, installRoot: "/new", theme: "dark" },

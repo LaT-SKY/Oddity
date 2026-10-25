@@ -44,7 +44,6 @@ struct Settings {
     distribution: Distribution,
     install_root: Option<String>,
     global_install_root: Option<String>,
-    bridge_root: Option<String>,
     prefix: Option<String>,
     proton_path: Option<String>,
     launch_mode: String,
@@ -62,7 +61,6 @@ impl Default for Settings {
             distribution: Distribution::Cn,
             install_root: None,
             global_install_root: None,
-            bridge_root: None,
             prefix: None,
             proton_path: None,
             launch_mode: "background".to_string(),
@@ -126,8 +124,6 @@ struct Bootstrap {
     error: Option<String>,
     install_root: String,
     launcher_root: String,
-    bridge_root: String,
-    bridge_ready: bool,
     prefix: String,
     prefix_exists: bool,
     proton_name: String,
@@ -155,6 +151,9 @@ struct LauncherBackgroundMedia {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CheckResult {
+    installed: bool,
+    distribution: String,
+    install_root: String,
     remote_version: String,
     local_version: String,
     product_version: String,
@@ -622,10 +621,10 @@ fn legacy_config_dir() -> PathBuf {
 /// as a symlink so absolute paths embedded in the Wine prefix and the official
 /// launcher configs keep resolving.
 ///
-/// Settings `prefix` / `bridgeRoot` are intentionally **not** rewritten: the
-/// official OneSDK auto-login is sensitive to the exact Wine prefix / bridge
-/// path, so upgraded installs keep using the legacy path through the symlink
-/// while new installs use the canonical `oddity` path.
+/// Settings `prefix` is intentionally **not** rewritten: the official OneSDK
+/// auto-login is sensitive to the exact Wine prefix path, so upgraded installs
+/// keep using the legacy path through the symlink while new installs use the
+/// canonical `oddity` path.
 fn migrate_legacy_dirs() {
     let old_data = legacy_data_dir();
     let new_data = data_dir();
@@ -743,6 +742,17 @@ fn selected_install_root(settings: &Settings) -> PathBuf {
     }
 }
 
+/// 界面展示、检查和下载任务必须使用同一个安装根目录。
+fn effective_install_root(settings: &Settings, launcher_root: Option<&Path>) -> PathBuf {
+    if configured_install_root(settings).is_some() {
+        return selected_install_root(settings);
+    }
+    launcher_root
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| selected_install_root(settings))
+}
+
 fn normalize_launcher_root_for(path: &Path, distribution: Distribution) -> Option<PathBuf> {
     let root = if path.join("Config").join("Config.ini").is_file() {
         path.to_path_buf()
@@ -765,10 +775,9 @@ fn normalize_launcher_root_for(path: &Path, distribution: Distribution) -> Optio
 }
 
 fn detect_launcher_root(settings: &Settings) -> Option<PathBuf> {
+    // 已配置安装目录时只认该目录. 找不到就是未安装, 不能静默改用其他副本.
     if let Some(raw) = configured_install_root(settings) {
-        if let Some(root) = normalize_launcher_root_for(&expand_path(raw), settings.distribution) {
-            return Some(root);
-        }
+        return normalize_launcher_root_for(&expand_path(raw), settings.distribution);
     }
 
     if settings.distribution == Distribution::Global {
@@ -818,35 +827,12 @@ fn detect_launcher_root(settings: &Settings) -> Option<PathBuf> {
         }
     }
 
-    // The local bridge copy is a fallback only: the real install is more useful
-    // for display, version detection and log/diagnostic paths.
-    seeds.push(data_dir().join("winroot").join("NTELauncher"));
-
     for seed in seeds {
         if let Some(root) = normalize_launcher_root(&seed) {
             return Some(root);
         }
     }
     None
-}
-
-fn bridge_root_for(settings: &Settings, launcher_root: &Path) -> PathBuf {
-    if settings.distribution == Distribution::Global {
-        return launcher_root
-            .parent()
-            .unwrap_or(launcher_root)
-            .to_path_buf();
-    }
-    if let Some(raw) = &settings.bridge_root {
-        let p = expand_path(raw);
-        if p.join("NTELauncher").join("NTEGame.exe").is_file() {
-            return p;
-        }
-    }
-    launcher_root
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| launcher_root.to_path_buf())
 }
 
 fn find_ci(base: &Path, components: &[&str]) -> Option<PathBuf> {
@@ -1006,38 +992,6 @@ fn ensure_sdk_link(prefix: &Path, install_dir: &Path) -> Result<(), String> {
     symlink(install_dir, &link).map_err(|e| format!("symlink {}: {e}", link.display()))
 }
 
-fn ensure_bridge_client(bridge_root: &Path, install_dir: &Path) -> Result<(), String> {
-    let bridge = fs::canonicalize(bridge_root).map_err(|e| format!("读取桥接目录失败: {e}"))?;
-    let install =
-        fs::canonicalize(install_dir).map_err(|e| format!("读取游戏安装目录失败: {e}"))?;
-    if bridge == install {
-        return Ok(());
-    }
-    let client = find_ci(&install, &["Client"])
-        .filter(|path| path.is_dir())
-        .ok_or_else(|| format!("游戏安装目录缺少 Client: {}", install.display()))?;
-    let client = fs::canonicalize(client).map_err(|e| format!("读取游戏资源目录失败: {e}"))?;
-    let link = find_ci(&bridge, &["Client"]).unwrap_or_else(|| bridge.join("Client"));
-    match fs::symlink_metadata(&link) {
-        Ok(meta) => {
-            if fs::canonicalize(&link).ok().as_ref() == Some(&client) {
-                return Ok(());
-            }
-            if !meta.file_type().is_symlink() {
-                return Err(format!(
-                    "桥接目录的 Client 与所选安装目录不一致: {}. 请更换桥接目录或移走该目录后重试.",
-                    link.display()
-                ));
-            }
-            // 官方组件按自身目录查找 Client, 必须与 Oddity 校验的安装一致.
-            fs::remove_file(&link).map_err(|e| format!("移除旧游戏资源链接失败: {e}"))?;
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => return Err(format!("读取桥接游戏资源链接失败: {error}")),
-    }
-    symlink(&client, &link).map_err(|e| format!("创建桥接游戏资源链接失败: {e}"))
-}
-
 fn check_game_write_access(game_exe: &Path) -> Result<(), String> {
     let bin = game_exe
         .parent()
@@ -1072,14 +1026,7 @@ fn check_game_write_access(game_exe: &Path) -> Result<(), String> {
 fn bootstrap_impl(settings: &Settings) -> Bootstrap {
     let mut error: Option<String> = None;
     let launcher_root = detect_launcher_root(settings);
-    let install_root = launcher_root
-        .as_ref()
-        .and_then(|p| p.parent().map(Path::to_path_buf))
-        .unwrap_or_else(|| selected_install_root(settings));
-    let bridge_root = launcher_root
-        .as_ref()
-        .map(|p| bridge_root_for(settings, p))
-        .unwrap_or_else(|| data_dir().join("winroot"));
+    let install_root = effective_install_root(settings, launcher_root.as_deref());
     let prefix = settings
         .prefix
         .as_deref()
@@ -1097,6 +1044,11 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
             }
             Err(e) => error = Some(format!("读取启动器配置失败：{e}")),
         }
+    } else if configured_install_root(settings).is_some() {
+        error = Some(format!(
+            "所选安装目录尚未安装启动器文件: {}. 可在游戏更新页开始安装.",
+            install_root.display()
+        ));
     } else {
         error = Some("尚未找到所选游戏地区的游戏安装. 可在游戏更新页开始安装.".to_string());
     }
@@ -1118,10 +1070,10 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
         .unwrap_or_default();
     let proton = detect_proton(settings);
     let umu = which("umu-run");
-    let bridge_ready = bridge_root
-        .join(settings.distribution.launcher_dir())
-        .join(settings.distribution.client_exe())
-        .is_file();
+    let official_exe = launcher_root
+        .as_ref()
+        .map(|root| root.join(settings.distribution.client_exe()));
+    let official_ready = official_exe.as_ref().is_some_and(|path| path.is_file());
 
     let mut checks = Vec::new();
     checks.push(CheckItem {
@@ -1163,13 +1115,12 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
         detail: prefix.display().to_string(),
     });
     checks.push(CheckItem {
-        label: "官方启动器桥接".into(),
-        ok: bridge_ready,
-        detail: if bridge_ready {
-            bridge_root.display().to_string()
-        } else {
-            "尚未准备；将使用安装目录内启动器".into()
-        },
+        label: "官方启动器".into(),
+        ok: official_ready,
+        detail: official_exe
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "未找到".into()),
     });
 
     Bootstrap {
@@ -1180,8 +1131,6 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
             .as_ref()
             .map(|p| p.display().to_string())
             .unwrap_or_default(),
-        bridge_root: bridge_root.display().to_string(),
-        bridge_ready,
         prefix: prefix.display().to_string(),
         prefix_exists,
         proton_name: proton
@@ -1211,7 +1160,12 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
     }
 }
 
-fn check_impl(launcher_root: &Path, full: bool) -> Result<CheckResult, String> {
+fn check_impl(
+    launcher_root: &Path,
+    install_root: &Path,
+    distribution: Distribution,
+    full: bool,
+) -> Result<CheckResult, String> {
     let cfg =
         LauncherConfig::load(launcher_root).map_err(|e| format!("读取启动器配置失败：{e}"))?;
     let started = Instant::now();
@@ -1239,6 +1193,9 @@ fn check_impl(launcher_root: &Path, full: bool) -> Result<CheckResult, String> {
         .map(|f| f.path.clone())
         .collect();
     Ok(CheckResult {
+        installed: true,
+        distribution: distribution.as_str().into(),
+        install_root: install_root.display().to_string(),
         remote_version: remote.version,
         local_version: cfg.version,
         product_version: manifest.product_version.unwrap_or_default(),
@@ -1293,11 +1250,32 @@ async fn check_update(state: State<'_, AppState>, full: bool) -> Result<CheckRes
         .lock()
         .map(|s| s.clone())
         .map_err(|e| e.to_string())?;
-    let root = detect_launcher_root(&settings)
-        .ok_or_else(|| "尚未找到《异环》启动器安装目录".to_string())?;
-    tauri::async_runtime::spawn_blocking(move || check_impl(&root, full))
-        .await
-        .map_err(|e| format!("校验任务失败：{e}"))?
+    let detected = detect_launcher_root(&settings);
+    let install_root = effective_install_root(&settings, detected.as_deref());
+    let Some(root) = detected else {
+        return Ok(CheckResult {
+            installed: false,
+            distribution: settings.distribution.as_str().into(),
+            install_root: install_root.display().to_string(),
+            remote_version: String::new(),
+            local_version: String::new(),
+            product_version: String::new(),
+            files: 0,
+            ok: 0,
+            missing: 0,
+            changed: 0,
+            bytes: 0,
+            duration_ms: 0,
+            missing_preview: Vec::new(),
+            changed_preview: Vec::new(),
+        });
+    };
+    let distribution = settings.distribution;
+    tauri::async_runtime::spawn_blocking(move || {
+        check_impl(&root, &install_root, distribution, full)
+    })
+    .await
+    .map_err(|e| format!("校验任务失败：{e}"))?
 }
 
 #[tauri::command]
@@ -1610,16 +1588,18 @@ fn launch_impl_with_profile(
     settings: &Settings,
     profile_provider: impl FnOnce(&Path) -> Result<ClickProfile, String>,
 ) -> Result<LaunchInvocation, String> {
-    let launcher_root = detect_launcher_root(settings)
-        .ok_or_else(|| "尚未找到《异环》启动器安装目录".to_string())?;
-    let install_dir = launcher_root
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| "安装目录结构异常".to_string())?;
-    let bridge_root = bridge_root_for(settings, &launcher_root);
-    let bridge_exe = bridge_root
-        .join(settings.distribution.launcher_dir())
-        .join(settings.distribution.client_exe());
+    let launcher_root = detect_launcher_root(settings).ok_or_else(|| {
+        if configured_install_root(settings).is_some() {
+            format!(
+                "所选安装目录尚未安装启动器文件: {}. 可在游戏更新页开始安装.",
+                selected_install_root(settings).display()
+            )
+        } else {
+            "尚未找到《异环》启动器安装目录".to_string()
+        }
+    })?;
+    let install_dir = effective_install_root(settings, Some(&launcher_root));
+    let official_exe = launcher_root.join(settings.distribution.client_exe());
     let direct_exe = game_exe_for(&launcher_root);
     let prefix = settings
         .prefix
@@ -1637,77 +1617,61 @@ fn launch_impl_with_profile(
     }
     ensure_sdk_link(&prefix, &install_dir)?;
 
-    let (mode, exe, args, display_exe, helper_env, bridge_env) = if settings.launch_mode == "direct"
-    {
-        let game_exe = direct_exe.ok_or_else(|| "未找到 HTGame.exe".to_string())?;
-        if !game_exe.is_file() {
-            return Err(format!("游戏可执行文件不存在：{}", game_exe.display()));
-        }
-        let helper = ensure_launch_helper()?;
-        let win_exe = windows_path(&game_exe);
-        let win_cwd = windows_path(
-            game_exe
-                .parent()
-                .ok_or_else(|| "HTGame.exe 没有父目录".to_string())?,
-        );
-        (
-            "direct".to_string(),
-            helper,
-            Vec::new(),
-            game_exe,
-            Some((win_exe, win_cwd)),
-            None,
-        )
-    } else if settings.launch_mode == "background" {
-        let official = if bridge_exe.is_file() {
-            bridge_exe
+    let (mode, exe, args, display_exe, helper_env, official_env) =
+        if settings.launch_mode == "direct" {
+            let game_exe = direct_exe.ok_or_else(|| "未找到 HTGame.exe".to_string())?;
+            if !game_exe.is_file() {
+                return Err(format!("游戏可执行文件不存在：{}", game_exe.display()));
+            }
+            let helper = ensure_launch_helper()?;
+            let win_exe = windows_path(&game_exe);
+            let win_cwd = windows_path(
+                game_exe
+                    .parent()
+                    .ok_or_else(|| "HTGame.exe 没有父目录".to_string())?,
+            );
+            (
+                "direct".to_string(),
+                helper,
+                Vec::new(),
+                game_exe,
+                Some((win_exe, win_cwd)),
+                None,
+            )
+        } else if settings.launch_mode == "background" {
+            let official = official_exe;
+            if !official.is_file() {
+                return Err(format!("官方启动器不存在：{}", official.display()));
+            }
+            let helper = ensure_helper("nte-session-helper.exe", SESSION_HELPER_BYTES)?;
+            let win_exe = windows_path(&official);
+            let win_cwd = windows_path(
+                official
+                    .parent()
+                    .ok_or_else(|| "官方启动器没有父目录".to_string())?,
+            );
+            (
+                "background".to_string(),
+                helper,
+                Vec::new(),
+                official,
+                None,
+                Some((win_exe, win_cwd)),
+            )
         } else {
-            launcher_root.join(settings.distribution.client_exe())
+            let exe = official_exe;
+            if !exe.is_file() {
+                return Err(format!("官方启动器不存在：{}", exe.display()));
+            }
+            (
+                "official".to_string(),
+                exe.clone(),
+                vec!["/launcher".to_string(), "/directly".to_string()],
+                exe,
+                None,
+                None,
+            )
         };
-        if !official.is_file() {
-            return Err(format!("官方启动器不存在：{}", official.display()));
-        }
-        let helper = ensure_helper("nte-session-helper.exe", SESSION_HELPER_BYTES)?;
-        let win_exe = windows_path(&official);
-        let win_cwd = windows_path(
-            official
-                .parent()
-                .ok_or_else(|| "官方启动器没有父目录".to_string())?,
-        );
-        (
-            "background".to_string(),
-            helper,
-            Vec::new(),
-            official,
-            None,
-            Some((win_exe, win_cwd)),
-        )
-    } else {
-        let exe = if bridge_exe.is_file() {
-            bridge_exe
-        } else {
-            launcher_root.join(settings.distribution.client_exe())
-        };
-        if !exe.is_file() {
-            return Err(format!("官方启动器不存在：{}", exe.display()));
-        }
-        (
-            "official".to_string(),
-            exe.clone(),
-            vec!["/launcher".to_string(), "/directly".to_string()],
-            exe,
-            None,
-            None,
-        )
-    };
-
-    if mode != "direct" {
-        let official_root = display_exe
-            .parent()
-            .and_then(Path::parent)
-            .ok_or_else(|| "官方启动器目录结构异常".to_string())?;
-        ensure_bridge_client(official_root, &install_dir)?;
-    }
 
     let log_dir = data_dir().join("logs");
     fs::create_dir_all(&log_dir).map_err(|e| format!("create log dir: {e}"))?;
@@ -1817,7 +1781,8 @@ fn launch_impl_with_profile(
                 "/Game/LoginAndCreate/Map/Updater/Updater_P -SAVEWINPOS=1",
             );
     }
-    if let Some((win_exe, win_cwd)) = &bridge_env {
+    if let Some((win_exe, win_cwd)) = &official_env {
+        // NTE_BRIDGE_* 是 helper 的官方启动器交接协议, 与桥接目录设置无关.
         // 由官方正常启动按钮完成资源、登录和管道交接.
         cmd.env("NTE_BRIDGE_EXE", win_exe)
             .env("NTE_BRIDGE_CWD", win_cwd)

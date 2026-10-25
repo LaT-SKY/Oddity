@@ -57,7 +57,6 @@ export interface Settings {
   installRoot: string | null;
   globalInstallRoot: string | null;
   distribution: "cn" | "global";
-  bridgeRoot: string | null;
   prefix: string | null;
   protonPath: string | null;
   launchMode: string;
@@ -78,8 +77,6 @@ export interface Bootstrap {
   error: string | null;
   installRoot: string;
   launcherRoot: string;
-  bridgeRoot: string;
-  bridgeReady: boolean;
   prefix: string;
   prefixExists: boolean;
   protonName: string;
@@ -97,6 +94,9 @@ export interface Bootstrap {
   os: string;
 }
 export interface CheckResult {
+  installed: boolean;
+  distribution: "cn" | "global";
+  installRoot: string;
   remoteVersion: string;
   localVersion: string;
   productVersion: string;

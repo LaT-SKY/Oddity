@@ -1,5 +1,5 @@
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -90,33 +90,31 @@ pub(crate) fn blocks_changes(status: &DownloadStatus) -> bool {
 
 fn publish<R: Runtime>(app: &AppHandle<R>, change: impl FnOnce(&mut DownloadStatus)) {
     let manager = app.state::<DownloadManager>();
-    let status = match manager.inner.lock() {
-        Ok(mut inner) => {
-            change(&mut inner.status);
-            inner.status.clone()
-        }
-        Err(_) => return,
+    // 进度事件必须在持锁时发送, 否则多线程并行下载时事件可能乱序,
+    // 界面会看到已完成的文件数倒退。
+    let Ok(mut inner) = manager.inner.lock() else {
+        return;
     };
+    change(&mut inner.status);
+    let status = inner.status.clone();
     let _ = app.emit("game-download-state", status);
 }
 
 fn publish_bytes<R: Runtime>(app: &AppHandle<R>, bytes: u64) {
     let manager = app.state::<DownloadManager>();
-    let status = match manager.inner.lock() {
-        Ok(mut inner) => {
-            inner.status.downloaded_bytes += bytes;
-            let now = Instant::now();
-            if inner
-                .last_progress
-                .is_some_and(|last| now.duration_since(last) < Duration::from_millis(150))
-            {
-                return;
-            }
-            inner.last_progress = Some(now);
-            inner.status.clone()
-        }
-        Err(_) => return,
+    let Ok(mut inner) = manager.inner.lock() else {
+        return;
     };
+    inner.status.downloaded_bytes += bytes;
+    let now = Instant::now();
+    if inner
+        .last_progress
+        .is_some_and(|last| now.duration_since(last) < Duration::from_millis(150))
+    {
+        return;
+    }
+    inner.last_progress = Some(now);
+    let status = inner.status.clone();
     let _ = app.emit("game-download-state", status);
 }
 
@@ -179,6 +177,78 @@ fn run_task<R: Runtime>(
     run_plan(app, settings, mode, full, cancel, launcher_plan)
 }
 
+/// 启动器文件大多是几十到几百 KiB 的 ZIP, 逐个下载会被握手和首字节
+/// 延迟拖慢; 这里使用与游戏资源一致的固定并发。
+const LAUNCHER_WORKERS: usize = 5;
+
+fn install_launcher_files<R: Runtime>(
+    app: &AppHandle<R>,
+    plan: &install::LauncherPlan,
+    cancel: &AtomicBool,
+) -> Result<(), String> {
+    let files = &plan.files;
+    let root = &plan.root;
+    let zip_bases = &plan.zip_bases;
+    let workers = LAUNCHER_WORKERS.min(files.len()).max(1);
+    let next = AtomicUsize::new(0);
+    let stop = AtomicBool::new(false);
+    let first_error = Mutex::new(None::<String>);
+    let next_ref = &next;
+    let stop_ref = &stop;
+    let first_error_ref = &first_error;
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            let app = app.clone();
+            scope.spawn(move || loop {
+                if cancel.load(Ordering::Relaxed) || stop_ref.load(Ordering::Relaxed) {
+                    return;
+                }
+                let index = next_ref.fetch_add(1, Ordering::Relaxed);
+                let Some(file) = files.get(index) else {
+                    return;
+                };
+                publish(&app, |status| {
+                    status.current_file = file.path.clone();
+                    status.current_file_bytes = file.zip_size.unwrap_or(file.size);
+                });
+                let mut progress = |bytes| publish_bytes(&app, bytes);
+                let outcome =
+                    update::apply_file_resumable(root, zip_bases, file, &mut progress, &|| {
+                        cancel.load(Ordering::Relaxed) || stop_ref.load(Ordering::Relaxed)
+                    });
+                match outcome {
+                    Ok(_) => publish(&app, |status| {
+                        status.completed_files += 1;
+                        status.pending_files = status.pending_files.saturating_sub(1);
+                        if status.current_file == file.path {
+                            status.current_file.clear();
+                            status.current_file_bytes = 0;
+                        }
+                    }),
+                    Err(nte_core::Error::Cancelled) => return,
+                    Err(error) => {
+                        if let Ok(mut slot) = first_error_ref.lock() {
+                            if slot.is_none() {
+                                *slot = Some(format!("安装启动器文件 {} 失败: {error}", file.path));
+                            }
+                        }
+                        stop_ref.store(true, Ordering::Relaxed);
+                        return;
+                    }
+                }
+            });
+        }
+    });
+    if let Some(error) = first_error.into_inner().unwrap_or(None) {
+        return Err(error);
+    }
+    if cancel.load(Ordering::Relaxed) {
+        publish(app, |status| status.phase = "cancelled".into());
+        return Ok(());
+    }
+    Ok(())
+}
+
 fn run_plan<R: Runtime>(
     app: &AppHandle<R>,
     settings: &Settings,
@@ -195,11 +265,16 @@ fn run_plan<R: Runtime>(
         status.pending_files = launcher_plan.file_count();
         status.total_files = launcher_plan.file_count();
         status.total_bytes = launcher_plan.download_bytes;
+        status.completed_files = 0;
+        status.downloaded_bytes = 0;
+        status.current_file.clear();
+        status.current_file_bytes = 0;
         status.patch_files = 0;
         status.patch_bytes = 0;
         status.full_files = launcher_plan.file_count();
         status.full_bytes = launcher_plan.download_bytes;
         status.stage = "download".into();
+        status.error.clear();
     });
     if mode == "check" && !launcher_plan.files.is_empty() {
         publish(app, |status| status.phase = "needs-install".into());
@@ -207,33 +282,7 @@ fn run_plan<R: Runtime>(
     }
     if mode == "apply" && !launcher_plan.files.is_empty() {
         publish(app, |status| status.phase = "launcher".into());
-        for (index, file) in launcher_plan.files.iter().enumerate() {
-            if cancel.load(Ordering::Relaxed) {
-                publish(app, |status| status.phase = "cancelled".into());
-                return Ok(());
-            }
-            publish(app, |status| {
-                status.current_file = file.path.clone();
-                status.completed_files = index;
-            });
-            let mut progress = |bytes| {
-                publish_bytes(app, bytes);
-            };
-            match update::apply_file_resumable(
-                &launcher_plan.root,
-                &launcher_plan.zip_bases,
-                file,
-                &mut progress,
-                &|| cancel.load(Ordering::Relaxed),
-            ) {
-                Ok(_) => publish(app, |status| status.completed_files = index + 1),
-                Err(nte_core::Error::Cancelled) => {
-                    publish(app, |status| status.phase = "cancelled".into());
-                    return Ok(());
-                }
-                Err(error) => return Err(format!("安装启动器文件 {} 失败: {error}", file.path)),
-            }
-        }
+        install_launcher_files(app, &launcher_plan, cancel)?;
     }
     if cancel.load(Ordering::Relaxed) {
         publish(app, |status| status.phase = "cancelled".into());

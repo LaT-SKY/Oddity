@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use crate::{Error, Result, USER_AGENT};
@@ -9,6 +10,12 @@ pub(crate) struct HttpClient {
 }
 
 impl HttpClient {
+    /// 启动器文件下载共用同一个连接池，避免每个小文件重新握手。
+    pub(crate) fn shared() -> &'static HttpClient {
+        static CLIENT: OnceLock<HttpClient> = OnceLock::new();
+        CLIENT.get_or_init(HttpClient::new)
+    }
+
     pub(crate) fn new() -> Self {
         let config = ureq::Agent::config_builder()
             .max_idle_connections(16)

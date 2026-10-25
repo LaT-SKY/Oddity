@@ -3,6 +3,7 @@ import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   Bootstrap,
+  CheckResult,
   Settings,
   GameStatus,
   DownloadStatus,
@@ -84,7 +85,6 @@ function previewPaths() {
   return {
     installRoot,
     launcherRoot: joinPath(installRoot, "NTELauncher"),
-    bridgeRoot: joinPath(dataHome, "oddity/winroot"),
     prefix: joinPath(dataHome, "oddity/prefix"),
     protonName,
     protonPath: joinPath(
@@ -122,8 +122,6 @@ const mock: Bootstrap = {
   error: null,
   installRoot: preview.installRoot,
   launcherRoot: preview.launcherRoot,
-  bridgeRoot: preview.bridgeRoot,
-  bridgeReady: true,
   prefix: preview.prefix,
   prefixExists: true,
   protonName: preview.protonName,
@@ -141,13 +139,16 @@ const mock: Bootstrap = {
     { label: "umu-launcher", ok: true, detail: "umu-run（PATH）" },
     { label: "Proton", ok: true, detail: preview.protonName },
     { label: "Wine prefix", ok: true, detail: preview.prefix },
-    { label: "官方启动器桥接", ok: true, detail: preview.bridgeRoot },
+    {
+      label: "官方启动器",
+      ok: true,
+      detail: joinPath(preview.launcherRoot, "NTEGame.exe"),
+    },
   ],
   settings: {
     installRoot: null,
     globalInstallRoot: null,
     distribution: "cn",
-    bridgeRoot: null,
     prefix: null,
     protonPath: null,
     launchMode: "background",
@@ -162,7 +163,10 @@ const mock: Bootstrap = {
   os: previewOs(),
 };
 
-const mockCheck = {
+const mockCheck: CheckResult = {
+  installed: true,
+  distribution: "cn",
+  installRoot: preview.installRoot,
   remoteVersion: "1.0.7.0924",
   localVersion: "1.0.7.0924",
   productVersion: "1.0.7.0924_1",
@@ -454,6 +458,8 @@ async function previewInvoke(
         mock.installRoot,
         settings.distribution === "global" ? "NTEGlobal" : "NTELauncher",
       );
+      mockCheck.distribution = settings.distribution;
+      mockCheck.installRoot = mock.installRoot;
       return clone(mock);
     }
     case "game_download_status":

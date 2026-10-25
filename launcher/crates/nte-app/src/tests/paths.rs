@@ -122,7 +122,7 @@ fn normalizes_launcher_roots() {
 }
 
 #[test]
-fn detects_the_launcher_from_settings_environment_and_seeds() {
+fn configured_root_is_authoritative() {
     let mut env = EnvGuard::new();
     let home = TempDir::new("detect-home");
     let install = TempDir::new("detect-install");
@@ -137,22 +137,35 @@ fn detects_the_launcher_from_settings_environment_and_seeds() {
         install_root: Some(install.path().display().to_string()),
         ..Default::default()
     };
-    assert_eq!(detect_launcher_root(&settings), Some(root.clone()));
+    assert_eq!(detect_launcher_root(&settings), Some(root));
 
-    // 设置里的路径无效时继续找环境变量
+    // 配置目录无效时不能改用环境变量里的其他安装.
     let stale = Settings {
         install_root: Some("/nope".to_string()),
         ..Default::default()
     };
-    assert_ne!(detect_launcher_root(&stale), Some(PathBuf::from("/nope")));
     env.set("NTE_ROOT", install.path());
-    assert_eq!(detect_launcher_root(&stale), Some(root.clone()));
-    env.remove("NTE_ROOT");
-    env.set("NTE_INSTALL", install.path());
-    assert_eq!(detect_launcher_root(&stale), Some(root.clone()));
-    env.remove("NTE_INSTALL");
+    assert_eq!(detect_launcher_root(&stale), None);
+}
 
-    // 常见的 ~/Games 安装位置
+#[test]
+fn detects_the_launcher_from_environment_and_seeds_without_configuration() {
+    let mut env = EnvGuard::new();
+    let home = TempDir::new("detect-seeds");
+    let install = TempDir::new("detect-seeds-install");
+    env.set("HOME", home.path());
+    env.remove("XDG_DATA_HOME");
+    env.remove("NTE_ROOT");
+    env.remove("NTE_INSTALL");
+    install.write_text("NTELauncher/Config/Config.ini", "[VERSION]\n");
+
+    env.set("NTE_ROOT", install.path());
+    assert_eq!(
+        detect_launcher_root(&Settings::default()),
+        Some(install.join("NTELauncher"))
+    );
+    env.remove("NTE_ROOT");
+
     home.write_text(
         "Games/Neverness To Everness/NTELauncher/Config/Config.ini",
         "[VERSION]\n",
@@ -198,44 +211,6 @@ fn detects_the_chinese_home_seed() {
     assert_eq!(
         detect_launcher_root(&Settings::default()),
         Some(home.join("Games/异环/NTELauncher"))
-    );
-}
-
-#[test]
-fn bridge_root_uses_the_installation_unless_explicitly_configured() {
-    let mut env = EnvGuard::new();
-    let home = TempDir::new("bridge-home");
-    env.set("HOME", home.path());
-    env.remove("XDG_DATA_HOME");
-    std::fs::create_dir_all(home.join("games/install/NTELauncher")).expect("create launcher dir");
-    let launcher = home.join("games/install/NTELauncher");
-
-    // 没有桥接副本时退回安装目录的父目录
-    assert_eq!(
-        bridge_root_for(&Settings::default(), &launcher),
-        home.join("games/install")
-    );
-
-    // 设置里显式指定的路径最优先
-    let custom = TempDir::new("bridge-custom");
-    custom.write("NTELauncher/NTEGame.exe", b"MZ");
-    let settings = Settings {
-        bridge_root: Some(custom.path().display().to_string()),
-        ..Default::default()
-    };
-    assert_eq!(
-        bridge_root_for(&settings, &launcher),
-        custom.path().to_path_buf()
-    );
-
-    // 设置里的路径无效时使用所选安装
-    let broken = Settings {
-        bridge_root: Some("/nope".to_string()),
-        ..Default::default()
-    };
-    assert_eq!(
-        bridge_root_for(&broken, &launcher),
-        home.join("games/install")
     );
 }
 

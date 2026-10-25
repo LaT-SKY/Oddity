@@ -49,7 +49,7 @@ cargo build --release --locked -p nte-app
 
 1. 打开左侧 **设置**，选择游戏地区并填写该地区的安装目录。国服和国际服使用不同目录。
 2. 确认 **Proton 路径** 与 **Wine prefix** 正确。
-3. **启动方式** 选择 **官方后台桥接**，修改会自动保存。
+3. **启动方式** 选择 **后台启动**，修改会自动保存。
 4. 前往 **更新** 页，点击 **检查资源**；按提示点击 **安装游戏** 或 **更新游戏**，完成后回到 **启动** 页启动游戏。
 
 首次启动的初始化可能需要几分钟，请不要重复点击。更完整的首次配置说明见[安装指南](docs/install.md#首次配置)。
@@ -88,7 +88,7 @@ Neverness To Everness/
 | 启动日志 | `~/.local/share/oddity/logs/nte-app-launch.log` |
 | 辅助日志 | `~/.local/share/oddity/logs/helper-window.log` |
 | Wine prefix | 默认 `~/.local/share/oddity/prefix` |
-| 官方启动器桥接副本 | `~/.local/share/oddity/winroot` |
+| 启动器文件 | `<安装目录>/NTELauncher` |
 
 ## 遇到问题
 

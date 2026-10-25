@@ -22,7 +22,6 @@ const BULLETIN_CACHE_TTL_MS = 15 * 60 * 1000;
 const disposers: (() => void)[] = [];
 let downloadRevision = 0;
 let bootstrapRevision = 0;
-let autoCheckStarted = false;
 const downloadStarting = ref<"check" | "apply" | null>(null);
 // 文本输入防抖, 失焦和开关类控件立即保存。
 const AUTO_SAVE_DELAY = 500;
@@ -30,6 +29,9 @@ const SAVED_STATE_DURATION = 2000;
 let autoSaveTimer: number | null = null;
 let autoSaveQueued = false;
 let autoSaveRunning = false;
+let installationRefreshing = false;
+let installationRefreshPending = false;
+let pendingCheck: { full: boolean } | null = null;
 let saveStatusTimer = 0;
 let saveChain: Promise<boolean> = Promise.resolve(true);
 let lastSavedSettings = "";
@@ -255,7 +257,6 @@ export const form = reactive({
   installRoot: "",
   globalInstallRoot: "",
   distribution: "cn" as "cn" | "global",
-  bridgeRoot: "",
   prefix: "",
   protonPath: "",
   launchMode: "background",
@@ -478,8 +479,42 @@ export const homeDownloadNotice = computed(() => {
         : downloadView.value.title,
   };
 });
-export const updateView = computed(() => {
+function normalizedRoot(value: string) {
+  return value.replace(/\/+$/, "");
+}
+
+function currentInstallRoot() {
+  const data = state.bootstrap;
+  const root =
+    form.distribution === "cn" ? form.installRoot : form.globalInstallRoot;
+  const saved =
+    data?.settings.distribution === form.distribution
+      ? form.distribution === "cn"
+        ? data.settings.installRoot
+        : data.settings.globalInstallRoot
+      : null;
+  if (
+    data?.settings.distribution === form.distribution &&
+    normalizedRoot(root.trim()) === normalizedRoot(saved || data.installRoot)
+  )
+    return data.installRoot;
+  return root.trim();
+}
+
+// 检查结果只对当前的地区和目录有效.
+const checkStale = computed(() => {
   const result = state.check;
+  if (!result) return false;
+  return (
+    result.distribution !== form.distribution ||
+    normalizedRoot(result.installRoot) !== normalizedRoot(currentInstallRoot())
+  );
+});
+
+export const updateView = computed(() => {
+  const bootstrap = state.bootstrap;
+  const launcherInstalled = Boolean(bootstrap?.launcherRoot);
+  const result = checkStale.value || !launcherInstalled ? null : state.check;
   const rows = [
     ...(result?.missingPreview ?? []).map((path) => ({ tag: "缺失", path })),
     ...(result?.changedPreview ?? []).map((path) => ({ tag: "变更", path })),
@@ -494,12 +529,19 @@ export const updateView = computed(() => {
   const version = result?.localVersion || "未知";
   const files = result?.files || 0;
   let status = {
-    kind: "idle",
-    title: "尚未检查",
-    copy: state.bootstrap?.launcherVersion
-      ? "本地版本 " + state.bootstrap.launcherVersion
-      : "等待检查",
-    icon: "i-arrows-clockwise",
+    kind: !bootstrap || launcherInstalled ? "idle" : "warn",
+    title: !bootstrap || launcherInstalled ? "尚未检查" : "尚未安装",
+    copy: !bootstrap
+      ? "等待检查"
+      : launcherInstalled
+        ? bootstrap.launcherVersion
+          ? "本地版本 " + bootstrap.launcherVersion
+          : "等待检查"
+        : "此目录尚未安装启动器文件, 请先安装游戏",
+    icon:
+      bootstrap && !launcherInstalled
+        ? "i-download-simple"
+        : "i-arrows-clockwise",
   };
   if (state.checking)
     status = {
@@ -514,6 +556,13 @@ export const updateView = computed(() => {
       title: "检查失败",
       copy: "无法连接官方 CDN 或安装目录无效",
       icon: "i-warning-circle",
+    };
+  else if (result && !result.installed)
+    status = {
+      kind: "warn",
+      title: "尚未安装",
+      copy: "此目录尚未安装启动器文件, 请先安装游戏",
+      icon: "i-download-simple",
     };
   else if (result)
     status =
@@ -873,9 +922,19 @@ function applyBootstrap(
   syncForm = true,
 ) {
   bootstrapRevision++;
+  const previous = state.bootstrap?.settings;
+  const previousResolvedRoot = state.bootstrap?.installRoot;
   state.bootstrap = data;
   refreshLauncherBackground(data);
   const settings = data.settings || {};
+  if (
+    previous &&
+    installPathsChanged(previous, data.settings, previousResolvedRoot)
+  ) {
+    state.check = null;
+    state.download = null;
+    ui.updateError = false;
+  }
 
   const ready = isReady(data);
   ui.setupNeeded = !ready;
@@ -894,10 +953,6 @@ function applyBootstrap(
     (settings.distribution === "global" ? data.installRoot : "") ||
     "";
   form.distribution = settings.distribution || "cn";
-  form.bridgeRoot =
-    settings.bridgeRoot ||
-    (settings.distribution !== "global" ? data.bridgeRoot : "") ||
-    "";
   form.prefix = settings.prefix || data.prefix || "";
   form.protonPath = settings.protonPath || data.protonPath || "";
   form.launchMode = settings.launchMode || "background";
@@ -913,10 +968,17 @@ function applyBootstrap(
 
 export async function checkUpdate(full = false, silent = false) {
   const epoch = generation;
-  if (state.checking) return;
+  if (state.checking) {
+    // 本轮结束后再执行最后一次用户主动检查.
+    if (!silent) pendingCheck = { full };
+    return;
+  }
   state.checking = true;
   ui.updateError = false;
   try {
+    // 手动检查前先保存目录, 保证检查的就是界面上的目录.
+    if (!silent && !(await saveSettings(silent))) return;
+    if (epoch !== generation) return;
     const result = await invoke("check_update", { full });
     if (epoch !== generation) return;
     state.check = result;
@@ -926,7 +988,12 @@ export async function checkUpdate(full = false, silent = false) {
     ui.updateError = true;
     if (!silent) toast(message, "error", 6500);
   } finally {
-    if (epoch === generation) state.checking = false;
+    if (epoch === generation) {
+      state.checking = false;
+      const pending = pendingCheck;
+      pendingCheck = null;
+      if (pending && !ui.updateError) void checkUpdate(pending.full, false);
+    }
   }
 }
 
@@ -998,12 +1065,30 @@ export async function startGameDownload(
   }
 }
 
-// 启动后静默快速核对游戏资源，尽早发现小版本更新。
-async function quickCheckGame() {
-  if (autoCheckStarted) return;
-  autoCheckStarted = true;
-  if (!state.bootstrap?.gameExists || state.game !== "idle") return;
-  await startGameDownload("check", false, true);
+// 启动器文件与游戏资源使用同一轮静默刷新。
+async function refreshInstallationStatus(includeGame = true) {
+  if (installationRefreshing) {
+    installationRefreshPending = true;
+    return;
+  }
+  if (state.checking || downloadBusy()) return;
+  if (!state.bootstrap?.launcherRoot) return;
+  const epoch = generation;
+  installationRefreshing = true;
+  try {
+    await Promise.all([
+      checkUpdate(false, true),
+      includeGame ? startGameDownload("check", false, true) : true,
+    ]);
+  } finally {
+    if (epoch === generation) {
+      installationRefreshing = false;
+      if (installationRefreshPending) {
+        installationRefreshPending = false;
+        void refreshInstallationStatus();
+      }
+    }
+  }
 }
 
 export async function cancelGameDownload() {
@@ -1194,6 +1279,31 @@ export function handleLaunchAction() {
   else if (!downloadBlocksLaunch()) launchGame();
 }
 
+function installPathsChanged(
+  previous: Settings | undefined,
+  next: Settings,
+  previousResolvedRoot?: string,
+) {
+  if (!previous) return false;
+  if (previous.distribution !== next.distribution) return true;
+  const previousRoot =
+    previous.distribution === "cn"
+      ? previous.installRoot
+      : previous.globalInstallRoot;
+  const nextRoot =
+    next.distribution === "cn" ? next.installRoot : next.globalInstallRoot;
+  if (normalizedRoot(previousRoot || "") === normalizedRoot(nextRoot || ""))
+    return false;
+  // 首次自动保存会把界面上的默认探测目录写入设置, 这不算切换目录。
+  if (
+    !previousRoot &&
+    nextRoot &&
+    normalizedRoot(nextRoot) === normalizedRoot(previousResolvedRoot || "")
+  )
+    return false;
+  return true;
+}
+
 function currentSettings(): Settings {
   // 下载写入期间沿用已持久化的路径, 避免把自动探测到的目录当成修改提交。
   const persisted = settingsPathsLocked.value
@@ -1212,7 +1322,6 @@ function currentSettings(): Settings {
       ? persisted.globalInstallRoot
       : form.globalInstallRoot.trim() || null,
     distribution: persisted ? persisted.distribution : form.distribution,
-    bridgeRoot: form.bridgeRoot.trim() || null,
     prefix: form.prefix.trim() || null,
     protonPath: form.protonPath.trim() || null,
     launchMode,
@@ -1276,7 +1385,7 @@ async function flushAutoSave() {
     while (autoSaveQueued) {
       performed = true;
       autoSaveQueued = false;
-      ok = await enqueuePersist(false, epoch);
+      ok = await enqueuePersist(false, epoch, true);
       if (!ok) break;
     }
     // 连续修改合并为多次写入时, 只在最后一次成功后显示已保存。
@@ -1286,8 +1395,12 @@ async function flushAutoSave() {
   }
 }
 
-function enqueuePersist(silent: boolean, epoch = generation): Promise<boolean> {
-  const run = () => persistCurrentSettings(silent, epoch);
+function enqueuePersist(
+  silent: boolean,
+  epoch = generation,
+  refreshOnPathChange = false,
+): Promise<boolean> {
+  const run = () => persistCurrentSettings(silent, epoch, refreshOnPathChange);
   // 失败也不能中断后续保存, 因此串行链始终以已处理状态继续。
   const next = saveChain.then(run, run);
   saveChain = next.catch(() => false);
@@ -1297,8 +1410,11 @@ function enqueuePersist(silent: boolean, epoch = generation): Promise<boolean> {
 async function persistCurrentSettings(
   silent: boolean,
   epoch: number,
+  refreshOnPathChange = false,
 ): Promise<boolean> {
   if (epoch !== generation) return false;
+  const previous = state.bootstrap?.settings;
+  const previousResolvedRoot = state.bootstrap?.installRoot;
   const settings = currentSettings();
   const serialized = JSON.stringify(settings);
   const changed = serialized !== lastSavedSettings;
@@ -1321,6 +1437,12 @@ async function persistCurrentSettings(
       lastSavedSettings = serialized;
       // 保存响应只刷新环境状态, 不覆盖请求期间继续修改的表单。
       applyBootstrap(data, false, false);
+      if (
+        refreshOnPathChange &&
+        installPathsChanged(previous, settings, previousResolvedRoot)
+      ) {
+        void refreshInstallationStatus();
+      }
     }
     if (preferencesChanged) {
       try {
@@ -1609,8 +1731,11 @@ export async function init() {
 
   if (state.bootstrap && state.bootstrap.ok) {
     whenIntroDone(() => {
-      schedule(() => checkUpdate(false, true), 400);
-      schedule(() => void quickCheckGame(), 600);
+      schedule(
+        () =>
+          void refreshInstallationStatus(Boolean(state.bootstrap?.gameExists)),
+        400,
+      );
     });
   }
 }
@@ -1618,11 +1743,13 @@ export async function init() {
 export function dispose() {
   generation++;
   Object.assign(gameRecords, { loading: false, error: "", nextRefresh: 0 });
-  autoCheckStarted = false;
   downloadStarting.value = null;
   autoSaveQueued = false;
   autoSaveRunning = false;
   autoSaveTimer = null;
+  installationRefreshing = false;
+  installationRefreshPending = false;
+  pendingCheck = null;
   saveStatusTimer = 0;
   lastSavedSettings = "";
   saveChain = Promise.resolve(true);
