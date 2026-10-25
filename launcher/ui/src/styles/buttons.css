@@ -1,0 +1,120 @@
+/* 按钮系统与尺寸修饰。 */
+
+/* ---------------- buttons ---------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-9);
+  height: 52px;
+  padding: 0 var(--space-24);
+  border-radius: var(--pill);
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    background var(--duration-base) var(--ease),
+    border-color var(--duration-base) var(--ease),
+    color var(--duration-base) var(--ease),
+    opacity var(--duration-base) var(--ease);
+}
+
+.btn .icon {
+  width: 17px;
+  height: 17px;
+}
+
+.btn--primary {
+  padding: 0 var(--space-24);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  box-shadow: var(--primary-shadow);
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.btn--primary.is-passed {
+  background: var(--signal-dim);
+  color: var(--accent-text);
+  box-shadow: none;
+}
+
+.btn--primary.is-passed:hover:not(:disabled) {
+  background: var(--nav-active-bg);
+}
+
+.btn.is-spinning .icon {
+  animation: spin var(--duration-spin) linear infinite;
+}
+
+.btn__icon {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--pill);
+  background: var(--primary-icon-bg);
+}
+
+.btn--ghost {
+  background: var(--ghost-bg);
+  color: var(--bone);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--ghost-hover);
+}
+
+.btn--ghost .icon {
+  color: var(--text-soft);
+}
+
+.btn--link {
+  height: auto;
+  padding: var(--space-2) 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--muted);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.02em;
+}
+
+.btn--link .icon {
+  width: 16px;
+  height: 16px;
+  color: currentColor;
+}
+
+.btn--link:hover:not(:disabled) {
+  color: var(--bone);
+}
+
+.btn--link:active {
+  opacity: 0.7;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn.is-busy {
+  pointer-events: none;
+  opacity: 0.55;
+}
+
+.btn.is-busy .icon {
+  animation: pulse var(--duration-pulse) ease-in-out infinite;
+}
+
+.btn--trailing {
+  padding-left: var(--space-28);
+  padding-right: var(--space-12);
+}

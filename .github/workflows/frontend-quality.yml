@@ -59,6 +59,8 @@ jobs:
         working-directory: launcher/ui
       - run: pnpm run format:check
         working-directory: launcher/ui
+      - run: pnpm run lint:css
+        working-directory: launcher/ui
       - name: 检查 TS 和 Vue 覆盖率
         id: coverage
         run: pnpm run test:coverage
