@@ -77,9 +77,10 @@ Oddity 会自动查找 Steam 的兼容工具目录。如果 Proton 放在其他�
 | Fedora | `.rpm` | `sudo dnf install ./oddity-*.x86_64.rpm` |
 | openSUSE | `.rpm` | `sudo zypper install ./oddity-*.x86_64.rpm` |
 | Arch Linux | `.pkg.tar.zst` | `sudo pacman -U oddity-bin-*.pkg.tar.zst` |
+| Arch Linux (AUR) | `oddity-bin` | `yay -S oddity-bin` 或 `paru -S oddity-bin` |
 | 通用 Linux | `.AppImage` | `chmod +x oddity-*.AppImage && ./oddity-*.AppImage` |
 
-原生包会通过系统包管理器处理 WebKitGTK 4.1、GTK 3、`libsecret` 和 `xdg-utils` 等依赖. `umu-launcher` 作为推荐依赖安装; Proton 仍需按上面的步骤准备.
+AUR 的 `oddity-bin` 与 Release 中的 `.pkg.tar.zst` 内容一致, 都通过系统包管理器处理依赖. 原生包会处理 WebKitGTK 4.1、GTK 3、`libsecret` 和 `xdg-utils` 等依赖. `umu-launcher` 作为推荐依赖安装; Proton 仍需按上面的步骤准备.
 
 AppImage 需要系统提供 FUSE 2. 如果无法运行, 可以使用 `./oddity-*.AppImage --appimage-extract-and-run`, 或改用对应发行版的原生包. 主页视频还依赖系统的 GStreamer 插件; 缺少时仍可使用照片模式.
 

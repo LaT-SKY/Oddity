@@ -164,8 +164,23 @@ for (const file of [
   "scripts/write-checksums.mjs",
   "scripts/check-release-assets.mjs",
   "scripts/build-arch-package.sh",
+  ".github/workflows/aur.yml",
 ]) {
   requireFile(file);
+}
+
+const aurWorkflow = read(".github/workflows/aur.yml");
+for (const needle of [
+  "oddity-bin",
+  "github-actions-deploy-aur@v4.1.1",
+  "updpkgsums",
+  "AUR_SSH_PRIVATE_KEY",
+  "render-pkgbuild.mjs",
+  "published",
+]) {
+  if (!aurWorkflow.includes(needle)) {
+    fail(`AUR workflow 里没有引用 ${needle}`);
+  }
 }
 
 const archTemplate = read("packaging/arch/PKGBUILD.in");

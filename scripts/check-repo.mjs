@@ -146,6 +146,7 @@ requireFile("scripts/render-pkgbuild.mjs");
 requireFile("scripts/write-checksums.mjs");
 requireFile("scripts/check-release-assets.mjs");
 requireFile("scripts/build-arch-package.sh");
+requireFile(".github/workflows/aur.yml");
 
 const ignore = read(".gitignore");
 for (const required of ["internal/", "research/"]) {
