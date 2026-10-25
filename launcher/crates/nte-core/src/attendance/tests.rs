@@ -75,7 +75,7 @@ fn fixture() -> (TempDir, HttpServer, MemoryVault, Service<MemoryVault>) {
     server.route("/apihub/api/getUserTasks", completed_tasks());
     server.route(
         "/apihub/api/getUserCoinTaskState",
-        r#"{"code":0,"data":{"todayCoin":110,"limitCoin":150}}"#,
+        r#"{"code":0,"data":{"todayGet":110,"todayTotal":150,"total":530}}"#,
     );
     server.route(
         "/cloud/game/getUserInfo",
@@ -654,7 +654,7 @@ fn one_account_sign_failure_does_not_stop_next_account() {
             } else if path.starts_with("/apihub/api/getUserTasks") {
                 completed_tasks()
             } else if path == "/apihub/api/getUserCoinTaskState" {
-                r#"{"code":0,"data":{"todayCoin":110}}"#
+                r#"{"code":0,"data":{"todayGet":30,"todayTotal":150,"total":530}}"#
             } else if path == "/cloud/game/getUserInfo" {
                 r#"{"code":0,"result":{"perDayFirstLoginGiveDuration":0}}"#
             } else {
