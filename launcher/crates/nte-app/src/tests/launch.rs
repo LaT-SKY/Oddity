@@ -8,7 +8,6 @@ struct LaunchFixture {
     launcher: PathBuf,
     prefix: PathBuf,
     proton: PathBuf,
-    bridge: PathBuf,
     dump: PathBuf,
     wine_log: PathBuf,
     path: String,
@@ -53,10 +52,6 @@ impl LaunchFixture {
             &format!("#!/bin/sh\necho \"$@\" > {}\nexit 0\n", wine_log.display()),
         );
 
-        let bridge = dir.join("winroot");
-        std::fs::create_dir_all(bridge.join("NTELauncher")).expect("create bridge dir");
-        dir.write("winroot/NTELauncher/NTEGame.exe", b"MZ");
-
         let dump = dir.join("umu-dump.txt");
         let script = format!(
             "#!/bin/sh\n{{ echo \"args: $@\"; echo \"cwd: $(pwd)\"; env; }} > {dump}.tmp\nmv {dump}.tmp {dump}\nsleep 10\n",
@@ -74,7 +69,6 @@ impl LaunchFixture {
             launcher,
             prefix,
             proton,
-            bridge,
             dump,
             wine_log,
             path,
@@ -85,7 +79,6 @@ impl LaunchFixture {
     fn settings(&self, mode: &str) -> Settings {
         Settings {
             install_root: Some(self.launcher.display().to_string()),
-            bridge_root: Some(self.bridge.display().to_string()),
             prefix: Some(self.prefix.display().to_string()),
             proton_path: Some(self.proton.display().to_string()),
             launch_mode: mode.to_string(),
@@ -132,7 +125,7 @@ fn env_value<'a>(dump: &'a str, key: &str) -> Option<&'a str> {
 fn launch_official_mode_sets_the_proton_environment() {
     let fixture = LaunchFixture::new("launch-official");
     fixture.dir.write_text(
-        "winroot/NTELauncher/UserData/Config/Config.ini",
+        "install/NTELauncher/UserData/Config/Config.ini",
         "[Setting]\r\nautoLogin=1\r\n[User]\r\nuser_t92=deadbeef\r\n",
     );
 
@@ -147,11 +140,6 @@ fn launch_official_mode_sets_the_proton_environment() {
     assert!(invocation.result.started_at > 1_600_000_000_000);
     assert!(Path::new(&invocation.result.log).is_file());
     assert!(invocation.result.log.ends_with("nte-app-launch.log"));
-    assert_eq!(
-        std::fs::canonicalize(fixture.bridge.join("Client")).expect("bridge client"),
-        std::fs::canonicalize(fixture.dir.join("install/Client")).expect("selected client")
-    );
-
     let dump = fixture.dump();
     assert_eq!(
         env_value(&dump, "WINEPREFIX"),
@@ -185,8 +173,8 @@ fn launch_official_mode_sets_the_proton_environment() {
     // 官方启动器会被改成“随游戏退出”的薄壳
     let presence = std::fs::read_to_string(
         fixture
-            .bridge
-            .join("NTELauncher/UserData/Config/Config.ini"),
+            .dir
+            .join("install/NTELauncher/UserData/Config/Config.ini"),
     )
     .expect("read presence config");
     assert!(presence.contains("user_t92=deadbeef"), "{presence}");
@@ -204,11 +192,8 @@ fn launch_official_mode_sets_the_proton_environment() {
 #[test]
 fn launch_background_mode_configures_the_native_session() {
     let fixture = LaunchFixture::new("launch-background");
-    let old_client = fixture.dir.join("old-install/Client");
-    std::fs::create_dir_all(&old_client).expect("create old client");
-    symlink(&old_client, fixture.bridge.join("Client")).expect("link old installation");
     fixture.dir.write_text(
-        "winroot/NTELauncher/UserData/Config/Config.ini",
+        "install/NTELauncher/UserData/Config/Config.ini",
         "[Setting]\nautoLogin=1\n",
     );
 
@@ -223,20 +208,14 @@ fn launch_background_mode_configures_the_native_session() {
     .expect("launch");
     assert_eq!(invocation.result.mode, "background");
     assert!(invocation.result.exe.ends_with("NTEGame.exe"));
-    assert_eq!(
-        std::fs::canonicalize(fixture.bridge.join("Client")).expect("bridge client"),
-        std::fs::canonicalize(fixture.dir.join("install/Client")).expect("selected client")
-    );
-    assert!(old_client.is_dir());
-
     let dump = fixture.dump();
     assert_eq!(
         env_value(&dump, "NTE_BRIDGE_EXE"),
-        Some(windows_path(&fixture.bridge.join("NTELauncher/NTEGame.exe")).as_str())
+        Some(windows_path(&fixture.launcher.join("NTEGame.exe")).as_str())
     );
     assert_eq!(
         env_value(&dump, "NTE_BRIDGE_CWD"),
-        Some(windows_path(&fixture.bridge.join("NTELauncher")).as_str())
+        Some(windows_path(&fixture.launcher).as_str())
     );
     assert_eq!(
         env_value(&dump, "NTE_BRIDGE_ARGS"),
@@ -272,54 +251,16 @@ fn launch_background_mode_configures_the_native_session() {
 }
 
 #[test]
-fn launch_rejects_a_conflicting_bridge_installation_without_changing_it() {
-    let fixture = LaunchFixture::new("launch-conflicting-client");
-    let marker = fixture
-        .dir
-        .write("winroot/Client/keep.pak", b"existing game");
+fn launch_reports_a_configured_empty_root_as_not_installed() {
+    let fixture = LaunchFixture::new("launch-empty-root");
+    let settings = Settings {
+        install_root: Some(fixture.dir.join("empty-install").display().to_string()),
+        ..fixture.settings("official")
+    };
 
-    let error = expect_launch_error(launch_impl_with_profile(
-        &fixture.settings("background"),
-        |_| {
-            Ok(ClickProfile {
-                width: 1280,
-                height: 720,
-                x: 1120,
-                y: 636,
-            })
-        },
-    ));
-    assert!(error.contains("Client 与所选安装目录不一致"), "{error}");
-    assert_eq!(
-        std::fs::read(marker).expect("existing resource"),
-        b"existing game"
-    );
+    let error = expect_launch_error(launch_impl(&settings));
+    assert!(error.contains("尚未安装启动器文件"), "{error}");
     assert!(!fixture.dump.exists());
-}
-
-#[test]
-fn bridge_client_handles_missing_targets_and_install_directory_aliases() {
-    let dir = TempDir::new("bridge-client-paths");
-    let client = dir.join("install/client");
-    let bridge = dir.join("bridge");
-    std::fs::create_dir_all(&client).expect("create selected client");
-    std::fs::create_dir_all(&bridge).expect("create bridge");
-    symlink(dir.join("removed/Client"), bridge.join("Client")).expect("stale link");
-
-    ensure_bridge_client(&bridge, &dir.join("install")).expect("replace dangling link");
-    assert_eq!(
-        std::fs::read_link(bridge.join("Client")).expect("new link"),
-        client
-    );
-    ensure_bridge_client(&bridge, &dir.join("install")).expect("keep matching link");
-
-    let alias = dir.join("alias");
-    symlink(dir.join("install"), &alias).expect("installation alias");
-    ensure_bridge_client(&alias, &dir.join("install")).expect("same installation");
-    assert!(!std::fs::symlink_metadata(&client)
-        .expect("client metadata")
-        .file_type()
-        .is_symlink());
 }
 
 #[test]
@@ -415,9 +356,7 @@ fn launch_direct_mode_targets_the_game_executable() {
 #[test]
 fn launch_can_skip_the_presence_tuning() {
     let mut fixture = LaunchFixture::new("launch-no-presence");
-    let config = fixture
-        .bridge
-        .join("NTELauncher/UserData/Config/Config.ini");
+    let config = fixture.launcher.join("UserData/Config/Config.ini");
     std::fs::create_dir_all(config.parent().expect("config parent")).expect("create config dir");
     std::fs::write(&config, "[Setting]\nautoLogin=1\n").expect("write config");
     fixture.env.set("NTE_DISABLE_PRESENCE_TUNING", "1");
@@ -515,7 +454,6 @@ fn launch_requires_the_expected_tools_and_files() {
                 .display()
                 .to_string(),
         ),
-        bridge_root: None,
         ..settings.clone()
     };
     let error = expect_launch_error(launch_impl(&bare));

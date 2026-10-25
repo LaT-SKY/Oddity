@@ -237,7 +237,6 @@ describe("启动与设置", () => {
       appVersion: "",
       launcherVersion: "",
       installRoot: "",
-      bridgeRoot: "",
       prefix: "",
       protonPath: "",
       settings: { ...settings, theme: "", heroMedia: "", launchMode: "" },
@@ -314,7 +313,6 @@ describe("启动与设置", () => {
     const c = await boot();
     Object.assign(c.form, {
       installRoot: " /new ",
-      bridgeRoot: " ",
       prefix: "/prefix2",
       protonPath: "/proton2",
       launchMode: "",
@@ -328,7 +326,6 @@ describe("启动与设置", () => {
         installRoot: "/new",
         globalInstallRoot: null,
         distribution: "cn",
-        bridgeRoot: null,
         prefix: "/prefix2",
         protonPath: "/proton2",
         launchMode: "background",
@@ -372,6 +369,75 @@ describe("启动与设置", () => {
     expect(c.ui.saveState).toBe("saved");
     await vi.advanceTimersByTimeAsync(2000);
     expect(c.ui.saveState).toBe("idle");
+  });
+
+  it("修改安装目录后统一刷新启动器与游戏资源", async () => {
+    await boot();
+    backend.invoke.mockClear();
+    const input = document.querySelector<HTMLInputElement>("#set-install")!;
+    input.value = "/new-game";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(500);
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
+      settings: expect.objectContaining({ installRoot: "/new-game" }),
+    });
+    expect(backend.invoke).toHaveBeenCalledWith("check_update", {
+      full: false,
+    });
+    expect(backend.invoke).toHaveBeenCalledWith("game_download_start", {
+      mode: "check",
+      full: false,
+    });
+  });
+
+  it("更新页修改安装目录也会统一刷新", async () => {
+    const c = await boot();
+    c.showPage("update");
+    await nextTick();
+    backend.invoke.mockClear();
+    const input = document.querySelector<HTMLInputElement>(
+      "#download-install-root",
+    )!;
+    input.value = "/update-game";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(500);
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
+      settings: expect.objectContaining({ installRoot: "/update-game" }),
+    });
+    expect(backend.invoke).toHaveBeenCalledWith("check_update", {
+      full: false,
+    });
+    expect(backend.invoke).toHaveBeenCalledWith("game_download_start", {
+      mode: "check",
+      full: false,
+    });
+  });
+
+  it("切换到没有启动器的目录时两张状态卡同时显示未安装", async () => {
+    backend.data = bootstrap({ launcherRoot: "", launcherVersion: "" });
+    const c = await boot();
+    backend.invoke.mockClear();
+    const input = document.querySelector<HTMLInputElement>("#set-install")!;
+    input.value = "/empty-game";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(500);
+    await flushPromises();
+
+    expect(c.updateView.value.title).toBe("尚未安装");
+    await c.showPage("update");
+    await nextTick();
+    expect(text("game-download-state-title")).toBe("需要安装启动器文件");
+    expect(primaryText()).toBe("安装游戏");
+    expect(text("update-state-title")).toBe("尚未安装");
+    expect(backend.invoke).not.toHaveBeenCalledWith("check_update", {
+      full: false,
+    });
+    expect(backend.invoke).not.toHaveBeenCalledWith("game_download_start", {
+      mode: "check",
+      full: false,
+    });
   });
 
   it("开关修改立即自动保存", async () => {
@@ -999,6 +1065,40 @@ describe("更新检查", () => {
     }
   });
 
+  it("未安装启动器时显示尚未安装, 目录变化后旧结果失效", async () => {
+    const c = await boot();
+    backend.data = bootstrap({
+      ok: false,
+      error: "所选安装目录尚未安装启动器文件",
+      launcherRoot: "",
+      launcherVersion: "",
+    });
+    await c.redetect();
+    expect(c.updateView.value.title).toBe("尚未安装");
+
+    backend.result = check({
+      installed: false,
+      installRoot: "/game",
+      files: 0,
+      localVersion: "",
+    });
+    await c.checkUpdate(true);
+    await nextTick();
+    expect(c.updateView.value.title).toBe("尚未安装");
+    expect(c.updateView.value.showFiles).toBe(false);
+
+    // 已安装状态下的旧结果也不能沿用到新目录.
+    backend.data = bootstrap();
+    await c.redetect();
+    backend.result = check({ installRoot: "/game" });
+    await c.checkUpdate(true);
+    await nextTick();
+    expect(c.updateView.value.title).toBe("已是最新");
+    c.form.installRoot = "/other";
+    await nextTick();
+    expect(c.updateView.value.title).toBe("尚未检查");
+  });
+
   it("检查期间阻止重复请求, 失败后恢复按钮并按需提示", async () => {
     const c = await boot();
     let reject!: (error: Error) => void;
@@ -1522,6 +1622,9 @@ it("组件事件和双向绑定将用户操作传给控制器", async () => {
   expect(backend.data.settings.installRoot).toBe("/component-game");
   expect(backend.data.settings.theme).toBe("dark");
   expect(backend.data.settings.reduceMotion).toBe(false);
+  // 目录切换触发的统一刷新会启动只读资源检查, 这里模拟它完成.
+  backend.downloadHandler({ ...backend.downloadStatus, phase: "ready" });
+  await flushPromises();
   await wrapper!.find("#settings-redetect").trigger("click");
   await flushPromises();
   expect(text("toast")).toBe("已重新检测环境。");

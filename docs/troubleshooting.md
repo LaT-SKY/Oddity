@@ -62,9 +62,9 @@ toolmanifest.vdf
 ### 卡在启动画面或没有出现登录
 
 - 首次启动的初始化可能需要数分钟，请先等待。
-- 确认 **官方启动器桥接目录** 没有被删除或移动。
+- 确认所选安装目录中的 `NTELauncher` 没有被删除或移动。
 - 检查 `nte-app-launch.log` 与 `helper-window.log` 的最后几十行。
-- 如果使用“研究直启”，请切回 **官方后台桥接**。
+- 如果使用 **直接启动**，请切回 **后台启动**。
 
 ### 桌面启动时提示无法连接 127.0.0.1
 
@@ -101,7 +101,7 @@ KDE 与 GNOME 需要桌面入口才能正确显示任务栏图标。
 | 启动日志 | `~/.local/share/oddity/logs/nte-app-launch.log` |
 | 辅助日志 | `~/.local/share/oddity/logs/helper-window.log` |
 | Wine prefix | 默认 `~/.local/share/oddity/prefix` |
-| 官方启动器桥接副本 | `~/.local/share/oddity/winroot` |
+| 启动器文件 | `<安装目录>/NTELauncher` |
 
 提交问题前，建议先查看日志的最后几十行。请隐去账号、UID、手机号等个人信息。
 

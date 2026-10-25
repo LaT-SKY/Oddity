@@ -29,7 +29,7 @@ body:
         Oddity: 0.1.0-alpha.1
         发行版: ...
         桌面环境: Wayland / X11
-        启动方式: 官方后台桥接 / 官方启动器桥接 / 研究直启
+        启动方式: 后台启动 / 前台启动 / 直接启动
         Proton: ...
     validations:
       required: true

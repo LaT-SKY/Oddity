@@ -175,19 +175,6 @@ const launchModeHint = computed(
             />
           </label>
           <label class="field">
-            <span>官方启动器桥接目录</span>
-            <input
-              id="set-bridge"
-              v-model="form.bridgeRoot"
-              type="text"
-              spellcheck="false"
-              autocomplete="off"
-              placeholder="~/.local/share/oddity/winroot"
-              @input="queueSettingsSave()"
-              @change="queueSettingsSave(0)"
-            />
-          </label>
-          <label class="field">
             <span>Wine prefix</span>
             <input
               id="set-prefix"

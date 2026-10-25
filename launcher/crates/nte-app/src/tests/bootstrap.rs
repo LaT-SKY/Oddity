@@ -95,11 +95,6 @@ fn bootstrap_reports_a_complete_install() {
         install.launcher.display().to_string()
     );
     assert_eq!(
-        bootstrap.bridge_root,
-        install.dir.join("install").display().to_string()
-    );
-    assert!(bootstrap.bridge_ready);
-    assert_eq!(
         bootstrap.prefix,
         install.dir.join("prefix").display().to_string()
     );
@@ -126,7 +121,7 @@ fn bootstrap_reports_a_complete_install() {
             "umu-launcher",
             "Proton",
             "Wine prefix",
-            "官方启动器桥接"
+            "官方启动器"
         ]
     );
     assert!(
@@ -134,52 +129,17 @@ fn bootstrap_reports_a_complete_install() {
         "{:?}",
         bootstrap.checks
     );
-    assert_eq!(bootstrap.checks[5].detail, bootstrap.bridge_root);
+    assert_eq!(
+        bootstrap.checks[5].detail,
+        install
+            .dir
+            .join("install/NTELauncher/NTEGame.exe")
+            .display()
+            .to_string()
+    );
     assert_eq!(bootstrap.settings.install_root, settings.install_root);
     assert_eq!(bootstrap.app_version, env!("CARGO_PKG_VERSION"));
     assert!(bootstrap.os.starts_with(std::env::consts::OS));
-}
-
-#[test]
-fn bootstrap_uses_the_install_version_with_a_separate_bridge() {
-    let install = Install::new("bootstrap-older");
-    let mut env = isolated_env(&install.dir);
-    // 空 PATH：模拟没有 umu-launcher 的机器
-    env.set("PATH", install.dir.join("empty-bin"));
-    install.launcher_config("[VERSION]\nVersion=1.4.16\n");
-    install.user_config("[Game]\nVersion_=1.4.20\n");
-    install
-        .dir
-        .write("data/oddity/winroot/NTELauncher/NTEGame.exe", b"MZ");
-    install.dir.write_text(
-        "data/oddity/winroot/NTELauncher/UserData/Config/Config.ini",
-        "[Game]\nVersion_=1.0.0\n",
-    );
-
-    let settings = Settings {
-        bridge_root: Some(
-            install
-                .dir
-                .join("data/oddity/winroot")
-                .display()
-                .to_string(),
-        ),
-        ..install.settings()
-    };
-    let bootstrap = bootstrap_impl(&settings);
-    assert!(bootstrap.ok);
-    assert_eq!(bootstrap.game_version, "1.4.20");
-    assert!(bootstrap.bridge_ready);
-    assert!(!bootstrap.game_exists);
-    assert!(!bootstrap.prefix_exists);
-    assert_eq!(bootstrap.sdk_path, "");
-    assert!(!bootstrap.umu_available);
-    assert_eq!(
-        bootstrap.checks[1].detail,
-        "未找到 HTGame.exe（注意 Win64 大小写）"
-    );
-    assert_eq!(bootstrap.checks[3].detail, "未找到 Proton");
-    assert_eq!(bootstrap.checks[5].detail, bootstrap.bridge_root);
 }
 
 #[test]
@@ -267,7 +227,6 @@ fn bootstrap_reports_a_missing_install_when_nothing_is_found() {
             bootstrap.install_root,
             selected_install_root(&settings).display().to_string()
         );
-        assert!(!bootstrap.bridge_ready);
         assert!(!bootstrap.game_exists);
         assert_eq!(bootstrap.checks[0].detail, "未找到");
         assert_eq!(
@@ -276,36 +235,69 @@ fn bootstrap_reports_a_missing_install_when_nothing_is_found() {
         );
         assert!(bootstrap.checks[3].detail.contains("未找到 Proton"));
         assert_eq!(bootstrap.checks[4].detail, bootstrap.prefix);
-        assert_eq!(
-            bootstrap.checks[5].detail,
-            "尚未准备；将使用安装目录内启动器"
-        );
+        assert_eq!(bootstrap.checks[5].detail, "未找到");
     }
 }
 
 #[test]
-fn bootstrap_uses_the_default_bridge_and_prefix() {
+fn bootstrap_uses_the_default_prefix() {
     let install = Install::new("bootstrap-defaults");
     let _env = isolated_env(&install.dir);
     install.launcher_config("[VERSION]\nVersion=1.4.16\n");
     install.user_config("[Game]\nVersion_=1.4.20\n");
-    // 没有桥接副本：退回安装目录的父目录
     let bootstrap = bootstrap_impl(&install.settings());
     assert!(bootstrap.ok);
-    assert_eq!(
-        bootstrap.bridge_root,
-        install.dir.join("install").display().to_string()
-    );
-    assert!(!bootstrap.bridge_ready);
-    assert_eq!(
-        bootstrap.checks[5].detail,
-        "尚未准备；将使用安装目录内启动器"
-    );
     // 默认 prefix 落在数据目录下
     assert_eq!(
         bootstrap.prefix,
         install.dir.join("data/oddity/prefix").display().to_string()
     );
+}
+
+#[test]
+fn bootstrap_does_not_fall_back_from_a_configured_empty_root() {
+    let dir = TempDir::new("bootstrap-selected-root");
+    let _env = isolated_env(&dir);
+    // 旧安装仍在默认位置，但不能覆盖用户明确选择的新目录。
+    dir.write_text(
+        "home/Games/Neverness To Everness/NTELauncher/Config/Config.ini",
+        "[VERSION]\nVersion=1.4.16\n",
+    );
+    let selected = dir.join("new-install");
+    let settings = Settings {
+        install_root: Some(selected.display().to_string()),
+        ..Default::default()
+    };
+
+    let bootstrap = bootstrap_impl(&settings);
+    assert_eq!(bootstrap.install_root, selected.display().to_string());
+    assert_eq!(bootstrap.launcher_root, "");
+    assert!(!bootstrap.ok);
+    assert!(
+        bootstrap
+            .error
+            .as_deref()
+            .expect("error text")
+            .contains("尚未安装启动器文件"),
+        "{:?}",
+        bootstrap.error
+    );
+    assert!(!bootstrap.game_exists);
+
+    // 未指定目录时仍使用探测结果。
+    let detected = bootstrap_impl(&Settings::default());
+    assert_eq!(
+        detected.install_root,
+        dir.join("home/Games/Neverness To Everness")
+            .display()
+            .to_string()
+    );
+    assert!(detected.ok);
+}
+
+fn check_install(install: &Install, full: bool) -> Result<CheckResult, String> {
+    let install_root = install.launcher.parent().expect("install root");
+    check_impl(&install.launcher, install_root, Distribution::Cn, full)
 }
 
 fn all_files(entries: &[(&str, u64, &str)]) -> String {
@@ -353,7 +345,7 @@ fn check_impl_reports_the_local_state_against_the_manifest() {
         ]),
     );
 
-    let quick = check_impl(&install.launcher, false).expect("quick check");
+    let quick = check_install(&install, false).expect("quick check");
     // Version.ini 请求带上了时间戳参数
     assert!(
         server
@@ -362,6 +354,12 @@ fn check_impl_reports_the_local_state_against_the_manifest() {
             .any(|target| target.starts_with("/Version.ini?t=")),
         "{:?}",
         server.targets()
+    );
+    assert!(quick.installed);
+    assert_eq!(quick.distribution, "cn");
+    assert_eq!(
+        quick.install_root,
+        install.dir.join("install").display().to_string()
     );
     assert_eq!(quick.remote_version, "1.4.20");
     assert_eq!(quick.local_version, "1.4.16");
@@ -375,7 +373,7 @@ fn check_impl_reports_the_local_state_against_the_manifest() {
     assert_eq!(quick.changed_preview, vec!["/data/changed.txt"]);
 
     // 完整校验会重新算 md5，结果一致
-    let full = check_impl(&install.launcher, true).expect("full check");
+    let full = check_install(&install, true).expect("full check");
     assert_eq!(full.ok, 1);
     assert_eq!(full.missing, 1);
     assert_eq!(full.changed, 1);
@@ -406,7 +404,7 @@ fn check_impl_truncates_the_preview() {
         .collect();
     server.route("/AllFiles.xml", all_files(&borrowed));
 
-    let result = check_impl(&install.launcher, false).expect("check");
+    let result = check_install(&install, false).expect("check");
     assert_eq!(result.files, 15);
     assert_eq!(result.missing, 15);
     assert_eq!(result.missing_preview.len(), 12);
@@ -419,7 +417,7 @@ fn check_impl_reports_every_failure_step() {
     let install = Install::new("check-impl-errors");
 
     // 启动器配置读不出来
-    let error = check_impl(&install.launcher, false).expect_err("no config");
+    let error = check_install(&install, false).expect_err("no config");
     assert!(error.contains("读取启动器配置失败"), "{error}");
 
     // Version.ini 取不到
@@ -427,12 +425,12 @@ fn check_impl_reports_every_failure_step() {
         "[VERSION]\nVersion=1.4.16\nVersionInfoFileURL={}\n",
         server.url("/Version.ini")
     ));
-    let error = check_impl(&install.launcher, false).expect_err("no version");
+    let error = check_install(&install, false).expect_err("no version");
     assert!(error.contains("拉取 Version.ini 失败"), "{error}");
 
     // 远端缺少 FileListURL
     server.route("/Version.ini", "[VERSION]\nVersion=1.4.20\n");
-    let error = check_impl(&install.launcher, false).expect_err("no file list");
+    let error = check_install(&install, false).expect_err("no file list");
     assert!(error.contains("缺少 FileListURL"), "{error}");
 
     // AllFiles.xml 取不到
@@ -443,12 +441,12 @@ fn check_impl_reports_every_failure_step() {
             server.url("/AllFiles.xml")
         ),
     );
-    let error = check_impl(&install.launcher, false).expect_err("no manifest");
+    let error = check_install(&install, false).expect_err("no manifest");
     assert!(error.contains("拉取 AllFiles.xml 失败"), "{error}");
 
     // 清单里没有文件同样算失败
     server.route("/AllFiles.xml", "<AllFiles/>");
-    let error = check_impl(&install.launcher, false).expect_err("empty manifest");
+    let error = check_install(&install, false).expect_err("empty manifest");
     assert!(error.contains("拉取 AllFiles.xml 失败"), "{error}");
 }
 

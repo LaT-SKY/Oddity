@@ -11,6 +11,8 @@ import {
   checkUpdate,
   updateView,
   formatSize,
+  queueSettingsSave,
+  settingsPathsLocked,
 } from "../core/controller";
 import type { DownloadPhase } from "../types/launcher";
 
@@ -31,6 +33,12 @@ const statusMatches = computed(
   () => state.download?.distribution === form.distribution,
 );
 const active = computed(() => downloadBusy());
+const launcherInstalled = computed(() =>
+  Boolean(state.bootstrap?.launcherRoot),
+);
+const awaitingInstall = computed(
+  () => !launcherInstalled.value && !active.value && !state.checking,
+);
 const cancellable = computed(() =>
   ["checking", "launcher", "game"].includes(state.download?.phase || ""),
 );
@@ -73,17 +81,25 @@ const stale = computed(
         resolvedRoot.value.replace(/\/+$/, "")),
 );
 const displayPhase = computed<DownloadPhase>(() =>
-  stale.value ? "idle" : phase.value,
+  awaitingInstall.value ? "needs-install" : stale.value ? "idle" : phase.value,
 );
-const statusVisible = computed(() => statusMatches.value && !stale.value);
+const statusVisible = computed(
+  () => awaitingInstall.value || (statusMatches.value && !stale.value),
+);
 
 const stateTitle = computed(() =>
-  statusVisible.value ? downloadView.value.title : "尚未检查游戏资源",
+  awaitingInstall.value
+    ? "需要安装启动器文件"
+    : statusVisible.value
+      ? downloadView.value.title
+      : "尚未检查游戏资源",
 );
 const stateDetail = computed(() =>
-  statusVisible.value
-    ? downloadView.value.detail
-    : "选择地区和安装目录后检查资源",
+  awaitingInstall.value
+    ? "启动器文件尚未安装, 完成后将继续检查游戏资源"
+    : statusVisible.value
+      ? downloadView.value.detail
+      : "选择地区和安装目录后检查资源",
 );
 const stateIcon = computed(() => {
   switch (displayPhase.value) {
@@ -192,6 +208,7 @@ const primaryDisabled = computed(
 );
 const showProgress = computed(
   () =>
+    !awaitingInstall.value &&
     statusVisible.value &&
     state.download !== null &&
     phase.value !== "checking" &&
@@ -244,7 +261,8 @@ const transferActive = computed(
             id="download-distribution"
             v-model="form.distribution"
             :options="distributionOptions"
-            :disabled="active"
+            :disabled="settingsPathsLocked"
+            @change="queueSettingsSave(0)"
           />
         </div>
         <label class="field field--wide">
@@ -255,7 +273,9 @@ const transferActive = computed(
             type="text"
             spellcheck="false"
             autocomplete="off"
-            :disabled="active"
+            :disabled="settingsPathsLocked"
+            @input="queueSettingsSave()"
+            @change="queueSettingsSave(0)"
             :placeholder="
               form.distribution === 'cn'
                 ? '~/Games/Neverness To Everness'

@@ -9,7 +9,6 @@ export const settings: Settings = {
   installRoot: null,
   globalInstallRoot: null,
   distribution: "cn",
-  bridgeRoot: null,
   prefix: null,
   protonPath: null,
   launchMode: "background",
@@ -25,8 +24,6 @@ export const bootstrap = (overrides: Partial<Bootstrap> = {}): Bootstrap => ({
   error: null,
   installRoot: "/game",
   launcherRoot: "/game/launcher",
-  bridgeRoot: "/bridge",
-  bridgeReady: true,
   prefix: "/prefix",
   prefixExists: true,
   protonName: "GE-Proton",
@@ -45,6 +42,9 @@ export const bootstrap = (overrides: Partial<Bootstrap> = {}): Bootstrap => ({
   ...overrides,
 });
 export const check = (overrides: Partial<CheckResult> = {}): CheckResult => ({
+  installed: true,
+  distribution: "cn",
+  installRoot: "/game",
   remoteVersion: "1.0",
   localVersion: "1.0",
   productVersion: "1.0",

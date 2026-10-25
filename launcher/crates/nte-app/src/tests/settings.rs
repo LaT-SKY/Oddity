@@ -7,7 +7,6 @@ fn settings_default_matches_the_ui_contract() {
     assert!(settings.install_root.is_none());
     assert!(settings.global_install_root.is_none());
     assert_eq!(settings.distribution, Distribution::Cn);
-    assert!(settings.bridge_root.is_none());
     assert!(settings.prefix.is_none());
     assert!(settings.proton_path.is_none());
     assert_eq!(settings.launch_mode, "background");
@@ -23,7 +22,6 @@ fn settings_default_matches_the_ui_contract() {
 fn download_only_blocks_region_and_install_paths() {
     let current = Settings::default();
     let mut next = current.clone();
-    next.bridge_root = Some("/bridge".into());
     next.prefix = Some("/prefix".into());
     next.proton_path = Some("/proton".into());
     next.launch_mode = "direct".into();
@@ -62,7 +60,6 @@ fn settings_round_trip_through_the_config_dir() {
         install_root: Some("/games/nte".to_string()),
         global_install_root: Some("/games/nte-global".to_string()),
         distribution: Distribution::Global,
-        bridge_root: None,
         prefix: Some("~/prefix".to_string()),
         proton_path: Some("/opt/proton".to_string()),
         launch_mode: "direct".to_string(),
