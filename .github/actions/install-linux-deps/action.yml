@@ -8,8 +8,8 @@ runs:
       uses: actions/cache@v6
       with:
         path: ~/.cache/oddity-apt
-        # 改动包列表后递增 v1
-        key: apt-archives-${{ runner.os }}-v1
+        # 改动包列表后递增 v2
+        key: apt-archives-${{ runner.os }}-v2
         restore-keys: |
           apt-archives-${{ runner.os }}-
 
@@ -36,5 +36,9 @@ runs:
           patchelf \
           file \
           desktop-file-utils \
-          dpkg-dev
+          dpkg-dev \
+          rpm \
+          libarchive-tools \
+          libfuse2 \
+          zstd
         sudo cp -n /var/cache/apt/archives/*.deb "$archives"/ 2>/dev/null || true

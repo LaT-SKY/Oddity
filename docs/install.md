@@ -24,6 +24,8 @@ Neverness To Everness/
 
 ## 安装构建依赖
 
+仅从源码构建 Oddity 时需要这些依赖; 使用 Release 中的包可以跳过本节.
+
 ### Debian / Ubuntu
 
 ```bash
@@ -64,6 +66,24 @@ Oddity 会自动查找 Steam 的兼容工具目录。如果 Proton 放在其他�
 > Proton 路径必须指向安装目录，该目录中应同时包含 `proton` 和 `toolmanifest.vdf`。不要选择 `proton` 可执行文件本身。
 
 ## 安装 Oddity
+
+### 从 Release 安装
+
+在 [Releases](https://github.com/LaT-SKY/Oddity/releases) 下载对应发行版的包. 每个包都会安装 Oddity、`nte-cli`、桌面入口和图标.
+
+| 系统 | 包 | 安装命令 |
+|---|---|---|
+| Debian / Ubuntu | `.deb` | `sudo apt install ./oddity_*_amd64.deb` |
+| Fedora | `.rpm` | `sudo dnf install ./oddity-*.x86_64.rpm` |
+| openSUSE | `.rpm` | `sudo zypper install ./oddity-*.x86_64.rpm` |
+| Arch Linux | `.pkg.tar.zst` | `sudo pacman -U oddity-bin-*.pkg.tar.zst` |
+| 通用 Linux | `.AppImage` | `chmod +x oddity-*.AppImage && ./oddity-*.AppImage` |
+
+原生包会通过系统包管理器处理 WebKitGTK 4.1、GTK 3、`libsecret` 和 `xdg-utils` 等依赖. `umu-launcher` 作为推荐依赖安装; Proton 仍需按上面的步骤准备.
+
+AppImage 需要系统提供 FUSE 2. 如果无法运行, 可以使用 `./oddity-*.AppImage --appimage-extract-and-run`, 或改用对应发行版的原生包. 主页视频还依赖系统的 GStreamer 插件; 缺少时仍可使用照片模式.
+
+### 从源码构建
 
 ```bash
 git clone https://github.com/LaT-SKY/Oddity.git
@@ -133,6 +153,19 @@ Windows 与 Linux 共用安装时, 请确认 Windows 更新后, 当前 Linux 用
 当前验证范围见[游戏下载验证记录](download-verification.md).
 
 ## 更新 Oddity
+
+使用发行版包时, 通过系统包管理器更新即可:
+
+```bash
+sudo apt update && sudo apt upgrade      # Debian / Ubuntu
+sudo dnf upgrade                          # Fedora
+sudo zypper update                        # openSUSE
+sudo pacman -Syu                          # Arch Linux
+```
+
+AppImage 没有自动更新, 需要重新下载新版本并替换旧文件.
+
+从源码构建时按下面的步骤更新:
 
 ```bash
 cd Oddity

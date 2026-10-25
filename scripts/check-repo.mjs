@@ -138,6 +138,14 @@ requireFile("launcher/crates/nte-app/tauri.conf.json");
 requireFile("docs/install.md");
 requireFile("docs/troubleshooting.md");
 requireFile("launcher/ui/public/assets/app-icon.svg");
+requireFile("packaging/arch/PKGBUILD.in");
+requireFile("packaging/arch/oddity-bin.install");
+requireFile("scripts/release-version.mjs");
+requireFile("scripts/stage-release.mjs");
+requireFile("scripts/render-pkgbuild.mjs");
+requireFile("scripts/write-checksums.mjs");
+requireFile("scripts/check-release-assets.mjs");
+requireFile("scripts/build-arch-package.sh");
 
 const ignore = read(".gitignore");
 for (const required of ["internal/", "research/"]) {
