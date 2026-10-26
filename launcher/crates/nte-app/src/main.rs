@@ -636,19 +636,24 @@ fn steam_roots() -> Vec<PathBuf> {
     roots
 }
 
-fn install_seeds(base: &Path, seeds: &mut Vec<PathBuf>) {
-    seeds.push(
-        base.join("Program Files (x86)")
-            .join("Neverness To Everness")
-            .join("NTELauncher"),
-    );
-    seeds.push(
-        base.join("Program Files")
-            .join("Neverness To Everness")
-            .join("NTELauncher"),
-    );
-    seeds.push(base.join("Neverness To Everness").join("NTELauncher"));
-    seeds.push(base.join("NTELauncher"));
+fn install_seeds(base: &Path, distribution: Distribution, seeds: &mut Vec<PathBuf>) {
+    for name in [
+        distribution.default_install_name(),
+        "Neverness To Everness",
+        "Neverness to Everness",
+    ] {
+        for prefix in [
+            base.join("Program Files (x86)"),
+            base.join("Program Files"),
+            base.to_path_buf(),
+        ] {
+            let candidate = prefix.join(name).join(distribution.launcher_dir());
+            if !seeds.contains(&candidate) {
+                seeds.push(candidate);
+            }
+        }
+    }
+    seeds.push(base.join(distribution.launcher_dir()));
 }
 
 fn data_base() -> PathBuf {
@@ -775,19 +780,6 @@ fn which(cmd: &str) -> Option<PathBuf> {
     None
 }
 
-/// Accept either the launcher directory (contains Config/Config.ini) or the
-/// install directory (contains NTELauncher/Config/Config.ini).
-fn normalize_launcher_root(path: &Path) -> Option<PathBuf> {
-    if path.join("Config").join("Config.ini").is_file() {
-        return Some(path.to_path_buf());
-    }
-    let nested = path.join("NTELauncher");
-    if nested.join("Config").join("Config.ini").is_file() {
-        return Some(nested);
-    }
-    None
-}
-
 fn configured_install_root(settings: &Settings) -> Option<&str> {
     match settings.distribution {
         Distribution::Cn => settings.install_root.as_deref(),
@@ -836,14 +828,18 @@ fn normalize_launcher_root_for(path: &Path, distribution: Distribution) -> Optio
         }
         nested
     };
+    if root.file_name().is_some_and(|name| {
+        [Distribution::Cn, Distribution::Global]
+            .into_iter()
+            .any(|other| other != distribution && name == other.launcher_dir())
+    }) {
+        return None;
+    }
     let game_id = match LauncherConfig::load(&root) {
         Ok(config) => config.game_id,
         Err(_) => return Some(root),
     };
-    let expected = match distribution {
-        Distribution::Cn => 1289,
-        Distribution::Global => 3000001,
-    };
+    let expected = distribution.game_id();
     (game_id == 0 || game_id == expected).then_some(root)
 }
 
@@ -853,33 +849,32 @@ fn detect_launcher_root(settings: &Settings) -> Option<PathBuf> {
         return normalize_launcher_root_for(&expand_path(raw), settings.distribution);
     }
 
-    if settings.distribution == Distribution::Global {
-        return normalize_launcher_root_for(
-            &default_install_root(Distribution::Global),
-            Distribution::Global,
-        );
-    }
-
     for key in ["NTE_ROOT", "NTE_INSTALL"] {
         if let Some(raw) = std::env::var_os(key) {
-            if let Some(root) = normalize_launcher_root(&expand_path(&raw.to_string_lossy())) {
+            if let Some(root) = normalize_launcher_root_for(
+                &expand_path(&raw.to_string_lossy()),
+                settings.distribution,
+            ) {
                 return Some(root);
             }
         }
     }
 
-    let mut seeds: Vec<PathBuf> = Vec::new();
-    seeds.push(
-        home_dir()
-            .join("Games")
-            .join("Neverness To Everness")
-            .join("NTELauncher"),
-    );
-    seeds.push(home_dir().join("Games").join("异环").join("NTELauncher"));
+    let mut seeds: Vec<PathBuf> = vec![
+        default_install_root(settings.distribution).join(settings.distribution.launcher_dir())
+    ];
+    install_seeds(&home_dir().join("Games"), settings.distribution, &mut seeds);
+    if settings.distribution == Distribution::Cn {
+        seeds.push(
+            home_dir()
+                .join("Games/异环")
+                .join(settings.distribution.launcher_dir()),
+        );
+    }
 
     if let Ok(cwd) = std::env::current_dir() {
         for ancestor in cwd.ancestors() {
-            install_seeds(ancestor, &mut seeds);
+            install_seeds(ancestor, settings.distribution, &mut seeds);
         }
     }
 
@@ -890,10 +885,10 @@ fn detect_launcher_root(settings: &Settings) -> Option<PathBuf> {
         if let Ok(entries) = fs::read_dir(mount_root) {
             for entry in entries.flatten() {
                 let path = entry.path();
-                install_seeds(&path, &mut seeds);
+                install_seeds(&path, settings.distribution, &mut seeds);
                 if let Ok(children) = fs::read_dir(&path) {
                     for child in children.flatten() {
-                        install_seeds(&child.path(), &mut seeds);
+                        install_seeds(&child.path(), settings.distribution, &mut seeds);
                     }
                 }
             }
@@ -901,7 +896,7 @@ fn detect_launcher_root(settings: &Settings) -> Option<PathBuf> {
     }
 
     for seed in seeds {
-        if let Some(root) = normalize_launcher_root(&seed) {
+        if let Some(root) = normalize_launcher_root_for(&seed, settings.distribution) {
             return Some(root);
         }
     }
@@ -1352,8 +1347,8 @@ async fn check_update(state: State<'_, AppState>, full: bool) -> Result<CheckRes
 }
 
 #[tauri::command]
-async fn fetch_bulletins() -> Result<BulletinFeed, String> {
-    tauri::async_runtime::spawn_blocking(bulletin::fetch)
+async fn fetch_bulletins(distribution: Distribution) -> Result<BulletinFeed, String> {
+    tauri::async_runtime::spawn_blocking(move || bulletin::fetch_for(distribution))
         .await
         .map_err(|error| format!("公告抓取任务失败：{error}"))
 }
@@ -1401,10 +1396,12 @@ fn save_settings(
     Ok(bootstrap_impl(&next))
 }
 
+const WINDOW_GUARD_BYTES: &[u8] = include_bytes!("../../../helpers/nte-window-guard.dll");
 const LAUNCH_HELPER_BYTES: &[u8] = include_bytes!("../../../helpers/nte-launch-helper.exe");
 const SESSION_HELPER_BYTES: &[u8] = include_bytes!("../../../helpers/nte-session-helper.exe");
 
 fn ensure_launch_helper() -> Result<PathBuf, String> {
+    ensure_helper("nte-window-guard.dll", WINDOW_GUARD_BYTES)?;
     ensure_helper("nte-launch-helper.exe", LAUNCH_HELPER_BYTES)
 }
 
@@ -1783,7 +1780,11 @@ fn launch_impl_with_profile(
         let native_log = display_exe
             .parent()
             .ok_or("官方启动器没有父目录")?
-            .join("UserData/Log/NTEGame.log");
+            .join("UserData/Log")
+            .join(format!(
+                "{}.log",
+                settings.distribution.client_exe().trim_end_matches(".exe")
+            ));
         Some(NativeSession::prepare(&log_dir, &native_log, profile)?)
     } else {
         None
@@ -2292,7 +2293,9 @@ fn main() {
             }
         })
         .setup(|app| {
-            attendance_commands::on_launch();
+            if load_settings().distribution == Distribution::Cn {
+                attendance_commands::on_launch();
+            }
             if let Some(window) = app.get_webview_window("main") {
                 let _ = window.set_icon(tauri::include_image!("icons/icon.png"));
             }

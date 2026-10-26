@@ -223,7 +223,12 @@ const launchModeHint = computed(
           <i class="switch" aria-hidden="true"></i>
         </label>
       </section>
-      <TaygedoSettings v-if="state.page === 'settings'" />
+      <p v-if="form.distribution === 'global'" class="field__hint">
+        塔吉多签到和实时数据仅适用于国服. 国际服请使用官方账号服务.
+      </p>
+      <TaygedoSettings
+        v-if="state.page === 'settings' && form.distribution === 'cn'"
+      />
       <LogExport />
     </form>
 

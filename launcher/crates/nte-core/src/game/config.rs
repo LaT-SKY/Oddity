@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::{Error, Result};
+use crate::{distribution::Distribution, Error, Result};
 
 #[derive(Debug, Clone)]
 pub struct CheckRule {
@@ -64,21 +64,46 @@ impl GameUpdateConfig {
             fs::read_to_string(config_dir.join("PatcherConfig.json")).map_err(Error::Io)?;
         let pc: PatcherConfigJson = serde_json::from_str(&patcher_json)
             .map_err(|e| Error::Parse(format!("PatcherConfig.json: {e}")))?;
-        let mut cdns = pc.game_res_url;
-        if cdns.is_empty() {
-            cdns = pc.game_update_asset_url;
-        }
-        if cdns.is_empty() {
-            cdns.push("https://yhcdn1.wmupd.com/clientRes".to_string());
-        }
         let branch = pc
             .branch_name
-            .filter(|s| !s.is_empty())
+            .filter(|s| !s.trim().is_empty())
             .ok_or_else(|| Error::Parse("PatcherConfig.json has no branchName".into()))?;
         let app_id = pc
             .app_id
-            .filter(|s| !s.is_empty())
+            .filter(|s| !s.trim().is_empty())
             .ok_or_else(|| Error::Parse("PatcherConfig.json has no appId".into()))?;
+        if game_id > 0 && app_id != game_id.to_string() {
+            return Err(Error::Integrity(
+                "PatcherConfig.json appId 与游戏地区不一致".into(),
+            ));
+        }
+        let distribution = app_id.parse().ok().and_then(Distribution::from_game_id);
+        let mut cdns: Vec<String> = pc
+            .game_res_url
+            .into_iter()
+            .filter(|s| !s.trim().is_empty())
+            .collect();
+        if cdns.is_empty() {
+            cdns = pc
+                .game_update_asset_url
+                .into_iter()
+                .filter(|s| !s.trim().is_empty())
+                .collect();
+        }
+        if cdns.is_empty() {
+            let region =
+                distribution.ok_or_else(|| Error::Parse("未知 appId 缺少资源 CDN 配置".into()))?;
+            cdns = region
+                .resource_cdns()
+                .into_iter()
+                .map(str::to_string)
+                .collect();
+        }
+        let update_branch = pc
+            .update_branch_name
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| distribution.map(|region| region.update_branch().to_string()))
+            .ok_or_else(|| Error::Parse("PatcherConfig.json has no updateBranchName".into()))?;
 
         let path_json = fs::read_to_string(config_dir.join("PatcherPath.json"))
             .ok()
@@ -113,9 +138,7 @@ impl GameUpdateConfig {
             config_dir,
             patcher_dir,
             branch,
-            update_branch: pc
-                .update_branch_name
-                .unwrap_or_else(|| "publish_Updata".into()),
+            update_branch,
             app_id,
             cdns,
             rules,
@@ -157,19 +180,28 @@ fn find_config_dir(launcher_root: &Path, game_id: i64) -> Result<PathBuf> {
         if p.join("PatcherConfig.json").is_file() {
             return Ok(p);
         }
+        return Err(Error::Parse(format!(
+            "no PatcherConfig.json for GameID={game_id}"
+        )));
     }
     let root = launcher_root.join("ResFilesM");
     let entries = fs::read_dir(&root).map_err(Error::Io)?;
-    for entry in entries.flatten() {
-        let p = entry.path().join("PatcherConfig");
-        if p.join("PatcherConfig.json").is_file() {
-            return Ok(p);
-        }
+    let mut candidates = entries
+        .flatten()
+        .map(|entry| entry.path().join("PatcherConfig"))
+        .filter(|path| path.join("PatcherConfig.json").is_file());
+    let first = candidates.next().ok_or_else(|| {
+        Error::Parse(format!(
+            "no ResFilesM/*/PatcherConfig/PatcherConfig.json under {}",
+            launcher_root.display()
+        ))
+    })?;
+    if candidates.next().is_some() {
+        return Err(Error::Integrity(
+            "多个资源配置目录且 GameID 未指定, 无法确定游戏地区".into(),
+        ));
     }
-    Err(Error::Parse(format!(
-        "no ResFilesM/*/PatcherConfig/PatcherConfig.json under {}",
-        launcher_root.display()
-    )))
+    Ok(first)
 }
 
 fn normalize_extension(value: &str) -> String {
@@ -275,7 +307,24 @@ mod tests {
             r#"{"branchName":"publish_ob","appId":"1289"}"#,
         );
         let cfg = GameUpdateConfig::load(&launcher_root(&dir), 0).expect("load config");
-        assert_eq!(cfg.cdns, vec!["https://yhcdn1.wmupd.com/clientRes"]);
+        assert_eq!(cfg.cdns, Distribution::Cn.resource_cdns());
+    }
+
+    #[test]
+    fn global_resources_use_global_cdns_and_update_branch() {
+        let dir = TempDir::new("gamecfg-global");
+        let path = "install/NTEGlobal/ResFilesM/3000001/PatcherConfig/PatcherConfig.json";
+        dir.write(path, r#"{"branchName":"PC_140","appId":"3000001"}"#);
+        let root = dir.join("install/NTEGlobal");
+        let cfg = GameUpdateConfig::load(&root, 3000001).unwrap();
+        assert_eq!(cfg.cdns, Distribution::Global.resource_cdns());
+        assert_eq!(cfg.update_branch, "Publish_Update");
+        assert_eq!(cfg.branch, "PC_140");
+        dir.write(path, r#"{"branchName":"PC_140","appId":"1289"}"#);
+        assert!(matches!(
+            GameUpdateConfig::load(&root, 3000001),
+            Err(Error::Integrity(_))
+        ));
     }
 
     #[test]
@@ -321,14 +370,15 @@ mod tests {
     }
 
     #[test]
-    fn finds_a_config_directory_below_any_game_id() {
+    fn rejects_other_game_ids_and_scans_when_id_is_unknown() {
         let dir = TempDir::new("gamecfg-scan");
-        // game_id 指向的目录不存在时退回到扫描 ResFilesM
+        // 已知 GameID 不得扫描其他区服的资源配置.
         dir.write(
             "install/NTELauncher/ResFilesM/4321/PatcherConfig/PatcherConfig.json",
-            r#"{"branchName":"publish_ob","appId":"4321"}"#,
+            r#"{"branchName":"custom","updateBranchName":"custom_update","appId":"4321","gameResUrl":["https://custom.test"]}"#,
         );
-        let cfg = GameUpdateConfig::load(&launcher_root(&dir), 1289).expect("load config");
+        assert!(GameUpdateConfig::load(&launcher_root(&dir), 1289).is_err());
+        let cfg = GameUpdateConfig::load(&launcher_root(&dir), 0).expect("load config");
         assert_eq!(cfg.app_id, "4321");
         assert!(cfg.config_dir.ends_with("ResFilesM/4321/PatcherConfig"));
     }

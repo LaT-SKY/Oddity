@@ -174,6 +174,8 @@ fn windows_path_uses_z_drive() {
 fn bundled_helper_is_a_pe() {
     assert!(LAUNCH_HELPER_BYTES.starts_with(b"MZ"));
     assert!(LAUNCH_HELPER_BYTES.len() > 1024);
+    assert!(WINDOW_GUARD_BYTES.starts_with(b"MZ"));
+    assert!(WINDOW_GUARD_BYTES.len() > 1024);
 }
 
 #[test]
@@ -188,6 +190,9 @@ fn installs_and_refreshes_the_bundled_helper() {
         std::fs::read(&path).expect("read helper"),
         LAUNCH_HELPER_BYTES
     );
+
+    let guard = dir.join("oddity/helpers/nte-window-guard.dll");
+    assert_eq!(std::fs::read(&guard).unwrap(), WINDOW_GUARD_BYTES);
 
     // 内容一致时不重写
     let stamp = std::fs::metadata(&path)
@@ -205,11 +210,14 @@ fn installs_and_refreshes_the_bundled_helper() {
 
     // 内容不符时重新写入
     std::fs::write(&path, b"MZ stale").expect("write stale helper");
+    std::fs::write(&guard, b"MZ stale guard").expect("write stale guard");
     ensure_launch_helper().expect("refresh helper");
     assert_eq!(
         std::fs::read(&path).expect("read helper"),
         LAUNCH_HELPER_BYTES
     );
+    assert_eq!(std::fs::read(&guard).unwrap(), WINDOW_GUARD_BYTES);
+    assert!(!dir.join("oddity/helpers/nte-window-guard.dll.new").exists());
     assert!(!dir
         .join("oddity/helpers/nte-launch-helper.exe.new")
         .exists());

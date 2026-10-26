@@ -42,9 +42,7 @@ pub fn resolve(launcher_root: &Path) -> Option<LauncherBackground> {
 
     let preferred = game_id.map(|id| res_root.join(id.to_string()).join("bgimgs"));
     if let Some(dir) = &preferred {
-        if let Some(background) = read_background(dir) {
-            return Some(background);
-        }
+        return read_background(dir);
     }
 
     let mut candidates: Vec<PathBuf> = std::fs::read_dir(&res_root)
@@ -215,6 +213,14 @@ mod tests {
             Some(dir.join("launcher/ResFilesM/3000001/bgimgs/bg.mp4"))
         );
         assert_eq!(background.image, None);
+    }
+
+    #[test]
+    fn known_game_id_does_not_use_another_distributions_background() {
+        let dir = TempDir::new("background-region");
+        let root = launcher(&dir, "3000001");
+        dir.write("launcher/ResFilesM/1289/bgimgs/bg.mp4", b"cn video");
+        assert_eq!(resolve(&root), None);
     }
 
     #[test]

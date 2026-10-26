@@ -513,9 +513,12 @@ fn process_kind(pid: libc::pid_t, token: &str) -> Option<ProcessKind> {
     let name = command_name(arguments.first().copied()?);
     let kind = match name.as_str() {
         "htgame.exe" => Some(ProcessKind::Game),
-        "nte-session-helper.exe" | "nte-launch-helper.exe" | "ntegame.exe" | "ntebrowser.exe" => {
-            Some(ProcessKind::Native)
-        }
+        "nte-session-helper.exe"
+        | "nte-launch-helper.exe"
+        | "ntegame.exe"
+        | "ntebrowser.exe"
+        | "nteglobalgame.exe"
+        | "nteglobalbrowser.exe" => Some(ProcessKind::Native),
         "umu" | "umu-run" | "umu-launcher" | "umu-shim" | "umu.exe" | "proton" => {
             Some(ProcessKind::Wrapper)
         }
@@ -697,7 +700,7 @@ time.sleep(60)
         let other_directory = TempDir::new("native-session-other");
         let other = session(&other_directory);
         let session = session(&directory);
-        let image = directory.join("NTEGame.exe");
+        let image = directory.join("NTEGlobalGame.exe");
         std::os::unix::fs::symlink("/bin/sleep", &image).unwrap();
         let mut own = Command::new(&image)
             .arg("60")

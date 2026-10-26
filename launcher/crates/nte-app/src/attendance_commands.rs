@@ -3,6 +3,24 @@ use nte_core::attendance::{
     self, Failure, FailureKind, Preferences, Result, Service, Status, Trigger,
 };
 
+fn require_cn(state: &tauri::State<crate::AppState>) -> Result<()> {
+    let distribution = state
+        .settings
+        .lock()
+        .map_err(|_| Failure {
+            kind: FailureKind::Service,
+            message: "无法读取当前游戏地区".into(),
+        })?
+        .distribution;
+    if distribution != nte_core::distribution::Distribution::Cn {
+        return Err(Failure {
+            kind: FailureKind::Service,
+            message: "塔吉多仅支持国服账号, 国际服请使用官方账号服务".into(),
+        });
+    }
+    Ok(())
+}
+
 async fn blocking<T: Send + 'static>(
     job: impl FnOnce() -> Result<T> + Send + 'static,
 ) -> Result<T> {
@@ -24,32 +42,43 @@ pub async fn attendance_status() -> Result<Status> {
     blocking(|| attendance::default_service().status()).await
 }
 #[tauri::command]
-pub async fn attendance_refresh_game_records() -> Result<Status> {
+pub async fn attendance_refresh_game_records(
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<Status> {
+    require_cn(&state)?;
     blocking(|| attendance::default_service().refresh_game_records()).await
 }
 #[tauri::command]
 pub async fn attendance_login(
+    state: tauri::State<'_, crate::AppState>,
     phone: String,
     password: String,
     remember_password: bool,
 ) -> Result<Status> {
     let password = zeroize::Zeroizing::new(password);
+    require_cn(&state)?;
     blocking(move || {
         attendance::default_service().login(phone.trim(), &password, remember_password)
     })
     .await
 }
 #[tauri::command]
-pub async fn attendance_send_code(phone: String) -> Result<String> {
+pub async fn attendance_send_code(
+    state: tauri::State<'_, crate::AppState>,
+    phone: String,
+) -> Result<String> {
+    require_cn(&state)?;
     blocking(move || attendance::default_service().send_code(phone.trim())).await
 }
 #[tauri::command]
 pub async fn attendance_login_sms(
+    state: tauri::State<'_, crate::AppState>,
     phone: String,
     code: String,
     device_id: String,
 ) -> Result<Status> {
     let code = zeroize::Zeroizing::new(code);
+    require_cn(&state)?;
     blocking(move || attendance::default_service().login_sms(phone.trim(), &code, &device_id)).await
 }
 #[tauri::command]
@@ -57,7 +86,8 @@ pub async fn attendance_configure(preferences: Preferences) -> Result<Status> {
     blocking(move || attendance::default_service().configure(preferences, &executable()?)).await
 }
 #[tauri::command]
-pub async fn attendance_run() -> Result<Status> {
+pub async fn attendance_run(state: tauri::State<'_, crate::AppState>) -> Result<Status> {
+    require_cn(&state)?;
     blocking(|| attendance::default_service().run(None)).await
 }
 #[tauri::command]
@@ -142,4 +172,54 @@ pub fn headless_entry() -> bool {
         std::process::exit(1);
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AppState, GameTracker, Settings};
+    use nte_core::distribution::Distribution;
+    use std::sync::Mutex;
+    use tauri::Manager;
+
+    #[test]
+    fn global_commands_reject_requests_before_account_access() {
+        let app = tauri::test::mock_app();
+        app.manage(AppState {
+            settings: Mutex::new(Settings {
+                distribution: Distribution::Global,
+                ..Default::default()
+            }),
+            game: Mutex::new(GameTracker::default()),
+        });
+        tauri::async_runtime::block_on(async {
+            let errors = [
+                attendance_refresh_game_records(app.state())
+                    .await
+                    .unwrap_err(),
+                attendance_login(app.state(), String::new(), String::new(), false)
+                    .await
+                    .unwrap_err(),
+                attendance_send_code(app.state(), String::new())
+                    .await
+                    .unwrap_err(),
+                attendance_login_sms(app.state(), String::new(), String::new(), String::new())
+                    .await
+                    .unwrap_err(),
+                attendance_run(app.state()).await.unwrap_err(),
+            ];
+            for error in errors {
+                assert_eq!(error.kind, FailureKind::Service);
+                assert!(error.message.contains("仅支持国服"));
+            }
+        });
+        let state = app.state::<AppState>();
+        state.settings.lock().unwrap().distribution = Distribution::Cn;
+        assert!(require_cn(&state).is_ok());
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _settings = state.settings.lock().unwrap();
+            panic!("poison settings");
+        }));
+        assert!(require_cn(&state).unwrap_err().message.contains("无法读取"));
+    }
 }

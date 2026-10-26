@@ -72,16 +72,17 @@ fn steam_roots_deduplicate_and_follow_the_environment() {
 #[test]
 fn install_seeds_cover_the_known_layouts() {
     let mut seeds = Vec::new();
-    install_seeds(Path::new("/mnt/games"), &mut seeds);
-    assert_eq!(
-        seeds,
-        vec![
-            PathBuf::from("/mnt/games/Program Files (x86)/Neverness To Everness/NTELauncher"),
-            PathBuf::from("/mnt/games/Program Files/Neverness To Everness/NTELauncher"),
-            PathBuf::from("/mnt/games/Neverness To Everness/NTELauncher"),
-            PathBuf::from("/mnt/games/NTELauncher"),
-        ]
-    );
+    install_seeds(Path::new("/mnt/games"), Distribution::Cn, &mut seeds);
+    assert!(seeds.contains(&PathBuf::from(
+        "/mnt/games/Program Files (x86)/Neverness To Everness/NTELauncher"
+    )));
+    assert!(seeds.contains(&PathBuf::from("/mnt/games/NTELauncher")));
+    seeds.clear();
+    install_seeds(Path::new("/mnt/games"), Distribution::Global, &mut seeds);
+    assert!(seeds.contains(&PathBuf::from(
+        "/mnt/games/Program Files (x86)/Neverness To Everness/NTEGlobal"
+    )));
+    assert!(seeds.iter().all(|path| path.ends_with("NTEGlobal")));
 }
 
 #[test]
@@ -105,10 +106,13 @@ fn which_only_accepts_executable_files() {
 #[test]
 fn normalizes_launcher_roots() {
     let dir = TempDir::new("root-normalize");
-    assert_eq!(normalize_launcher_root(dir.path()), None);
+    assert_eq!(
+        normalize_launcher_root_for(dir.path(), Distribution::Cn),
+        None
+    );
     dir.write_text("Config/Config.ini", "[VERSION]\n");
     assert_eq!(
-        normalize_launcher_root(dir.path()),
+        normalize_launcher_root_for(dir.path(), Distribution::Cn),
         Some(dir.path().to_path_buf())
     );
 
@@ -116,7 +120,7 @@ fn normalizes_launcher_roots() {
     let install = TempDir::new("root-normalize-nested");
     install.write_text("NTELauncher/Config/Config.ini", "[VERSION]\n");
     assert_eq!(
-        normalize_launcher_root(install.path()),
+        normalize_launcher_root_for(install.path(), Distribution::Cn),
         Some(install.join("NTELauncher"))
     );
 }
@@ -276,4 +280,38 @@ fn reads_the_game_version_from_user_config() {
         "[Game]\nVersion_=\n",
     );
     assert_eq!(game_version_for(&launcher), "");
+}
+
+#[test]
+fn global_auto_detection_honors_environment_and_home_seeds() {
+    let mut env = EnvGuard::new();
+    let home = TempDir::new("global-detect-home");
+    env.set("HOME", home.path());
+    env.remove("NTE_ROOT");
+    env.remove("NTE_INSTALL");
+    let settings = Settings {
+        distribution: Distribution::Global,
+        ..Default::default()
+    };
+    home.write_text(
+        "Games/Neverness To Everness/NTEGlobal/Config/Config.ini",
+        "[General]\nGameID=3000001\n",
+    );
+    let expected = home.join("Games/Neverness To Everness/NTEGlobal");
+    assert_eq!(detect_launcher_root(&settings), Some(expected.clone()));
+    home.write_text(
+        "custom/NTEGlobal/Config/Config.ini",
+        "[General]\nGameID=3000001\n",
+    );
+    env.set("NTE_ROOT", home.join("custom"));
+    assert_eq!(
+        detect_launcher_root(&settings),
+        Some(home.join("custom/NTEGlobal"))
+    );
+    home.write_text(
+        "cn/NTELauncher/Config/Config.ini",
+        "[General]\nGameID=1289\n",
+    );
+    env.set("NTE_ROOT", home.join("cn/NTELauncher"));
+    assert_eq!(detect_launcher_root(&settings), Some(expected));
 }

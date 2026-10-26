@@ -477,3 +477,112 @@ fn launch_rejects_an_unverified_background_before_starting_umu() {
     assert!(error.contains("尚未验证后台启动"), "{error}");
     assert!(!fixture.dump.exists());
 }
+
+#[test]
+fn global_launch_handoff_uses_global_client_for_official_and_background_modes() {
+    for mode in ["official", "background"] {
+        let fixture = LaunchFixture::new("launch-global");
+        let global = fixture.dir.join("install/NTEGlobal");
+        std::fs::rename(&fixture.launcher, &global).unwrap();
+        std::fs::rename(global.join("NTEGame.exe"), global.join("NTEGlobalGame.exe")).unwrap();
+        fixture.dir.write_text(
+            "install/NTEGlobal/Config/Config.ini",
+            "[General]\nGameID=3000001\n",
+        );
+        let settings = Settings {
+            distribution: Distribution::Global,
+            global_install_root: Some(global.display().to_string()),
+            ..fixture.settings(mode)
+        };
+        // 注入测试坐标仅验证交接参数, 不代表国际服按钮已实机验证.
+        let invocation = launch_impl_with_profile(&settings, |path| {
+            assert_eq!(path, global.join("NTEGlobalGame.exe"));
+            Ok(ClickProfile {
+                width: 1280,
+                height: 720,
+                x: 1120,
+                y: 636,
+            })
+        })
+        .expect("global handoff");
+        assert!(invocation.result.exe.ends_with("NTEGlobalGame.exe"));
+        let dump = fixture.dump();
+        if mode == "background" {
+            assert_eq!(
+                env_value(&dump, "NTE_BRIDGE_EXE"),
+                Some(windows_path(&global.join("NTEGlobalGame.exe")).as_str())
+            );
+        } else {
+            assert!(
+                dump.contains("NTEGlobalGame.exe /launcher /directly"),
+                "{dump}"
+            );
+        }
+        fixture.stop(invocation);
+    }
+}
+
+/// 显式提供安装、prefix 和 Proton 后, 验证后台交接并关闭本轮游戏.
+#[test]
+#[ignore = "需要国服安装、Proton 和图形环境; 见后台验证说明"]
+fn live_cn_background_launch() {
+    live_background_launch(Distribution::Cn, "ODDITY_LIVE_CN_ROOT");
+}
+
+#[test]
+#[ignore = "需要国际服安装、Proton 和图形环境; 见后台验证说明"]
+fn live_global_background_launch() {
+    live_background_launch(Distribution::Global, "ODDITY_LIVE_GLOBAL_ROOT");
+}
+
+fn live_background_launch(distribution: Distribution, root_key: &str) {
+    let read_path = |key| std::env::var(key).unwrap_or_else(|_| panic!("missing {key}"));
+    let root = read_path(root_key);
+    let settings = Settings {
+        distribution,
+        install_root: (distribution == Distribution::Cn).then_some(root.clone()),
+        global_install_root: (distribution == Distribution::Global).then_some(root),
+        prefix: Some(read_path("ODDITY_LIVE_PREFIX")),
+        proton_path: Some(read_path("ODDITY_LIVE_PROTON")),
+        ..Default::default()
+    };
+    let invocation = launch_impl(&settings).expect("launch background");
+    let session = invocation.background.clone().expect("background session");
+    let monitored = session.clone();
+    let monitor = thread::spawn(move || {
+        let _installation_lock = invocation.install_lock;
+        let mut child = invocation.child;
+        monitored.monitor(&mut child)
+    });
+    let deadline = Instant::now() + Duration::from_secs(150);
+    let mut started = false;
+    let mut previous = String::new();
+    while Instant::now() < deadline {
+        let text = std::fs::read_to_string(session.status_path()).unwrap_or_default();
+        if text != previous {
+            println!("{text}");
+            previous = text.clone();
+        }
+        let status = nte_core::launch::background::SessionStatus::parse(&text);
+        if status.game_started {
+            started = true;
+            // 给外部窗口探针留出检查隐藏状态与登录界面的时间.
+            thread::sleep(Duration::from_secs(60));
+            break;
+        }
+        if status.finished() || status.cleanup_incomplete || monitor.is_finished() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+    let close = session.close();
+    let monitored = monitor.join().expect("monitor thread");
+    println!("close={close:?}, monitor={monitored:?}");
+    println!(
+        "{}",
+        std::fs::read_to_string(session.status_path()).unwrap_or_default()
+    );
+    assert!(close.is_ok(), "close: {close:?}");
+    assert!(started, "official game did not start");
+    assert!(monitored.is_ok(), "monitor: {monitored:?}");
+}

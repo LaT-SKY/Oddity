@@ -1985,3 +1985,38 @@ it("短信控制器保留未保存偏好, 发送失败复位并阻止并发", as
   expect(c.attendance.error).toBe("验证码错误");
   expect(c.attendance.busy).toBe(false);
 });
+
+it("区服切换后隔离公告缓存并丢弃旧请求", async () => {
+  const c = await boot();
+  localStorage.removeItem("nte.bulletins.v2.cn");
+  const original = backend.invoke.getMockImplementation()!;
+  let finishCn!: (feed: { items: []; errors: string[] }) => void;
+  const globalFeed = { items: [], errors: ["global feed"] };
+  backend.invoke.mockImplementation((command: string, args?: unknown) => {
+    if (command === "fetch_bulletins") {
+      if ((args as { distribution: string }).distribution === "cn")
+        return new Promise((resolve) => {
+          finishCn = resolve;
+        });
+      return Promise.resolve(globalFeed);
+    }
+    return original(command, args as Parameters<typeof original>[1]);
+  });
+  const pending = c.fetchBulletins(true, true);
+  c.form.distribution = "global";
+  c.form.globalInstallRoot = "/games/global";
+  await c.saveSettings();
+  await flushPromises();
+  expect(backend.data.settings.launchMode).toBe("background");
+  expect(c.state.bulletins).toEqual(globalFeed);
+  finishCn({ items: [], errors: ["old cn feed"] });
+  await pending;
+  expect(c.state.bulletins).toEqual(globalFeed);
+  expect(localStorage.getItem("nte.bulletins.v2.global")).toContain(
+    "global feed",
+  );
+  expect(localStorage.getItem("nte.bulletins.v2.cn")).toBeNull();
+  expect(wrapper!.findComponent({ name: "HomeGameRecords" }).exists()).toBe(
+    false,
+  );
+});

@@ -17,7 +17,8 @@ import { APP_VERSION } from "./version";
 
 let generation = 0;
 let events = new window.AbortController();
-const BULLETIN_CACHE_KEY = "nte.bulletins.v1";
+const BULLETIN_CACHE_KEY = "nte.bulletins.v2";
+let bulletinRequest = 0;
 const BULLETIN_CACHE_TTL_MS = 15 * 60 * 1000;
 const disposers: (() => void)[] = [];
 let downloadRevision = 0;
@@ -122,6 +123,7 @@ export function syncAttendance(next: AttendanceStatus, syncForm = true) {
 }
 export async function refreshGameRecords(force = false) {
   if (
+    state.bootstrap?.settings.distribution === "global" ||
     !attendance.status?.accounts.length ||
     gameRecords.loading ||
     (attendance.busy && !attendance.running) ||
@@ -979,6 +981,14 @@ function applyBootstrap(
   const previous = state.bootstrap?.settings;
   const previousResolvedRoot = state.bootstrap?.installRoot;
   state.bootstrap = data;
+  if (previous && previous.distribution !== data.settings.distribution) {
+    bulletinRequest++;
+    state.bulletins = null;
+    state.bulletinsLoading = false;
+    void fetchBulletins();
+    gameRecords.nextRefresh = 0;
+  }
+
   refreshLauncherBackground(data);
   const settings = data.settings || {};
   if (
@@ -1157,10 +1167,11 @@ export async function cancelGameDownload() {
   }
 }
 
-function readBulletinCache() {
+function readBulletinCache(distribution: string) {
   try {
     const parsed = JSON.parse(
-      window.localStorage.getItem(BULLETIN_CACHE_KEY) || "",
+      window.localStorage.getItem(`${BULLETIN_CACHE_KEY}.${distribution}`) ||
+        "",
     ) as { savedAt?: unknown; feed?: BulletinFeed };
     if (
       typeof parsed.savedAt !== "number" ||
@@ -1175,10 +1186,10 @@ function readBulletinCache() {
   }
 }
 
-function writeBulletinCache(feed: BulletinFeed) {
+function writeBulletinCache(feed: BulletinFeed, distribution: string) {
   try {
     window.localStorage.setItem(
-      BULLETIN_CACHE_KEY,
+      `${BULLETIN_CACHE_KEY}.${distribution}`,
       JSON.stringify({ savedAt: Date.now(), feed }),
     );
   } catch {}
@@ -1186,23 +1197,25 @@ function writeBulletinCache(feed: BulletinFeed) {
 
 export async function fetchBulletins(silent = true, force = false) {
   const epoch = generation;
+  const distribution = state.bootstrap?.settings.distribution || "cn";
   if (state.bulletinsLoading) return;
-  const cached = readBulletinCache();
+  const cached = readBulletinCache(distribution);
   if (!force && cached && Date.now() - cached.savedAt < BULLETIN_CACHE_TTL_MS) {
     state.bulletins = cached.feed;
     return;
   }
+  const request = ++bulletinRequest;
   state.bulletinsLoading = true;
   try {
-    const feed = await invoke("fetch_bulletins");
-    if (epoch !== generation) return;
+    const feed = await invoke("fetch_bulletins", { distribution });
+    if (epoch !== generation || request !== bulletinRequest) return;
     state.bulletins = feed;
-    writeBulletinCache(feed);
+    writeBulletinCache(feed, distribution);
     if (!silent && feed.errors.length > 0 && feed.items.length === 0) {
       toast("公告暂时无法更新，请稍后重试。", "error", 6000);
     }
   } catch (error) {
-    if (epoch !== generation) return;
+    if (epoch !== generation || request !== bulletinRequest) return;
     if (!state.bulletins) {
       state.bulletins = {
         items: [],
@@ -1217,7 +1230,8 @@ export async function fetchBulletins(silent = true, force = false) {
       );
     }
   } finally {
-    if (epoch === generation) state.bulletinsLoading = false;
+    if (epoch === generation && request === bulletinRequest)
+      state.bulletinsLoading = false;
   }
 }
 

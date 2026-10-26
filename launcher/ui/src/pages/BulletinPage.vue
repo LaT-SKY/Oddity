@@ -1,8 +1,13 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { fetchBulletins, openUrl, state } from "../core/controller";
+import { distributions } from "../core/distribution";
 import type { BulletinItem } from "../types/launcher";
 
+const global = computed(
+  () => state.bootstrap?.settings.distribution === "global",
+);
+const links = computed(() => distributions[global.value ? "global" : "cn"]);
 const items = computed(() => state.bulletins?.items || []);
 const bilibili = computed(() =>
   items.value.filter((item) => item.kind === "bilibili"),
@@ -64,6 +69,7 @@ function label(item: BulletinItem) {
 
     <div class="bulletin-sections">
       <section
+        v-if="!global"
         class="bulletin-section bulletin-section--bilibili"
         aria-labelledby="bilibili-title"
       >
@@ -107,7 +113,7 @@ function label(item: BulletinItem) {
       >
         <div class="bulletin-section__head">
           <div>
-            <h3 id="preview-title">版本前瞻</h3>
+            <h3 id="preview-title">{{ global ? "国际服新闻" : "版本前瞻" }}</h3>
           </div>
         </div>
         <div
@@ -146,7 +152,9 @@ function label(item: BulletinItem) {
       >
         <div class="bulletin-section__head">
           <div>
-            <h3 id="maintenance-title">停服维护公告</h3>
+            <h3 id="maintenance-title">
+              {{ global ? "国际服公告" : "停服维护公告" }}
+            </h3>
           </div>
         </div>
         <div v-if="maintenance.length" class="bulletin-list">
@@ -183,9 +191,7 @@ function label(item: BulletinItem) {
         class="link-row"
         id="open-official"
         type="button"
-        @click="
-          openUrl('https://yh.wanmei.com/launcher/launcher_ob2.html?expand=0')
-        "
+        @click="openUrl(links.official)"
       >
         <span>打开官方公告页</span
         ><svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
@@ -196,9 +202,9 @@ function label(item: BulletinItem) {
         class="link-row"
         id="open-contract"
         type="button"
-        @click="openUrl('https://www.wanmei.com/safestatic/contract.html')"
+        @click="openUrl(links.contract)"
       >
-        <span>完美世界游戏用户协议</span
+        <span>游戏用户协议</span
         ><svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
           <use href="#i-arrow-up-right"></use>
         </svg>
@@ -207,7 +213,7 @@ function label(item: BulletinItem) {
         class="link-row"
         id="open-privacy"
         type="button"
-        @click="openUrl('https://www.wanmei.com/safestatic/privacy.html')"
+        @click="openUrl(links.privacy)"
       >
         <span>个人信息保护政策</span
         ><svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
@@ -218,7 +224,7 @@ function label(item: BulletinItem) {
         class="link-row"
         id="open-support"
         type="button"
-        @click="openUrl('https://games.wanmei.com/m/sdk_kf3/index.html')"
+        @click="openUrl(links.support)"
       >
         <span>官方客服与修复</span
         ><svg class="icon" viewBox="0 0 256 256" aria-hidden="true">

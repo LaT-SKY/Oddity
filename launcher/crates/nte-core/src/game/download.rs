@@ -674,7 +674,7 @@ fn download_patch(
     allow_ranges: bool,
 ) -> Result<PathBuf> {
     progress.stage(ApplyStage::Download);
-    let url = res_url(config, &patch.md5, patch.size);
+    let url = res_url(config, &patch.md5, patch.size)?;
     let temp = staging.join("Patch").join(format!(
         "{}.{}.{}.part",
         patch.md5,
@@ -704,7 +704,7 @@ fn download_res(
     progress: &Progress<'_>,
     allow_ranges: bool,
 ) -> Result<PathBuf> {
-    let url = res_url(config, &res.md5, res.filesize);
+    let url = res_url(config, &res.md5, res.filesize)?;
     let temp = staging.join("Res").join(format!(
         "{}.{}.{}.part",
         res.md5.to_ascii_lowercase(),
@@ -741,7 +741,7 @@ fn download_pak_entry(
             entry.name
         )));
     }
-    let url = res_url(config, pak_md5, pak_size);
+    let url = res_url(config, pak_md5, pak_size)?;
     let temp = staging.join("Pak").join(format!(
         "{}.{}.{}.part",
         entry.md5,
@@ -1491,22 +1491,22 @@ fn request_url(config: &GameUpdateConfig, cdn: &str, index: usize, original: &st
     )
 }
 
-pub fn res_url(config: &GameUpdateConfig, md5: &str, size: u64) -> String {
+pub fn res_url(config: &GameUpdateConfig, md5: &str, size: u64) -> Result<String> {
     let md5 = md5.to_ascii_lowercase();
     let first = md5.chars().next().unwrap_or('0');
     let cdn = config
         .cdns
         .first()
         .map(String::as_str)
-        .unwrap_or("https://yhcdn1.wmupd.com/clientRes");
-    format!(
+        .ok_or_else(|| Error::Parse("缺少资源 CDN 配置".into()))?;
+    Ok(format!(
         "{}/{}/Res/{}/{}.{}",
         cdn.trim_end_matches('/'),
         config.branch,
         first,
         md5,
         size
-    )
+    ))
 }
 
 fn verify(path: &Path, expected_size: u64, expected_md5: &str) -> Result<bool> {
@@ -1753,7 +1753,7 @@ mod tests {
             "https://backup.test/res".to_string(),
         ];
         assert_eq!(
-            res_url(&config, &"AB".repeat(16), 12),
+            res_url(&config, &"AB".repeat(16), 12).unwrap(),
             format!(
                 "https://cdn.test/clientRes/{BRANCH}/Res/a/{}.12",
                 "ab".repeat(16)
@@ -1761,10 +1761,7 @@ mod tests {
         );
 
         config.cdns.clear();
-        assert_eq!(
-            res_url(&config, "", 0),
-            format!("https://yhcdn1.wmupd.com/clientRes/{BRANCH}/Res/0/.0")
-        );
+        assert!(res_url(&config, "", 0).is_err());
     }
 
     #[test]

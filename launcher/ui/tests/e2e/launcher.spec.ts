@@ -415,3 +415,40 @@ test("Motion 弹窗入场、快速重开与减少动态效果", async ({ page })
     await dialog.evaluate((element) => getComputedStyle(element).transform),
   ).toBe("none");
 });
+
+test("国际服切换同步启动方式、公告来源和专属功能", async ({ page }) => {
+  await page.goto("/#settings");
+  await page.locator("#set-distribution").selectOption("global");
+  await expect(page.locator("#settings-form")).toHaveAttribute(
+    "data-save-state",
+    "saved",
+  );
+  await expect(page.locator("#set-mode")).toHaveValue("background");
+  await expect(page.locator("#set-mode option[value=background]")).toHaveCount(
+    1,
+  );
+  await page.locator('[data-page="bulletin"]').click();
+  await expect(page.locator("#preview-title")).toHaveText("国际服新闻");
+  await expect(page.locator(".bulletin-card").first()).toContainText(
+    "国际服官方新闻",
+  );
+  await expect(page.locator("#bilibili-title")).toHaveCount(0);
+  await page.evaluate(() => {
+    window.open = (url) => {
+      document.body.dataset.openedUrl = String(url);
+      return null;
+    };
+  });
+  await page.locator("#open-official").click();
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-opened-url",
+    "https://nte.perfectworld.com/en/article/news/index.html",
+  );
+  await page.locator("#open-contract").click();
+  await expect(page.locator("body")).toHaveAttribute(
+    "data-opened-url",
+    "https://static.pwsdk.com/nte/contract/contract.html",
+  );
+  await page.locator('[data-page="home"]').click();
+  await expect(page.locator(".game-records__capsule")).toHaveCount(0);
+});
