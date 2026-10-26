@@ -89,7 +89,7 @@ function checkDeb(path, version) {
     check(depends.includes(name), `.deb 缺少依赖 ${name}`);
   }
   const contents = output("dpkg-deb", ["-c", path]);
-  for (const name of ["usr/bin/oddity", "usr/bin/nte-cli", "usr/share/applications/oddity.desktop"]) {
+  for (const name of ["usr/bin/oddity", "usr/bin/nte-cli", "usr/bin/oddity-recovery", "usr/share/applications/oddity-recovery.desktop", "usr/share/applications/oddity.desktop"]) {
     check(contents.includes(name), `.deb 缺少 ${name}`);
   }
 
@@ -127,7 +127,7 @@ function checkRpm(path, version) {
     check(requires.includes(name), `.rpm 缺少依赖 ${name}`);
   }
   const files = output("rpm", ["-qpl", path]);
-  for (const name of ["/usr/bin/oddity", "/usr/bin/nte-cli", "/usr/share/applications/oddity.desktop"]) {
+  for (const name of ["/usr/bin/oddity", "/usr/bin/nte-cli", "/usr/bin/oddity-recovery", "/usr/share/applications/oddity-recovery.desktop", "/usr/share/applications/oddity.desktop"]) {
     check(files.includes(name), `.rpm 缺少 ${name}`);
   }
 }
@@ -142,7 +142,7 @@ function checkArch(path, version) {
     ".PKGINFO",
     ".INSTALL",
     "usr/bin/oddity",
-    "usr/bin/nte-cli",
+    "usr/bin/nte-cli", "usr/bin/oddity-recovery", "usr/share/applications/oddity-recovery.desktop",
     "usr/share/applications/oddity.desktop",
     "usr/share/licenses/oddity/LICENSE",
   ]) {
@@ -168,6 +168,8 @@ function checkTarball(path, version) {
   for (const file of [
     `${name}/oddity`,
     `${name}/nte-cli`,
+    `${name}/oddity-recovery`,
+    `${name}/oddity-recovery.desktop`,
     `${name}/oddity.desktop`,
     `${name}/LICENSE`,
     `${name}/THIRD_PARTY.md`,
@@ -189,7 +191,7 @@ function checkAppImage(path) {
       env: { ...process.env, APPIMAGE_EXTRACT_AND_RUN: "1" },
     });
     const directory = join(temporary, "squashfs-root");
-    for (const file of ["usr/bin/oddity", "usr/bin/nte-cli", "usr/share/applications/oddity.desktop"]) {
+    for (const file of ["usr/bin/oddity", "usr/bin/nte-cli", "usr/bin/oddity-recovery", "usr/share/applications/oddity-recovery.desktop", "usr/share/applications/oddity.desktop"]) {
       check(statSync(join(directory, file)).size > 0, `AppImage 缺少 ${file}`);
     }
     for (const size of iconSizes) {

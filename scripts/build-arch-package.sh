@@ -33,5 +33,7 @@ docker run --rm \
     pacman -Qlp /tmp/build/*.pkg.tar.zst > /tmp/package-files
     grep -q "usr/bin/oddity" /tmp/package-files
     grep -q "usr/bin/nte-cli" /tmp/package-files
+    grep -q "usr/bin/oddity-recovery" /tmp/package-files
+    grep -q "usr/share/applications/oddity-recovery.desktop" /tmp/package-files
     cp /tmp/build/*.pkg.tar.zst /out/
   '

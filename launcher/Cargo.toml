@@ -4,6 +4,7 @@ members = [
     "crates/nte-core",
     "crates/nte-cli",
     "crates/nte-app",
+    "crates/nte-recovery",
 ]
 
 [workspace.package]

@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Oddity Recovery
+Name[zh_CN]=Oddity 应急恢复
+Comment=Diagnose and recover Oddity when its main window is unavailable
+Comment[zh_CN]=检查 Oddity 环境并恢复界面设置
+Exec=oddity-recovery
+TryExec=oddity-recovery
+Icon=oddity
+Terminal=false
+Categories=Game;Utility;
+Keywords=Oddity;recovery;应急;恢复;
+StartupNotify=false

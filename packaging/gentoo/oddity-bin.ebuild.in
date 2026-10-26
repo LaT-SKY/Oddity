@@ -36,8 +36,8 @@ RDEPEND="
 "
 
 src_install() {
-	dobin oddity nte-cli
-	domenu oddity.desktop
+	dobin oddity nte-cli oddity-recovery
+	domenu oddity.desktop oddity-recovery.desktop
 
 	for size in 16 22 24 32 48 64 128 256 512; do
 		newicon -s "${size}" "icons/${size}x${size}.png" oddity.png

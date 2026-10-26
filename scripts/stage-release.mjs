@@ -80,7 +80,7 @@ function stageTarball(version, target, out) {
   const directory = join(stageRoot, name);
   try {
     mkdirSync(join(directory, "icons"), { recursive: true });
-    for (const binary of ["oddity", "nte-cli"]) {
+    for (const binary of ["oddity", "nte-cli", "oddity-recovery"]) {
       const source = join(target, binary);
       requireFile(source);
       copyFileSync(source, join(directory, binary));
@@ -88,6 +88,7 @@ function stageTarball(version, target, out) {
     }
 
     copyFileSync(join(root, "launcher/packaging/oddity.desktop"), join(directory, "oddity.desktop"));
+    copyFileSync(join(root, "launcher/packaging/oddity-recovery.desktop"), join(directory, "oddity-recovery.desktop"));
     for (const size of iconSizes) {
       copyFileSync(
         join(root, `launcher/crates/nte-app/icons/${size}x${size}.png`),

@@ -71,7 +71,9 @@
         "files": {
           "/usr/bin/nte-cli": "../../target/release/nte-cli",
           "/usr/share/doc/oddity/LICENSE": "../../../LICENSE",
-          "/usr/share/doc/oddity/THIRD_PARTY.md": "../../../THIRD_PARTY.md"
+          "/usr/share/doc/oddity/THIRD_PARTY.md": "../../../THIRD_PARTY.md",
+          "/usr/bin/oddity-recovery": "../../target/release/oddity-recovery",
+          "/usr/share/applications/oddity-recovery.desktop": "../../packaging/oddity-recovery.desktop"
         }
       },
       "rpm": {
@@ -86,14 +88,18 @@
         "files": {
           "/usr/bin/nte-cli": "../../target/release/nte-cli",
           "/usr/share/licenses/oddity/LICENSE": "../../../LICENSE",
-          "/usr/share/licenses/oddity/THIRD_PARTY.md": "../../../THIRD_PARTY.md"
+          "/usr/share/licenses/oddity/THIRD_PARTY.md": "../../../THIRD_PARTY.md",
+          "/usr/bin/oddity-recovery": "../../target/release/oddity-recovery",
+          "/usr/share/applications/oddity-recovery.desktop": "../../packaging/oddity-recovery.desktop"
         }
       },
       "appimage": {
         "files": {
           "/usr/bin/nte-cli": "../../target/release/nte-cli",
           "/usr/share/licenses/oddity/LICENSE": "../../../LICENSE",
-          "/usr/share/licenses/oddity/THIRD_PARTY.md": "../../../THIRD_PARTY.md"
+          "/usr/share/licenses/oddity/THIRD_PARTY.md": "../../../THIRD_PARTY.md",
+          "/usr/bin/oddity-recovery": "../../target/release/oddity-recovery",
+          "/usr/share/applications/oddity-recovery.desktop": "../../packaging/oddity-recovery.desktop"
         }
       }
     }

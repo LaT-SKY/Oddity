@@ -6,6 +6,7 @@ license.workspace = true
 description = "Core library for the native Linux launcher of Neverness To Everness"
 
 [dependencies]
+libc = "0.2"
 anyhow.workspace = true
 md-5.workspace = true
 ureq.workspace = true

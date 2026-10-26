@@ -23,8 +23,11 @@ function requireFile(relativePath) {
 
 function parseDesktopEntry(text) {
   const values = new Map();
+  let section = "";
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
+    if (trimmed.startsWith("[")) section = trimmed;
+    if (section !== "[Desktop Entry]") continue;
     if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("[")) {
       continue;
     }
@@ -55,6 +58,13 @@ for (const [key, expected] of [
 
 if (!desktop.get("Categories")?.split(";").includes("Game")) {
   fail(`${desktopPath}: Categories 里应该包含 Game`);
+}
+
+const recoveryDesktopPath = "launcher/packaging/oddity-recovery.desktop";
+requireFile(recoveryDesktopPath);
+const recoveryDesktop = parseDesktopEntry(read(recoveryDesktopPath));
+for (const [key, expected] of [["Type", "Application"], ["Exec", "oddity-recovery"], ["TryExec", "oddity-recovery"], ["Terminal", "false"]]) {
+  if (recoveryDesktop.get(key) !== expected) fail(`${recoveryDesktopPath}: ${key} 应为 ${expected}`);
 }
 
 const iconSizes = [16, 22, 24, 32, 48, 64, 128, 256, 512];
@@ -133,8 +143,8 @@ if (config) {
 
   for (const section of ["deb", "rpm", "appimage"]) {
     const files = linux[section]?.files ?? {};
-    if (!files["/usr/bin/nte-cli"]) {
-      fail(`tauri.conf.json: linux.${section}.files 缺少 /usr/bin/nte-cli`);
+    for (const name of ["/usr/bin/nte-cli", "/usr/bin/oddity-recovery", "/usr/share/applications/oddity-recovery.desktop"]) {
+      if (!files[name]) fail(`tauri.conf.json: linux.${section}.files 缺少 ${name}`);
     }
   }
 

@@ -46,6 +46,8 @@ rustPlatform.buildRustPackage (finalAttrs: {
     "nte-app"
     "-p"
     "nte-cli"
+    "-p"
+    "nte-recovery"
   ];
 
   pnpmRoot = "launcher/ui";
@@ -119,6 +121,8 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
     install -Dm755 "$target/oddity" "$out/bin/oddity"
     install -Dm755 "$target/nte-cli" "$out/bin/nte-cli"
+    install -Dm755 "$target/oddity-recovery" "$out/bin/oddity-recovery"
+    install -Dm644 launcher/packaging/oddity-recovery.desktop "$out/share/applications/oddity-recovery.desktop"
     install -Dm644 launcher/packaging/oddity.desktop "$out/share/applications/oddity.desktop"
 
     for size in 16 22 24 32 48 64 128 256 512; do

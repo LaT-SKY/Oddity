@@ -2444,6 +2444,7 @@ dependencies = [
  "cipher",
  "flate2",
  "hdiffpatch-rs",
+ "libc",
  "md-5",
  "quick-xml",
  "secret-service",
@@ -2452,6 +2453,15 @@ dependencies = [
  "ureq",
  "zeroize",
  "zip",
+]
+
+[[package]]
+name = "nte-recovery"
+version = "0.1.0-alpha.2"
+dependencies = [
+ "anyhow",
+ "gtk",
+ "nte-core",
 ]
 
 [[package]]

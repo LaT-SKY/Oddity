@@ -1,0 +1,15 @@
+[package]
+name = "nte-recovery"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Native emergency recovery window for Oddity, independent of WebKit"
+
+[[bin]]
+name = "oddity-recovery"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+gtk = "0.18"
+nte-core = { path = "../nte-core" }

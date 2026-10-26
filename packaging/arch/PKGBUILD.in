@@ -29,6 +29,8 @@ package() {
   local dir="$srcdir/oddity-${_upstream}-linux-x86_64"
   install -Dm755 "$dir/oddity" "$pkgdir/usr/bin/oddity"
   install -Dm755 "$dir/nte-cli" "$pkgdir/usr/bin/nte-cli"
+  install -Dm755 "$dir/oddity-recovery" "$pkgdir/usr/bin/oddity-recovery"
+  install -Dm644 "$dir/oddity-recovery.desktop" "$pkgdir/usr/share/applications/oddity-recovery.desktop"
   install -Dm644 "$dir/oddity.desktop" "$pkgdir/usr/share/applications/oddity.desktop"
   local size
   for size in 16 22 24 32 48 64 128 256 512; do
