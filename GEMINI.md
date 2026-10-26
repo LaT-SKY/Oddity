@@ -55,13 +55,13 @@ Gemini serves as an interactive companion, technical advisor, and exploration sp
 - Refer to `CONTRIBUTING.md` before drafting pull requests.
 - When drafting PRs, inspect `git diff origin/main...HEAD` or relevant commit logs.
 - PR titles must follow repository conventions: either `module: change` or semantic `type(scope): change` with half-width colons, lowercase description, and `!` for breaking changes.
-- PR content must be written in formal Chinese.
+- PR content must be written entirely in formal Chinese, including all section headings. Never use English headings (such as `## Summary`, `## Motivation`, `## Key Changes`, or `## Verification`); all headings must be translated into natural, formal Chinese.
 - If a section has nothing noteworthy or applicable to write, omit that section entirely rather than filling in placeholder text.
-- Standard sections to consider:
-  - **Summary / Motivation:** What problem this solves and why.
-  - **Key Changes:** Grouped by subsystem (`nte-core`, `nte-app`, `launcher/ui`, etc.).
-  - **Verification:** Practical steps taken or needed to verify the changes on Linux.
-  - **Breaking Changes / Notes:** Applicable only if there are breaking changes or notable operational impacts.
+- Standard sections to cover (rendered with Chinese titles):
+  - Overview / Motivation: What problem this solves and why.
+  - Key Changes: Grouped by subsystem (`nte-core`, `nte-app`, `launcher/ui`, etc.).
+  - Verification: Practical steps taken or needed to verify the changes on Linux.
+  - Breaking Changes / Notes: Applicable only if there are breaking changes or notable operational impacts.
 - Provide a prefilled GitHub PR compare direct link for one-click preview and manual publishing (after pushing the branch):
   `https://github.com/LaT-SKY/Oddity/compare/{base}...{head}?expand=1&title={urlencoded_title}&body={urlencoded_body}`.
 - Every drafted PR description must end with the required signature footer:
