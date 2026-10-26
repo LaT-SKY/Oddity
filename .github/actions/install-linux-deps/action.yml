@@ -23,8 +23,17 @@ runs:
         mkdir -p "$archives"
         # 命中缓存时 apt 会优先使用本地 deb, 不再走镜像
         sudo cp -n "$archives"/*.deb /var/cache/apt/archives/ 2>/dev/null || true
-        sudo apt-get update
-        sudo apt-get install -y --no-install-recommends \
+        # 直接使用官方源, 避免 Azure 镜像反复挂起.
+        if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+          printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+        fi
+        apt_options=(
+          -o Acquire::Retries=2
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+        )
+        timeout --kill-after=10s 5m sudo apt-get "${apt_options[@]}" update
+        timeout --kill-after=10s 10m sudo apt-get "${apt_options[@]}" install -y --no-install-recommends \
           build-essential \
           pkg-config \
           libssl-dev \
