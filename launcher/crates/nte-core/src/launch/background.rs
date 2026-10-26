@@ -5,6 +5,7 @@ use std::path::Path;
 use crate::{Error, Result};
 
 const CN_LAUNCHER_MD5: &str = "81c779899c4a53b47651c51afa5dea1c";
+const GLOBAL_LAUNCHER_MD5: &str = "c55d49312fbcc7d41ead802faa25281b";
 const READY_MARKER: &[u8] = b"[GameClientAgent::_setLocalResChecked] 0->1";
 const LOG_LIMIT: usize = 4 * 1024 * 1024;
 
@@ -27,7 +28,7 @@ pub fn validated_click_profile(launcher: &Path) -> Result<ClickProfile> {
 }
 
 fn profile_for_md5(checksum: &str) -> Result<ClickProfile> {
-    if checksum != CN_LAUNCHER_MD5 {
+    if ![CN_LAUNCHER_MD5, GLOBAL_LAUNCHER_MD5].contains(&checksum) {
         return Err(Error::Unsupported(
             "当前官方启动器版本尚未验证后台启动, 请使用官方启动器窗口启动游戏.".into(),
         ));
@@ -203,6 +204,10 @@ mod tests {
     fn click_profile_requires_a_verified_binary() {
         assert_eq!(
             profile_for_md5(CN_LAUNCHER_MD5).unwrap().argument(),
+            "1280,720,1120,636"
+        );
+        assert_eq!(
+            profile_for_md5(GLOBAL_LAUNCHER_MD5).unwrap().argument(),
             "1280,720,1120,636"
         );
         let dir = TempDir::new("background-profile");

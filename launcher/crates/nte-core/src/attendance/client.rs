@@ -15,7 +15,8 @@ const LAOHU: &str = "https://user.laohu.com";
 const APP_VERSION: &str = "1.2.5";
 const H5_USER_AGENT: &str = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Tajiduo/1.2.2";
 const LAOHU_SECRET: &str = "89155cc4e8634ec5b1b6364013b23e3e";
-const GAME_ID: &str = "1289";
+// 塔吉多提供国服账号服务, 不适用于国际服.
+const CN_GAME_ID: &str = "1289";
 const CLOUD_APP_ID: &str = "10597";
 const CLOUD_APP_KEY: &str = "f1b7f11fc3774f898e387368cce4da04";
 const CLOUD_CHANNEL_ID: &str = "9";
@@ -521,11 +522,11 @@ impl Client {
                             "/apihub/awapi/sign",
                             account,
                             access,
-                            Some(form(&[("gameId", GAME_ID), ("roleId", role)])),
+                            Some(form(&[("gameId", CN_GAME_ID), ("roleId", role)])),
                         )?;
                         if already(&value) {
                             let state = self.native(
-                                &format!("/apihub/awapi/signin/state?gameId={GAME_ID}"),
+                                &format!("/apihub/awapi/signin/state?gameId={CN_GAME_ID}"),
                                 account,
                                 access,
                                 None,
@@ -554,7 +555,7 @@ impl Client {
     }
     fn roles(&self, account: &Account, access: &str) -> Result<BTreeMap<String, String>> {
         let value = self.native(
-            &format!("/usercenter/api/v2/getGameRoles?gameId={GAME_ID}"),
+            &format!("/usercenter/api/v2/getGameRoles?gameId={CN_GAME_ID}"),
             account,
             access,
             None,

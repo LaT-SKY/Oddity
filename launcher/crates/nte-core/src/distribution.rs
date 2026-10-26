@@ -9,6 +9,62 @@ pub enum Distribution {
 }
 
 impl Distribution {
+    pub fn from_game_id(game_id: i64) -> Option<Self> {
+        match game_id {
+            1289 => Some(Self::Cn),
+            3000001 => Some(Self::Global),
+            _ => None,
+        }
+    }
+
+    pub fn game_id(self) -> i64 {
+        match self {
+            Self::Cn => 1289,
+            Self::Global => 3000001,
+        }
+    }
+
+    pub fn launcher_exe(self) -> &'static str {
+        match self {
+            Self::Cn => "NTELauncher.exe",
+            Self::Global => "NTEGlobalLauncher.exe",
+        }
+    }
+
+    pub fn patcher_exe(self) -> &'static str {
+        match self {
+            Self::Cn => "NTEUpdate.exe",
+            Self::Global => "NTEGlobalUpdate.exe",
+        }
+    }
+
+    pub fn launcher_branch(self) -> &'static str {
+        match self {
+            Self::Cn => "publish_ob",
+            Self::Global => "publish_PC",
+        }
+    }
+
+    pub fn update_branch(self) -> &'static str {
+        match self {
+            Self::Cn => "publish_Updata",
+            Self::Global => "Publish_Update",
+        }
+    }
+
+    pub fn resource_cdns(self) -> [&'static str; 2] {
+        match self {
+            Self::Cn => [
+                "https://yhcdn1.wmupd.com/clientRes",
+                "https://yhcdn2.wmupd.com/clientRes",
+            ],
+            Self::Global => [
+                "https://ntecdn1.perfectworld.com/clientRes",
+                "https://ntecdn2.perfectworld.com/clientRes",
+            ],
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Cn => "cn",

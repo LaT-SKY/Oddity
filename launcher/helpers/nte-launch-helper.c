@@ -7,12 +7,11 @@
 
 /*
  * 私有 Windows 启动桥接. direct 模式保持 Unreal 的参数专用命令行.
- * bridge 模式先挂起创建官方后台, 安装窗口事件钩子后恢复.
- * 回调仅处理该 PID; 启动时请求 SW_HIDE, 后续 CREATE/SHOW 事件隐藏启动器主窗口;
- * 登录遮罩 ToolSaveBitsOwnDC 和游戏进程的窗口保持正常显示.
+ * bridge 模式先挂起创建官方后台, 安装 UI 线程窗口守卫后恢复.
+ * 守卫在主窗口显示请求生效前阻止映射, 登录和游戏窗口保持正常显示.
  *
  * Direct: NTE_GAME_EXE, NTE_GAME_CWD, NTE_GAME_ARGS
- * Bridge: NTE_BRIDGE_EXE, NTE_BRIDGE_CWD, NTE_BRIDGE_ARGS
+ * Bridge: NTE_BRIDGE_EXE, NTE_BRIDGE_CWD, NTE_BRIDGE_ARGS, NTE_SESSION_CLICK
  * Optional: NTE_HELPER_LOG
  */
 
@@ -20,7 +19,6 @@ static void fail(void) {
     ExitProcess(2);
 }
 
-static DWORD g_launcher_pid = 0;
 static FILE *g_log = NULL;
 
 static void log_line(const wchar_t *fmt, ...) {
@@ -35,46 +33,26 @@ static void log_line(const wchar_t *fmt, ...) {
     fflush(g_log);
 }
 
-static int is_cover_class(const wchar_t *cls) {
-    /* 官方自动登录遮罩由游戏窗口拥有, 必须保留. */
-    return wcsstr(cls, L"ToolSaveBitsOwnDC") != NULL;
-}
+typedef BOOL (WINAPI *GUARD_READY)(void);
 
-static int is_ignored_class(const wchar_t *cls) {
-    return wcsstr(cls, L"TrayIcon") != NULL ||
-           wcsstr(cls, L"IME") != NULL ||
-           wcsstr(cls, L"WineTablet") != NULL;
-}
-
-static void hide_launcher_window(HWND hwnd) {
-    DWORD pid = 0;
-    wchar_t cls[256] = L"";
-    wchar_t title[512] = L"";
-    HWND owner;
-
-    if (!hwnd || !IsWindow(hwnd)) return;
-    GetWindowThreadProcessId(hwnd, &pid);
-    if (pid != g_launcher_pid || GetAncestor(hwnd, GA_ROOT) != hwnd ||
-        (GetWindowLongPtrW(hwnd, GWL_STYLE) & WS_CHILD)) return;
-    if (!GetClassNameW(hwnd, cls, 256)) return;
-    if (is_ignored_class(cls) || is_cover_class(cls)) return;
-    GetWindowTextW(hwnd, title, 512);
-    owner = GetWindow(hwnd, GW_OWNER);
-    if (wcsstr(cls, L"QWindow") != NULL || wcsstr(title, L"NTEGame") != NULL || owner != NULL) {
-        if (IsWindowVisible(hwnd)) {
-            ShowWindow(hwnd, SW_HIDE);
-            log_line(L"hide pid=%lu hwnd=%p cls=%ls", (unsigned long)pid, (void *)hwnd, cls);
-        }
-    }
-}
-
-static void CALLBACK window_event(HWINEVENTHOOK hook, DWORD event, HWND hwnd,
-                                  LONG object, LONG child, DWORD thread, DWORD time) {
-    (void)hook;
-    (void)thread;
-    (void)time;
-    if ((event == EVENT_OBJECT_CREATE || event == EVENT_OBJECT_SHOW) &&
-        object == OBJID_WINDOW && child == CHILDID_SELF) hide_launcher_window(hwnd);
+static HMODULE load_window_guard(HOOKPROC *callback) {
+    wchar_t path[32768], *name;
+    static const wchar_t filename[] = L"nte-window-guard.dll";
+    DWORD size = GetModuleFileNameW(NULL, path, 32768);
+    HMODULE module;
+    union { FARPROC raw; HOOKPROC hook; GUARD_READY ready; } address;
+    if (!size || size >= 32768) fail();
+    name = wcsrchr(path, L'\\');
+    if (!name || (size_t)(name + 1 - path) + wcslen(filename) >= 32768) fail();
+    wcscpy(name + 1, filename);
+    module = LoadLibraryW(path);
+    if (!module) { log_line(L"load window guard failed error=%lu", (unsigned long)GetLastError()); fail(); }
+    address.raw = GetProcAddress(module, "OddityWindowGuardReady");
+    if (!address.raw || !address.ready()) { FreeLibrary(module); fail(); }
+    address.raw = GetProcAddress(module, "OddityWindowHook");
+    if (!address.raw) { FreeLibrary(module); fail(); }
+    *callback = address.hook;
+    return module;
 }
 
 static int stop_child(HANDLE process) {
@@ -92,13 +70,16 @@ static int stop_child(HANDLE process) {
 static int run_and_optional_hide(wchar_t *exe, wchar_t *args, wchar_t *cwd, int hide) {
     STARTUPINFOW si;
     PROCESS_INFORMATION pi;
-    HWINEVENTHOOK hook = NULL;
+    HHOOK hook = NULL;
+    HOOKPROC callback = NULL;
+    HMODULE guard = NULL;
     DWORD code = 1;
     int failed = 0;
     ZeroMemory(&si, sizeof(si));
     si.cb = sizeof(si);
     ZeroMemory(&pi, sizeof(pi));
     if (hide) {
+        guard = load_window_guard(&callback);
         si.dwFlags = STARTF_USESHOWWINDOW;
         si.wShowWindow = SW_HIDE;
     }
@@ -107,16 +88,13 @@ static int run_and_optional_hide(wchar_t *exe, wchar_t *args, wchar_t *cwd, int 
 
     if (hide) {
         MSG message;
-        /* 先建立事件线程的消息队列, 防止恢复 child 前漏掉初始窗口事件. */
         PeekMessageW(&message, NULL, 0, 0, PM_NOREMOVE);
-        g_launcher_pid = pi.dwProcessId;
-        /* Wine 在挂起进程注册时需要全局订阅; 回调只处理持有句柄的本轮 PID. */
-        hook = SetWinEventHook(EVENT_OBJECT_CREATE, EVENT_OBJECT_SHOW, NULL, window_event,
-                              0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+        hook = SetWindowsHookExW(WH_CBT, callback, guard, pi.dwThreadId);
         if (!hook || ResumeThread(pi.hThread) == (DWORD)-1) {
-            log_line(L"install window hook or resume failed error=%lu", (unsigned long)GetLastError());
+            log_line(L"install window guard or resume failed error=%lu", (unsigned long)GetLastError());
             failed = 1;
         } else {
+            log_line(L"window guard installed pid=%lu thread=%lu", (unsigned long)pi.dwProcessId, (unsigned long)pi.dwThreadId);
             for (;;) {
                 DWORD wait = MsgWaitForMultipleObjectsEx(1, &pi.hProcess, INFINITE, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
                 if (wait == WAIT_OBJECT_0) break;
@@ -130,8 +108,8 @@ static int run_and_optional_hide(wchar_t *exe, wchar_t *args, wchar_t *cwd, int 
     } else if (WaitForSingleObject(pi.hProcess, INFINITE) != WAIT_OBJECT_0) failed = 1;
 
     if (failed) (void)stop_child(pi.hProcess);
-    if (hook) UnhookWinEvent(hook);
-    g_launcher_pid = 0;
+    if (hook) UnhookWindowsHookEx(hook);
+    if (guard) FreeLibrary(guard);
     if (!GetExitCodeProcess(pi.hProcess, &code) || code == STILL_ACTIVE) failed = 1;
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);

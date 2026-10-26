@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{Error, Result, USER_AGENT};
+use crate::{distribution::Distribution, Error, Result, USER_AGENT};
 
 pub const OFFICIAL_ANNOUNCEMENT_URL: &str = "https://yh.wanmei.com/news/gamebroad/index.html";
 pub const OFFICIAL_LAUNCHER_URL: &str = "https://yh.wanmei.com/launcher/launcher_ob2.html?expand=0";
@@ -126,21 +126,22 @@ fn attr(tag: &str, name: &str) -> Option<String> {
     Some(tag[start..end].to_string())
 }
 
-fn absolute_official_url(url: &str) -> String {
-    if url.starts_with("http://") || url.starts_with("https://") {
-        url.to_string()
-    } else {
-        let path = if url.starts_with('/') {
-            url.to_string()
-        } else {
-            format!("/{url}")
-        };
-        format!("https://yh.wanmei.com{path}")
-    }
-}
-
 /// 解析公告列表页，按官方页面顺序保留最新的三条公告。
 pub fn parse_announcement_html(html: &str) -> Vec<BulletinItem> {
+    parse_official_list(
+        html,
+        "https://yh.wanmei.com",
+        "/news/gamebroad/",
+        BulletinKind::Maintenance,
+    )
+}
+
+fn parse_official_list(
+    html: &str,
+    origin: &str,
+    channel: &str,
+    kind: BulletinKind,
+) -> Vec<BulletinItem> {
     let mut items = Vec::new();
     let mut cursor = 0;
     while let Some(relative) = html[cursor..].find("<a ") {
@@ -159,7 +160,7 @@ pub fn parse_announcement_html(html: &str) -> Vec<BulletinItem> {
             cursor = end;
             continue;
         };
-        if !href.contains("/news/gamebroad/") {
+        if !href.contains(channel) {
             cursor = end;
             continue;
         }
@@ -169,10 +170,14 @@ pub fn parse_announcement_html(html: &str) -> Vec<BulletinItem> {
             continue;
         }
         items.push(BulletinItem {
-            kind: BulletinKind::Maintenance,
+            kind: kind.clone(),
             title,
             summary: class_text(block, "des"),
-            url: absolute_official_url(&href),
+            url: if href.starts_with("https://") || href.starts_with("http://") {
+                href
+            } else {
+                format!("{origin}/{}", href.trim_start_matches('/'))
+            },
             image_url: None,
             published_at: class_text(block, "date"),
             source: "官方公告".to_string(),
@@ -405,8 +410,33 @@ pub fn parse_bilibili_json(body: &str) -> Result<Vec<BulletinItem>> {
     Ok(output.into_iter().take(5).map(|(_, item)| item).collect())
 }
 
+/// 国际服公告与新闻使用国际服官网, 不读取国服社区动态.
+pub fn fetch_for(distribution: Distribution) -> BulletinFeed {
+    if distribution == Distribution::Cn {
+        return fetch_cn();
+    }
+    let origin = "https://nte.perfectworld.com";
+    let mut feed = BulletinFeed::default();
+    for (channel, kind) in [
+        ("gamenews", BulletinKind::Preview),
+        ("gamebroad", BulletinKind::Maintenance),
+    ] {
+        let url = format!("{origin}/en/article/news/{channel}/index.html");
+        match fetch_text(&url, 1024 * 1024, Some(&url)) {
+            Ok(html) => feed.items.extend(parse_official_list(
+                &html,
+                origin,
+                &format!("/en/article/news/{channel}/"),
+                kind,
+            )),
+            Err(error) => feed.errors.push(format!("国际服官方公告: {error}")),
+        }
+    }
+    feed
+}
+
 /// 并发拉取三个来源，输出顺序固定为 B 站动态、最新前瞻、停服公告。
-pub fn fetch() -> BulletinFeed {
+fn fetch_cn() -> BulletinFeed {
     let bilibili = std::thread::spawn(|| {
         fetch_text(BILIBILI_API_URL, 2 * 1024 * 1024, Some(BILIBILI_SPACE_URL))
             .and_then(|body| parse_bilibili_json(&body))
@@ -457,6 +487,23 @@ mod tests {
             items[0].url,
             "https://yh.wanmei.com/news/gamebroad/20260101/a.html"
         );
+    }
+
+    #[test]
+    fn global_announcements_keep_global_links_and_ignore_cn_entries() {
+        let html = r#"<a href="/en/article/news/gamebroad/20261019/264665.html"><h2 class="title">Account Action Notice</h2><p class="date">2026-10-19</p></a><a href="https://yh.wanmei.com/news/gamebroad/a.html"><h2 class="title">国服公告</h2></a>"#;
+        let items = parse_official_list(
+            html,
+            "https://nte.perfectworld.com",
+            "/en/article/news/gamebroad/",
+            BulletinKind::Maintenance,
+        );
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0].url,
+            "https://nte.perfectworld.com/en/article/news/gamebroad/20261019/264665.html"
+        );
+        assert_eq!(items[0].published_at, "2026-10-19");
     }
 
     #[test]

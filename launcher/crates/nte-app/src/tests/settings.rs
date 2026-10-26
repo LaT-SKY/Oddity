@@ -268,3 +268,18 @@ fn reports_migration_failures_without_panicking() {
     assert!(!data.join("oddity").exists());
     assert!(!config.join("oddity").exists());
 }
+
+#[test]
+fn global_settings_preserve_background_launch_mode() {
+    let mut env = EnvGuard::new();
+    let directory = TempDir::new("global-settings-background");
+    env.set("XDG_CONFIG_HOME", directory.path());
+    let settings = Settings {
+        distribution: Distribution::Global,
+        ..Default::default()
+    };
+    persist_settings(&settings).unwrap();
+    let loaded = load_settings();
+    assert_eq!(loaded.distribution, Distribution::Global);
+    assert_eq!(loaded.launch_mode, "background");
+}

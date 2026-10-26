@@ -228,7 +228,7 @@ export interface CommandArgs {
   launcher_background: undefined;
   bootstrap: undefined;
   check_update: { full: boolean };
-  fetch_bulletins: undefined;
+  fetch_bulletins: { distribution: "cn" | "global" };
   save_settings: { settings: Settings };
   export_logs: { destination: string };
   open_directory: { path: string };

@@ -86,10 +86,7 @@ fn plan_launcher_with_urls_cancellable(
     }
     let root = install_root.join(distribution.launcher_dir());
     if let Ok(config) = LauncherConfig::load(&root) {
-        let expected = match distribution {
-            Distribution::Cn => 1289,
-            Distribution::Global => 3000001,
-        };
+        let expected = distribution.game_id();
         if config.game_id != 0 && config.game_id != expected {
             return Err(Error::Integrity(format!(
                 "安装目录中的游戏地区与当前选择不一致: {}",

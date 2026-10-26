@@ -8,13 +8,13 @@
 #include <wchar.h>
 
 /*
- * Read-only window topology probe for NTEGame.exe.
+ * Read-only window topology probe for CN/global native clients.
  * Logs top-level windows belonging to the launcher and their child windows,
  * with class, title, rect, style, owner and parent. Only changes are logged.
  *
  * Env:
  *   NTE_WINDOW_OUT          Windows log path (optional; stderr otherwise)
- *   NTE_WINDOW_PID          target pid (optional; otherwise find NTEGame.exe)
+ *   NTE_WINDOW_PID          target pid (optional; otherwise find an NTE native client)
  *   NTE_WINDOW_DURATION_MS  default 30000
  *   NTE_WINDOW_INTERVAL_MS  default 150
  */
@@ -45,7 +45,7 @@ static DWORD find_pid(void)
     pe.dwSize = sizeof(pe);
     if (Process32FirstW(snap, &pe)) {
         do {
-            if (wcsstr(pe.szExeFile, L"NTEGame.exe")) { found = pe.th32ProcessID; break; }
+            if (!_wcsicmp(pe.szExeFile, L"NTEGame.exe") || !_wcsicmp(pe.szExeFile, L"NTEGlobalGame.exe")) { found = pe.th32ProcessID; break; }
         } while (Process32NextW(snap, &pe));
     }
     CloseHandle(snap);
@@ -117,7 +117,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 
     pid = GetEnvironmentVariableW(L"NTE_WINDOW_PID", out, 32) ? (DWORD)wcstoul(out, NULL, 10) : 0;
     if (!pid) pid = find_pid();
-    if (!pid) { logf_("ERR NTEGame.exe not found"); return 2; }
+    if (!pid) { logf_("ERR NTE native client not found"); return 2; }
     logf_("target pid=%lu", (unsigned long)pid);
 
     {

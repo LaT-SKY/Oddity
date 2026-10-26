@@ -20,6 +20,11 @@ static int fail(const char *text)
     return 1;
 }
 
+static int native_name(const wchar_t *name)
+{
+    return !_wcsicmp(name, L"NTEGame.exe") || !_wcsicmp(name, L"NTEGlobalGame.exe");
+}
+
 static int verify_handle(HANDLE h, wchar_t *path, DWORD capacity)
 {
     DWORD size = capacity;
@@ -30,7 +35,7 @@ static int verify_handle(HANDLE h, wchar_t *path, DWORD capacity)
     name = wcsrchr(path, L'\\');
     if (!name) name = wcsrchr(path, L'/');
     name = name ? name + 1 : path;
-    if (_wcsicmp(name, L"NTEGame.exe")) return fail("target image is not NTEGame.exe");
+    if (!native_name(name)) return fail("target image is not an NTE native client");
     if (!IsWow64Process(h, &wow64) || wow64) return fail("target is not native x64");
     return 0;
 }
@@ -45,10 +50,11 @@ static int game_paths(const wchar_t *image, wchar_t *exe, wchar_t *cwd, SIZE_T c
     wmemcpy(cwd, image, len + 1);
     for (i = 0; i < len; ++i) if (cwd[i] == L'/') cwd[i] = L'\\';
     name = wcsrchr(cwd, L'\\');
-    if (!name || _wcsicmp(name + 1, L"NTEGame.exe")) return 0;
+    if (!name || !native_name(name + 1)) return 0;
+    int global = !_wcsicmp(name + 1, L"NTEGlobalGame.exe");
     *name = 0;
     parent = wcsrchr(cwd, L'\\');
-    if (!parent || _wcsicmp(parent + 1, L"NTELauncher")) return 0;
+    if (!parent || _wcsicmp(parent + 1, global ? L"NTEGlobal" : L"NTELauncher")) return 0;
     *parent = 0;
     len = wcslen(cwd);
     if (!len || len + wcslen(suffix) >= capacity) return 0;
@@ -86,7 +92,7 @@ static int session_native_pid(DWORD helper_pid, DWORD *pid)
     entry.dwSize = sizeof(entry);
     if (Process32FirstW(snapshot, &entry)) {
         do {
-            if (entry.th32ParentProcessID == helper_pid && !_wcsicmp(entry.szExeFile, L"NTEGame.exe")) {
+            if (entry.th32ParentProcessID == helper_pid && native_name(entry.szExeFile)) {
                 found = entry.th32ProcessID;
                 ++matches;
             }

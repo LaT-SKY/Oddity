@@ -1,3 +1,4 @@
+import { distributions } from "./distribution";
 import { APP_VERSION } from "./version";
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -84,7 +85,7 @@ function previewPaths() {
   const protonName = overrides.protonName || "GE-Proton11-5-x86_64";
   return {
     installRoot,
-    launcherRoot: joinPath(installRoot, "NTELauncher"),
+    launcherRoot: joinPath(installRoot, distributions.cn.launcherDir),
     prefix: joinPath(dataHome, "oddity/prefix"),
     protonName,
     protonPath: joinPath(
@@ -97,7 +98,11 @@ function previewPaths() {
       installRoot,
       "Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe",
     ),
-    sdkPath: joinPath(installRoot, "NTELauncher/WPGameClientSDK_64.dll"),
+    sdkPath: joinPath(
+      installRoot,
+      distributions.cn.launcherDir,
+      "WPGameClientSDK_64.dll",
+    ),
   };
 }
 
@@ -142,7 +147,7 @@ const mock: Bootstrap = {
     {
       label: "官方启动器",
       ok: true,
-      detail: joinPath(preview.launcherRoot, "NTEGame.exe"),
+      detail: joinPath(preview.launcherRoot, distributions.cn.clientExe),
     },
   ],
   settings: {
@@ -195,7 +200,7 @@ const mockBulletins: BulletinFeed = {
       kind: "preview",
       title: "《异环》版本前瞻特别节目 | 情报回顾",
       summary: "版本前瞻回顾",
-      url: "https://yh.wanmei.com/launcher/launcher_ob2.html?expand=0",
+      url: distributions.cn.official,
       imageUrl: "/assets/hero-keyart.jpg",
       publishedAt: "",
       source: "版本前瞻",
@@ -446,6 +451,22 @@ async function previewInvoke(
       return clone(mockCheck);
     case "fetch_bulletins":
       await new Promise((resolve) => setTimeout(resolve, 260));
+      if ((args as CommandArgs["fetch_bulletins"]).distribution === "global") {
+        return {
+          items: [
+            {
+              kind: "preview",
+              title: "国际服官方新闻",
+              summary: "浏览器预览数据",
+              url: distributions.global.official,
+              imageUrl: null,
+              publishedAt: "",
+              source: "国际服官网",
+            },
+          ],
+          errors: [],
+        };
+      }
       return clone(mockBulletins);
     case "save_settings": {
       const settings = (args as { settings: Settings }).settings;
@@ -456,8 +477,26 @@ async function previewInvoke(
       else if (settings.installRoot) mock.installRoot = settings.installRoot;
       mock.launcherRoot = joinPath(
         mock.installRoot,
-        settings.distribution === "global" ? "NTEGlobal" : "NTELauncher",
+        distributions[settings.distribution].launcherDir,
       );
+      mock.sdkPath = joinPath(mock.launcherRoot, "WPGameClientSDK_64.dll");
+      mock.gameExe = joinPath(
+        mock.installRoot,
+        "Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe",
+      );
+      for (const item of mock.checks) {
+        if (item.label === "启动器配置") item.detail = mock.launcherRoot;
+        if (item.label === "游戏可执行文件") item.detail = mock.gameExe;
+        if (
+          item.detail.endsWith("NTEGame.exe") ||
+          item.detail.endsWith("NTEGlobalGame.exe")
+        ) {
+          item.detail = joinPath(
+            mock.launcherRoot,
+            distributions[settings.distribution].clientExe,
+          );
+        }
+      }
       mockCheck.distribution = settings.distribution;
       mockCheck.installRoot = mock.installRoot;
       return clone(mock);

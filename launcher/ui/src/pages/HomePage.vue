@@ -24,7 +24,9 @@ import HomeGameRecords from "../components/HomeGameRecords.vue";
       <div class="hero__inner">
         <HeroMedia />
         <div class="hero__fade" aria-hidden="true"></div>
-        <HomeGameRecords />
+        <HomeGameRecords
+          v-if="state.bootstrap?.settings.distribution !== 'global'"
+        />
         <div class="hero__content">
           <h1 class="hero__title" id="home-title">
             <span class="hero__cn">异环</span>
