@@ -17,6 +17,8 @@ pub mod launch;
 pub mod logs;
 pub mod manifest;
 mod paths;
+pub mod recovery;
+pub mod settings;
 pub mod update;
 pub mod version;
 

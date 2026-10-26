@@ -15,3 +15,9 @@ Keywords=game;launcher;NTE;异环;
 StartupNotify=true
 StartupWMClass=oddity
 X-KDE-StartupWMClass=oddity
+Actions=Recovery;
+
+[Desktop Action Recovery]
+Name=Emergency Recovery
+Name[zh_CN]=应急恢复
+Exec=oddity --recovery

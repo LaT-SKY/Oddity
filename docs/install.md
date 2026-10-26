@@ -195,7 +195,8 @@ AppImage 需要退出旧版本后替换文件.
 从源码运行后安装的桌面入口和图标可以按以下命令删除:
 
 ```bash
-rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/applications/oddity.desktop"
+rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/applications/oddity.desktop" \
+  "${XDG_DATA_HOME:-$HOME/.local/share}/applications/oddity-recovery.desktop"
 rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps/oddity.svg"
 rm -f "${XDG_DATA_HOME:-$HOME/.local/share}"/icons/hicolor/*/apps/oddity.png
 ```
@@ -221,7 +222,7 @@ git clone https://github.com/LaT-SKY/Oddity.git
 cd Oddity/launcher
 pnpm --dir ui install --frozen-lockfile
 pnpm --dir ui run build
-cargo build --release --locked -p nte-app -p nte-cli
+cargo build --release --locked -p nte-app -p nte-cli -p nte-recovery
 ./scripts/install-desktop.sh ./target/release/oddity
 ./target/release/oddity
 ```

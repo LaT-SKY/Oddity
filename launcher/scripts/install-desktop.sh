@@ -35,9 +35,17 @@ done
 
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
-sed -e "s|^Exec=.*|Exec=$bin|" -e "s|^TryExec=.*|TryExec=$bin|" \
+sed -e "s|^Exec=oddity$|Exec=$bin|" -e "s|^Exec=oddity --recovery$|Exec=$bin --recovery|" -e "s|^TryExec=oddity$|TryExec=$bin|" \
   "$root/packaging/oddity.desktop" >"$tmp"
 install -Dm644 "$tmp" "$apps/oddity.desktop"
+recovery="$(dirname "$bin")/oddity-recovery"
+if [[ -x "$recovery" ]]; then
+  sed -e "s|^Exec=oddity-recovery$|Exec=$recovery|" -e "s|^TryExec=oddity-recovery$|TryExec=$recovery|" \
+    "$root/packaging/oddity-recovery.desktop" >"$tmp"
+  install -Dm644 "$tmp" "$apps/oddity-recovery.desktop"
+else
+  echo "warning: build nte-recovery to enable emergency recovery" >&2
+fi
 
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$apps" >/dev/null 2>&1 || true

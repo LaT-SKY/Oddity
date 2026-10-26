@@ -50,6 +50,10 @@ Oddity 要求前缀目录中存在 `drive_c`. 请按[安装指南](install.md#wi
 
 ### 窗口黑屏, 花屏或闪退
 
+主界面无法操作时, 从应用菜单打开 **Oddity 应急恢复**, 尝试 **兼容启动**; 仍有问题可导出诊断包或恢复设置. 恢复前退出主程序, 原设置会备份.
+
+也可运行 `oddity-recovery`; AppImage 加上 `--recovery`.
+
 可以从终端尝试软件渲染开关:
 
 ```bash
@@ -123,6 +127,7 @@ Wine prefix 可以在设置中指定; 未指定时优先采用环境变量 `WINE
 
 | 命令                                            | 用途               |
 |-----------------------------------------------|------------------|
+| `nte-cli recovery diagnose`                    | 检查 Oddity 环境, 无需游戏目录. |
 | `nte-cli doctor --root <启动器目录>`               | 显示启动器配置和运行环境.    |
 | `nte-cli game-check --root <启动器目录> --full`    | 完整检查游戏资源.        |
 | `nte-cli game-apply --root <启动器目录> --dry-run` | 预览更新计划, 不写入游戏文件. |

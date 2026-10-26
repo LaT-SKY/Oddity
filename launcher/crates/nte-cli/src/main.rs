@@ -13,6 +13,9 @@ fn main() -> Result<()> {
     let Some(command) = args.first().cloned() else {
         return usage();
     };
+    if command == "recovery" {
+        return recovery(&args[1..]);
+    }
     if command == "keyring-check" {
         nte_core::attendance::check_keyring()?;
         println!("Keyring 存取与清理检查通过");
@@ -306,6 +309,26 @@ fn game_apply(launcher: &LauncherConfig, args: &[String]) -> Result<()> {
     Ok(())
 }
 
+fn recovery(args: &[String]) -> Result<()> {
+    use nte_core::{recovery, settings::UserPaths};
+    let paths = UserPaths::discover();
+    match args.first().map(String::as_str).unwrap_or("diagnose") {
+        "diagnose" if args.len() <= 1 => print!("{}", recovery::diagnose(&paths)),
+        "export" if args.len() == 2 => println!("{}", recovery::export_diagnostics(&paths, std::path::Path::new(&args[1]))?.display()),
+        "reset-interface" if args == ["reset-interface", "--confirm"] || args == ["reset-interface", "--confirm", "--reset-invalid"] => {
+            let backup = recovery::reset_interface(&paths, args.iter().any(|a| a == "--reset-invalid"))?;
+            println!("界面设置已恢复. 备份: {}", backup.map_or_else(|| "原配置不存在".into(), |p| p.display().to_string()));
+        }
+        "stop" if args == ["stop", "--confirm"] => {
+            recovery::stop_launcher(&paths)?;
+            println!("启动器已退出");
+        }
+        "start-compatible" if args.len() == 1 => { println!("已启动兼容模式, PID={}", recovery::start_compatible(&paths)?.id()); }
+        _ => anyhow::bail!("用法: nte-cli recovery [diagnose|export <目录>|reset-interface --confirm [--reset-invalid]|stop --confirm|start-compatible]\nstop 会终止启动器, 可能中断正在进行的任务. 重建损坏配置后需重新选择安装目录和 Proton, 原配置保存在备份中."),
+    }
+    Ok(())
+}
+
 fn doctor(config: &LauncherConfig) -> Result<()> {
     println!("root       = {}", config.root.display());
     println!("launcher   = {}", config.launcher);
@@ -329,6 +352,7 @@ fn flag_value(args: &[String], name: &str) -> Option<String> {
 }
 
 fn usage() -> Result<()> {
+    println!("nte-cli recovery [diagnose|export <目录>|reset-interface --confirm [--reset-invalid]|stop --confirm|start-compatible]");
     println!("nte-cli attendance [--config <签到配置目录>]\nnte-cli keyring-check");
     println!("nte-cli <check|apply|doctor|game-check|game-apply> --root <launcher install dir> [--quick] [--full] [--include-optional] [--only <substr>] [--dry-run] [--force]");
     Ok(())

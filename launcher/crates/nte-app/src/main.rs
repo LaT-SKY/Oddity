@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent};
@@ -29,6 +29,7 @@ use nte_core::config::{Ini, LauncherConfig};
 use nte_core::distribution::Distribution;
 use nte_core::launch::background::{validated_click_profile, ClickProfile};
 use nte_core::manifest::Manifest;
+use nte_core::settings::{Settings, UserPaths};
 use nte_core::{update, version};
 
 mod attendance_commands;
@@ -37,42 +38,6 @@ mod download_commands;
 mod native_session;
 
 const APP_IDENTIFIER: &str = "io.github.oddity.Launcher";
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase")]
-struct Settings {
-    distribution: Distribution,
-    install_root: Option<String>,
-    global_install_root: Option<String>,
-    prefix: Option<String>,
-    proton_path: Option<String>,
-    launch_mode: String,
-    language: String,
-    reduce_motion: bool,
-    theme: String,
-    hero_media: String,
-    minimize_to_tray_on_close: bool,
-    show_launcher_after_game_exit: bool,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            distribution: Distribution::Cn,
-            install_root: None,
-            global_install_root: None,
-            prefix: None,
-            proton_path: None,
-            launch_mode: "background".to_string(),
-            language: "zh-CN".to_string(),
-            reduce_motion: false,
-            theme: "light".to_string(),
-            hero_media: "video".to_string(),
-            minimize_to_tray_on_close: true,
-            show_launcher_after_game_exit: true,
-        }
-    }
-}
 
 struct AppState {
     settings: Mutex<Settings>,
@@ -657,13 +622,11 @@ fn install_seeds(base: &Path, distribution: Distribution, seeds: &mut Vec<PathBu
 }
 
 fn data_base() -> PathBuf {
-    std::env::var_os("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".local").join("share"))
+    UserPaths::discover().data_base
 }
 
 fn data_dir() -> PathBuf {
-    data_base().join("oddity")
+    UserPaths::discover().data_dir()
 }
 
 #[tauri::command]
@@ -682,13 +645,11 @@ fn legacy_data_dir() -> PathBuf {
 }
 
 fn config_base() -> PathBuf {
-    std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home_dir().join(".config"))
+    UserPaths::discover().config_base
 }
 
 fn config_dir() -> PathBuf {
-    config_base().join("oddity")
+    UserPaths::discover().config_dir()
 }
 
 fn legacy_config_dir() -> PathBuf {
@@ -746,7 +707,7 @@ fn migrate_legacy_dirs() {
 }
 
 fn settings_path() -> PathBuf {
-    config_dir().join("settings.json")
+    UserPaths::discover().settings()
 }
 
 fn load_settings() -> Settings {
@@ -2258,12 +2219,55 @@ fn launcher_builder<R: tauri::Runtime>() -> tauri::Builder<R> {
 }
 
 fn main() {
+    if std::env::args_os().skip(1).any(|arg| arg == "--recovery") {
+        let error =
+            nte_core::recovery::sibling("oddity-recovery").map(|path| Command::new(path).exec());
+        eprintln!("无法打开应急恢复: {error:?}");
+        std::process::exit(1);
+    }
     if attendance_commands::headless_entry() {
         return;
     }
+    let paths = UserPaths::discover();
+    let instance = match nte_core::recovery::LauncherLock::launcher(&paths) {
+        Ok(lock) => lock,
+        Err(error) => {
+            eprintln!("{error:#}");
+            std::process::exit(1);
+        }
+    };
     migrate_legacy_dirs();
+    match nte_core::recovery::open_launcher_log(&paths) {
+        Ok(log) => {
+            use std::os::fd::AsRawFd;
+            eprintln!("Oddity 启动日志目录: {}", paths.logs().display());
+            if unsafe { libc::dup2(log.as_raw_fd(), libc::STDERR_FILENO) } < 0 {
+                eprintln!("无法记录启动日志: {}", std::io::Error::last_os_error());
+            }
+        }
+        Err(error) => eprintln!("无法创建启动日志: {error:#}"),
+    }
+    let compatible = std::env::args_os()
+        .skip(1)
+        .any(|arg| arg == "--recovery-compatible");
+    if compatible {
+        std::env::set_var("NTE_SOFTWARE_RENDER", "1");
+        std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
+        std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    }
     configure_graphics();
-    let settings = load_settings();
+    let mut settings = load_settings();
+    if compatible {
+        settings.hero_media = "photo".into();
+        settings.reduce_motion = true;
+        settings.minimize_to_tray_on_close = false;
+    }
+    let mut context = tauri::generate_context!();
+    if compatible {
+        for window in &mut context.config_mut().app.windows {
+            window.transparent = false;
+        }
+    }
     launcher_builder()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             show_main(app);
@@ -2292,8 +2296,9 @@ fn main() {
                 }
             }
         })
-        .setup(|app| {
-            if load_settings().distribution == Distribution::Cn {
+        .setup(move |app| {
+            app.manage(instance);
+            if !compatible && load_settings().distribution == Distribution::Cn {
                 attendance_commands::on_launch();
             }
             if let Some(window) = app.get_webview_window("main") {
@@ -2335,7 +2340,7 @@ fn main() {
             win_hide,
             win_drag,
         ])
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("error while running Oddity");
     let _ = APP_IDENTIFIER;
 }

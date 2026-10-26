@@ -43,7 +43,7 @@ jobs:
               - 'launcher/Cargo.toml'
               - 'launcher/Cargo.lock'
               - 'launcher/crates/*/Cargo.toml'
-              - 'launcher/crates/nte-app/**'
+              - 'launcher/crates/**'
               - 'launcher/packaging/**'
               - 'launcher/scripts/install-desktop.sh'
               - 'launcher/ui/**'
@@ -125,12 +125,13 @@ jobs:
 
       - name: 构建 Release 二进制文件
         working-directory: launcher
-        run: cargo build --release --locked -p nte-app -p nte-cli
+        run: cargo build --release --locked -p nte-app -p nte-cli -p nte-recovery
 
       - name: 校验二进制文件类型
         run: |
           file launcher/target/release/oddity
           file launcher/target/release/nte-cli
+          file launcher/target/release/oddity-recovery
 
       - name: 校验桌面入口安装
         run: |
@@ -139,6 +140,7 @@ jobs:
             ./launcher/scripts/install-desktop.sh "$PWD/launcher/target/release/oddity"
           test -f "$tmp/share/applications/oddity.desktop"
           desktop-file-validate "$tmp/share/applications/oddity.desktop"
+          desktop-file-validate "$tmp/share/applications/oddity-recovery.desktop"
           for size in 16 22 24 32 48 64 128 256 512; do
             test -f "$tmp/share/icons/hicolor/${size}x${size}/apps/oddity.png"
           done

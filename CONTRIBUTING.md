@@ -69,7 +69,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
 cargo llvm-cov report --fail-under-lines 80
-cargo build --release --locked -p nte-app -p nte-cli
+cargo build --release --locked -p nte-app -p nte-cli -p nte-recovery
 cd ..
 ```
 

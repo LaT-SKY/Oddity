@@ -1,7 +1,7 @@
 //! 导出 Oddity 日志, 保留会话目录结构.
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -26,6 +26,15 @@ fn collect_logs(root: &Path, relative: &Path, files: &mut Vec<PathBuf>) -> Resul
 
 /// 在所选目录创建新的 ZIP, 不覆盖已有文件. 返回实际保存路径.
 pub fn export_logs(source: &Path, destination: &Path) -> Result<PathBuf> {
+    export(source, destination, None)
+}
+
+/// 没有游戏日志时也可导出独立诊断报告.
+pub fn export_diagnostics(source: &Path, destination: &Path, report: &str) -> Result<PathBuf> {
+    export(source, destination, Some(report))
+}
+
+fn export(source: &Path, destination: &Path, report: Option<&str>) -> Result<PathBuf> {
     let mut files = Vec::new();
     match fs::symlink_metadata(source) {
         Ok(metadata) if metadata.is_dir() => collect_logs(source, Path::new(""), &mut files)?,
@@ -33,7 +42,7 @@ pub fn export_logs(source: &Path, destination: &Path) -> Result<PathBuf> {
         Err(error) => return Err(error).context("读取日志目录失败"),
         _ => bail!("日志路径不是普通目录"),
     }
-    if files.is_empty() {
+    if files.is_empty() && report.is_none() {
         bail!("暂无可导出的日志, 请先运行游戏后重试");
     }
     files.sort();
@@ -60,6 +69,10 @@ pub fn export_logs(source: &Path, destination: &Path) -> Result<PathBuf> {
         let options = SimpleFileOptions::default()
             .compression_method(CompressionMethod::Deflated)
             .unix_permissions(0o600);
+        if let Some(report) = report {
+            archive.start_file("oddity-diagnostics.txt", options)?;
+            archive.write_all(report.as_bytes())?;
+        }
         for relative in files {
             let name = relative.to_str().context("日志文件名不是有效的 UTF-8")?;
             let input = File::open(source.join(&relative))
