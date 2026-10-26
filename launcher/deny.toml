@@ -14,6 +14,9 @@ ignore = [
   { id = "RUSTSEC-2026-0370", reason = "由 tauri-plugin-single-instance 依赖的 zbus 5 引入，zbus 6 已合并该 crate；2027-06 前随插件升级移除" },
   { id = "RUSTSEC-2026-0371", reason = "由 tauri-plugin-single-instance 依赖的 zbus 5 引入，zbus 6 已合并该 crate；2027-06 前随插件升级移除" },
   { id = "RUSTSEC-2026-0372", reason = "由 tauri-plugin-single-instance 依赖的 zbus 5 引入，zbus 6 已合并该 crate；2027-06 前随插件升级移除" },
+  { id = "RUSTSEC-2026-0391", reason = "固定版本 hdiffpatch-rs 使用 read::Decoder::new 独立上下文, 不调用受影响的 with_context; 2026-12 前随上游 zstd 升级移除" },
+  { id = "RUSTSEC-2026-0398", reason = "hdiffpatch-rs 未启用 zstd-safe/seekable, 不包含受影响的 Seekable API; 2026-12 前随上游 zstd 升级移除" },
+  { id = "RUSTSEC-2026-0403", reason = "hdiffpatch-rs 使用 stream::read::Decoder, 不使用受影响的流式写入解码器; 2026-12 前随上游 zstd 升级移除" },
 ]
 
 [licenses]
