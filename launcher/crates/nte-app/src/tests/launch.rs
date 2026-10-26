@@ -8,6 +8,7 @@ struct LaunchFixture {
     launcher: PathBuf,
     prefix: PathBuf,
     proton: PathBuf,
+    profile: nte_core::environment::RuntimeEnvironment,
     dump: PathBuf,
     wine_log: PathBuf,
     path: String,
@@ -40,10 +41,9 @@ impl LaunchFixture {
         );
         dir.write("install/NTELauncher/NTEGame.exe", b"MZ");
 
-        let prefix = dir.join("prefix");
-        std::fs::create_dir_all(prefix.join("drive_c")).expect("create prefix");
-
         let proton = fake_proton(&dir.join("tools"), "GE-Proton9-1");
+        let profile = managed_environment(&proton, &dir.join("install"), Distribution::Cn);
+        let prefix = profile.prefix(&data_dir()).unwrap();
         std::fs::create_dir_all(proton.join("files/bin")).expect("create wine dir");
         let wine_log = dir.join("wine.log");
         write_script(
@@ -69,6 +69,7 @@ impl LaunchFixture {
             launcher,
             prefix,
             proton,
+            profile,
             dump,
             wine_log,
             path,
@@ -79,8 +80,8 @@ impl LaunchFixture {
     fn settings(&self, mode: &str) -> Settings {
         Settings {
             install_root: Some(self.launcher.display().to_string()),
-            prefix: Some(self.prefix.display().to_string()),
-            proton_path: Some(self.proton.display().to_string()),
+            runtime_environments: vec![self.profile.clone()],
+            active_environment: Some(self.profile.id.clone()),
             launch_mode: mode.to_string(),
             ..Default::default()
         }
@@ -198,8 +199,7 @@ fn managed_environment_launch_uses_its_prefix_proton_and_log_directory() {
     let target = fake_proton(fixture.dir.path(), "GE-Proton-New");
     let profile = nte_core::environment::create(
         &data_dir(),
-        &fixture.prefix,
-        &fixture.proton,
+        Some((&fixture.prefix, &fixture.proton)),
         &target,
         &fixture.dir.join("install"),
         Distribution::Cn,
@@ -224,10 +224,9 @@ fn managed_environment_launch_uses_its_prefix_proton_and_log_directory() {
     fixture.dir.write("GE-Proton-New/proton", "changed version");
     assert!(expect_launch_error(launch_impl(&settings)).contains("Proton 已变化"));
     settings.active_environment = None;
-    assert_eq!(
-        environment_commands::prefix(&settings).unwrap(),
-        fixture.prefix
-    );
+    assert!(environment_commands::prefix(&settings)
+        .unwrap_err()
+        .contains("请先"));
 }
 
 #[test]
@@ -466,21 +465,12 @@ fn launch_requires_the_expected_tools_and_files() {
     let path = fixture.path.clone();
     fixture.env.set("PATH", path);
 
-    // 找不到 Proton
-    let without_proton = Settings {
-        proton_path: Some("/nope".to_string()),
-        ..settings.clone()
-    };
-    let error = expect_launch_error(launch_impl(&without_proton));
-    assert!(error.contains("未找到可用的 Proton"), "{error}");
-
-    // prefix 还没初始化
-    let raw_prefix = Settings {
-        prefix: Some(fixture.dir.join("raw-prefix").display().to_string()),
-        ..settings.clone()
-    };
-    let error = expect_launch_error(launch_impl(&raw_prefix));
-    assert!(error.contains("Wine prefix 尚未初始化"), "{error}");
+    let mut without_proton = settings.clone();
+    without_proton.runtime_environments[0].proton.path = fixture.dir.join("missing");
+    assert!(expect_launch_error(launch_impl(&without_proton)).contains("Proton"));
+    let mut unselected = settings.clone();
+    unselected.active_environment = None;
+    assert!(expect_launch_error(launch_impl(&unselected)).contains("请先"));
 
     // 官方启动器目录里没有 NTEGame.exe
     std::fs::create_dir_all(fixture.dir.join("bare-install/NTELauncher")).expect("create dir");
@@ -497,6 +487,8 @@ fn launch_requires_the_expected_tools_and_files() {
         ),
         ..settings.clone()
     };
+    let mut bare = bare;
+    bare.runtime_environments[0].install_root = fixture.dir.join("bare-install");
     let error = expect_launch_error(launch_impl(&bare));
     assert!(error.contains("官方启动器不存在"), "{error}");
 
@@ -528,11 +520,12 @@ fn global_launch_handoff_uses_global_client_for_official_and_background_modes() 
             "install/NTEGlobal/Config/Config.ini",
             "[General]\nGameID=3000001\n",
         );
-        let settings = Settings {
+        let mut settings = Settings {
             distribution: Distribution::Global,
             global_install_root: Some(global.display().to_string()),
             ..fixture.settings(mode)
         };
+        settings.runtime_environments[0].distribution = Distribution::Global;
         // 注入测试坐标仅验证交接参数, 不代表国际服按钮已实机验证.
         let invocation = launch_impl_with_profile(&settings, |path| {
             assert_eq!(path, global.join("NTEGlobalGame.exe"));
@@ -581,8 +574,8 @@ fn live_background_launch(distribution: Distribution, root_key: &str) {
         distribution,
         install_root: (distribution == Distribution::Cn).then_some(root.clone()),
         global_install_root: (distribution == Distribution::Global).then_some(root),
-        prefix: Some(read_path("ODDITY_LIVE_PREFIX")),
-        proton_path: Some(read_path("ODDITY_LIVE_PROTON")),
+        runtime_environments: load_settings().runtime_environments,
+        active_environment: Some(read_path("ODDITY_LIVE_ENVIRONMENT")),
         ..Default::default()
     };
     let invocation = launch_impl(&settings).expect("launch background");

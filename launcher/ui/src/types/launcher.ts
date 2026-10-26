@@ -57,9 +57,6 @@ export interface Settings {
   installRoot: string | null;
   globalInstallRoot: string | null;
   distribution: "cn" | "global";
-  prefix: string | null;
-  protonPath: string | null;
-  originalProtonPin: ProtonPin | null;
   runtimeEnvironments: RuntimeEnvironment[];
   activeEnvironment: string | null;
   stableEnvironment: string | null;

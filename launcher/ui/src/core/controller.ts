@@ -313,8 +313,6 @@ export const form = reactive({
   installRoot: "",
   globalInstallRoot: "",
   distribution: "cn" as "cn" | "global",
-  prefix: "",
-  protonPath: "",
   launchMode: "background",
   theme: "light",
   heroMedia: "video",
@@ -420,12 +418,14 @@ function downloadBlocksLaunch() {
   );
 }
 // 只有实际进入下载写入后才锁定路径; 启动下载前的保存仍读取表单。
-export const settingsPathsLocked = computed(
+const installPathsBusy = computed(
   () =>
-    runtimeEnvironmentBusy.value ||
     state.game !== "idle" ||
     (state.download?.mode === "apply" &&
       ["checking", "launcher", "game"].includes(state.download?.phase || "")),
+);
+export const settingsPathsLocked = computed(
+  () => runtimeEnvironmentBusy.value || installPathsBusy.value,
 );
 export const runtimePathsLocked = computed(
   () => runtimeEnvironmentBusy.value || state.game !== "idle",
@@ -1032,8 +1032,6 @@ function applyBootstrap(
     (settings.distribution === "global" ? data.installRoot : "") ||
     "";
   form.distribution = settings.distribution || "cn";
-  form.prefix = settings.prefix || data.prefix || "";
-  form.protonPath = settings.protonPath || data.protonPath || "";
   form.launchMode = settings.launchMode || "background";
 
   applyReduceMotion(Boolean(settings.reduceMotion));
@@ -1047,6 +1045,7 @@ function applyBootstrap(
 
 export async function checkUpdate(full = false, silent = false) {
   const epoch = generation;
+  if (runtimeEnvironmentBusy.value) return;
   if (state.checking) {
     // 本轮结束后再执行最后一次用户主动检查.
     if (!silent) pendingCheck = { full };
@@ -1121,7 +1120,7 @@ export async function startGameDownload(
   full = false,
   silent = false,
 ) {
-  if (downloadBusy()) return;
+  if (runtimeEnvironmentBusy.value || downloadBusy()) return;
   const epoch = generation;
   downloadStarting.value = mode;
   try {
@@ -1146,7 +1145,7 @@ export async function startGameDownload(
 
 // 启动器文件与游戏资源使用同一轮静默刷新。
 async function refreshInstallationStatus(includeGame = true) {
-  if (installationRefreshing) {
+  if (runtimeEnvironmentBusy.value || installationRefreshing) {
     installationRefreshPending = true;
     return;
   }
@@ -1286,6 +1285,11 @@ async function syncGameStatus() {
 async function launchGame() {
   const epoch = generation;
   if (state.game !== "idle" || runtimeEnvironmentBusy.value) return;
+  if (!state.bootstrap?.prefixExists) {
+    showPage("settings");
+    toast("请先在设置中创建并选择 Proton 运行环境.", "error", 6500);
+    return;
+  }
   if (!isTauri()) toast("浏览器预览：模拟启动流程。", "ok", 2600);
   setLaunchState("launching");
   const startedAt = performance.now();
@@ -1389,7 +1393,7 @@ function installPathsChanged(
 
 function currentSettings(): Settings {
   // 下载写入期间沿用已持久化的路径, 避免把自动探测到的目录当成修改提交。
-  const persisted = settingsPathsLocked.value
+  const persisted = installPathsBusy.value
     ? state.bootstrap?.settings
     : undefined;
   const launchMode = ["official", "background", "direct"].includes(
@@ -1405,11 +1409,6 @@ function currentSettings(): Settings {
       ? persisted.globalInstallRoot
       : form.globalInstallRoot.trim() || null,
     distribution: persisted ? persisted.distribution : form.distribution,
-    prefix: form.prefix.trim() || null,
-    protonPath: form.protonPath.trim() || null,
-    originalProtonPin: JSON.parse(
-      JSON.stringify(state.bootstrap?.settings.originalProtonPin ?? null),
-    ),
     runtimeEnvironments: JSON.parse(
       JSON.stringify(state.bootstrap?.settings.runtimeEnvironments ?? []),
     ),
@@ -1578,15 +1577,10 @@ async function changeEnvironment(
   if (runtimeEnvironmentLocked.value) return false;
   const epoch = generation;
   runtimeEnvironmentError.value = "";
-  // 先排空自动保存队列, 避免旧快照覆盖新创建的环境登记.
-  if (
-    !(await saveSettings()) ||
-    epoch !== generation ||
-    runtimeEnvironmentLocked.value
-  )
-    return false;
+  // 先占用操作入口, 防止保存表单期间的自动检查抢占安装锁.
   runtimeEnvironmentBusy.value = true;
   try {
+    if (!(await saveSettings()) || epoch !== generation) return false;
     const data = await operation();
     if (epoch !== generation) return false;
     applyBootstrap(data);
@@ -1599,7 +1593,13 @@ async function changeEnvironment(
     }
     return false;
   } finally {
-    if (epoch === generation) runtimeEnvironmentBusy.value = false;
+    if (epoch === generation) {
+      runtimeEnvironmentBusy.value = false;
+      if (installationRefreshPending) {
+        installationRefreshPending = false;
+        void refreshInstallationStatus();
+      }
+    }
   }
 }
 
@@ -1868,7 +1868,7 @@ export async function init() {
 
   startIntro();
 
-  if (state.bootstrap && state.bootstrap.ok) {
+  if (state.bootstrap && (state.bootstrap.ok || state.bootstrap.gameExists)) {
     whenIntroDone(() => {
       schedule(
         () =>

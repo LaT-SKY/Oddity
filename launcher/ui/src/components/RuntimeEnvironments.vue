@@ -9,6 +9,8 @@ import {
   createRuntimeEnvironment,
   runtimeEnvironmentAction,
 } from "../core/controller";
+import type { RuntimeEnvironment } from "../types/launcher";
+import BaseModal from "./BaseModal.vue";
 import BaseSelect from "./BaseSelect.vue";
 import DirectoryField from "./DirectoryField.vue";
 
@@ -17,8 +19,8 @@ const creating = ref(false);
 const name = ref("");
 const proton = ref("");
 const confirming = ref(false);
-const sourceId = ref<string | null>(null);
-const sourceName = ref("");
+const pendingRemoval = ref<RuntimeEnvironment | null>(null);
+const sourceId = ref("");
 const settings = computed(() => state.bootstrap?.settings);
 const profiles = computed(() => settings.value?.runtimeEnvironments ?? []);
 const active = computed(() => settings.value?.activeEnvironment ?? "");
@@ -26,26 +28,28 @@ const stable = computed(() => settings.value?.stableEnvironment ?? "");
 const profile = computed(() =>
   profiles.value.find((entry) => entry.id === selected.value),
 );
-const options = computed(() => [
-  { value: "", label: "原始环境" + suffix("") },
-  ...profiles.value.map((entry) => ({
+const source = computed(() =>
+  profiles.value.find((entry) => entry.id === sourceId.value),
+);
+const options = computed(() =>
+  profiles.value.map((entry) => ({
     value: entry.id,
-    label: entry.name + suffix(entry.id),
+    label:
+      entry.name +
+      (entry.id === active.value ? " · 当前" : "") +
+      (entry.id === stable.value ? " · 稳定" : ""),
   })),
+);
+const sourceOptions = computed(() => [
+  { value: "", label: "全新环境" },
+  ...profiles.value.map((entry) => ({ value: entry.id, label: entry.name })),
 ]);
 const removable = computed(
   () =>
-    selected.value !== "" &&
+    !!profile.value &&
     selected.value !== active.value &&
     selected.value !== stable.value,
 );
-
-function suffix(id: string) {
-  return (
-    (id === active.value ? " · 当前" : "") +
-    (id === stable.value ? " · 稳定" : "")
-  );
-}
 watch(
   active,
   (value) => {
@@ -57,27 +61,37 @@ watch(selected, () => {
   confirming.value = false;
   creating.value = false;
 });
+watch(sourceId, () => {
+  proton.value = source.value?.proton.path ?? "";
+});
 
 function openCreate() {
-  sourceId.value = selected.value || null;
-  sourceName.value = profile.value?.name ?? "原始环境";
-  proton.value =
-    profile.value?.proton.path ||
-    form.protonPath ||
-    settings.value?.protonPath ||
-    settings.value?.originalProtonPin?.path ||
-    "";
+  sourceId.value = profile.value?.id ?? "";
+  proton.value = profile.value?.proton.path ?? "";
   name.value = "";
+  runtimeEnvironmentError.value = "";
   creating.value = true;
 }
 async function create() {
-  if (await createRuntimeEnvironment(name.value, proton.value, sourceId.value))
+  if (
+    await createRuntimeEnvironment(
+      name.value,
+      proton.value,
+      sourceId.value || null,
+    )
+  )
     creating.value = false;
 }
+function openDiscard() {
+  pendingRemoval.value = profile.value ?? null;
+  runtimeEnvironmentError.value = "";
+  confirming.value = !!pendingRemoval.value;
+}
 async function discard() {
-  if (await runtimeEnvironmentAction("discard", selected.value)) {
-    selected.value = active.value;
+  const entry = pendingRemoval.value;
+  if (entry && (await runtimeEnvironmentAction("discard", entry.id))) {
     confirming.value = false;
+    selected.value = active.value;
   }
 }
 </script>
@@ -92,7 +106,7 @@ async function discard() {
       各环境使用独立 prefix, 共享游戏安装.
       游戏更新、共享配置、宿主文件和云端状态不会随环境切换恢复.
     </p>
-    <div class="field-grid">
+    <div v-if="profiles.length" class="field-grid">
       <div class="field field--wide">
         <label for="runtime-environment">运行环境</label>
         <BaseSelect
@@ -100,86 +114,72 @@ async function discard() {
           v-model="selected"
           :options="options"
           :disabled="runtimeEnvironmentLocked"
+          placeholder="请选择运行环境"
         />
-        <small class="field__hint" v-if="profile"
-          >Proton: {{ profile.proton.path }}<br />游戏安装:
+        <small v-if="profile" class="field__hint">
+          Proton: {{ profile.proton.path }}<br />游戏安装:
           {{ profile.installRoot }} ({{
             profile.distribution === "cn" ? "国服" : "国际服"
-          }})</small
-        >
-        <small class="field__hint" v-else
-          >原始环境的 prefix 和 Proton 在“安装与运行”中配置.</small
-        >
+          }})
+        </small>
       </div>
     </div>
+    <p v-else class="field__hint">请先创建 Proton 运行环境, 再启动游戏.</p>
     <div class="runtime-environments__actions">
-      <button
-        type="button"
-        class="btn btn--ghost"
-        :disabled="runtimeEnvironmentLocked || selected === active"
-        @click="runtimeEnvironmentAction('switch', selected || null)"
-      >
-        切换到此环境
-      </button>
-      <button
-        type="button"
-        class="btn btn--ghost"
-        :disabled="runtimeEnvironmentLocked || selected === stable"
-        @click="runtimeEnvironmentAction('keep', selected || null)"
-      >
-        保留为稳定环境
-      </button>
-      <button
-        type="button"
-        class="btn btn--ghost"
-        :disabled="runtimeEnvironmentLocked || !removable"
-        @click="confirming = true"
-      >
-        删除实验环境
-      </button>
-      <button
-        type="button"
-        class="btn btn--ghost"
-        :disabled="
-          runtimeEnvironmentLocked ||
-          !state.bootstrap ||
-          (selected === active && !state.bootstrap.prefixExists)
-        "
-        @click="openCreate"
-      >
-        从所选环境创建副本
-      </button>
-    </div>
-    <small class="field__hint"
-      >当前 prefix: {{ state.bootstrap?.prefix || "尚未配置" }}</small
-    >
-    <div v-if="confirming" class="runtime-environments__confirmation">
-      <p>确定删除“{{ profile?.name }}”的 prefix? 此操作无法撤销.</p>
-      <div class="runtime-environments__actions">
+      <template v-if="profiles.length">
         <button
           type="button"
-          class="btn btn--ghost"
-          :disabled="runtimeEnvironmentLocked"
-          @click="discard"
+          class="btn btn--link"
+          :disabled="
+            runtimeEnvironmentLocked || !profile || selected === active
+          "
+          @click="runtimeEnvironmentAction('switch', selected)"
         >
-          确定删除
+          切换到此环境
         </button>
         <button
           type="button"
           class="btn btn--link"
-          :disabled="runtimeEnvironmentLocked"
-          @click="confirming = false"
+          :disabled="
+            runtimeEnvironmentLocked || !profile || selected === stable
+          "
+          @click="runtimeEnvironmentAction('keep', selected)"
         >
-          取消
+          保留为稳定环境
         </button>
-      </div>
+        <button
+          type="button"
+          class="btn btn--link runtime-environments__danger"
+          :disabled="runtimeEnvironmentLocked || !removable"
+          @click="openDiscard"
+        >
+          删除环境
+        </button>
+      </template>
+      <button
+        type="button"
+        class="btn"
+        :class="profiles.length ? 'btn--ghost' : 'btn--primary'"
+        :disabled="runtimeEnvironmentLocked || !state.bootstrap"
+        @click="openCreate"
+      >
+        {{ profiles.length ? "创建环境或副本" : "创建运行环境" }}
+      </button>
     </div>
+    <small v-if="active" class="field__hint"
+      >当前 prefix: {{ state.bootstrap?.prefix || "不可用" }}</small
+    >
     <div v-if="creating" class="runtime-environments__create">
-      <p class="runtime-environments__notice">
-        源环境: {{ sourceName }}. 复制其 prefix 后使用所选 Proton. 映射到宿主的
-        Windows 用户目录将在副本中使用独立空目录, 首次启动可能需要重新登录.
-      </p>
       <div class="field-grid">
+        <div v-if="profiles.length" class="field field--wide">
+          <label for="runtime-environment-source">创建来源</label>
+          <BaseSelect
+            id="runtime-environment-source"
+            v-model="sourceId"
+            :options="sourceOptions"
+            :disabled="runtimeEnvironmentLocked"
+          />
+        </div>
         <div class="field">
           <label for="runtime-environment-name">环境名称</label>
           <input
@@ -187,16 +187,24 @@ async function discard() {
             v-model="name"
             maxlength="64"
             :disabled="runtimeEnvironmentLocked"
-            placeholder="例如 GE-Proton 新版本测试"
+            placeholder="例如 GE-Proton 稳定版"
           />
         </div>
         <DirectoryField
           id="runtime-environment-proton"
           v-model="proton"
-          label="实验 Proton 目录"
+          label="Proton 目录"
           :disabled="runtimeEnvironmentLocked"
         />
       </div>
+      <p class="runtime-environments__notice" v-if="source">
+        源环境: {{ source.name }}. 复制其 prefix 后使用所选 Proton. 映射到宿主的
+        Windows 用户目录将在副本中使用独立空目录, 首次启动可能需要重新登录.
+      </p>
+      <p class="runtime-environments__notice" v-else>
+        创建独立 prefix, 首次启动时由 Proton 初始化.
+        首个环境会自动设为当前和稳定环境.
+      </p>
       <div class="runtime-environments__actions">
         <button
           type="button"
@@ -204,7 +212,7 @@ async function discard() {
           :disabled="runtimeEnvironmentLocked || !name.trim() || !proton.trim()"
           @click="create"
         >
-          创建实验环境
+          {{ source ? "创建副本" : "创建环境" }}
         </button>
         <button
           type="button"
@@ -219,9 +227,44 @@ async function discard() {
     <p v-if="runtimeEnvironmentBusy" role="status" aria-live="polite">
       正在处理运行环境, 请稍候.
     </p>
-    <p v-if="runtimeEnvironmentError" role="alert">
+    <p v-if="runtimeEnvironmentError && !confirming" role="alert">
       {{ runtimeEnvironmentError }}
     </p>
+    <BaseModal
+      :open="confirming"
+      title="删除运行环境"
+      :theme="form.theme"
+      :reduce-motion="form.reduceMotion"
+      @update:open="
+        (value) => {
+          if (!value) confirming = false;
+        }
+      "
+    >
+      <p>确定删除“{{ pendingRemoval?.name }}”的 prefix? 此操作无法撤销.</p>
+      <p class="field__hint">游戏安装和其他环境不受影响.</p>
+      <p v-if="runtimeEnvironmentError" role="alert">
+        {{ runtimeEnvironmentError }}
+      </p>
+      <div class="runtime-environments__actions">
+        <button
+          type="button"
+          class="btn btn--ghost"
+          :disabled="runtimeEnvironmentBusy"
+          @click="confirming = false"
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          class="btn btn--ghost runtime-environments__danger"
+          :disabled="runtimeEnvironmentLocked"
+          @click="discard"
+        >
+          确定删除
+        </button>
+      </div>
+    </BaseModal>
   </section>
 </template>
 
@@ -236,12 +279,21 @@ async function discard() {
 .runtime-environments__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-8);
+  align-items: center;
+  gap: var(--space-24);
   margin: var(--space-16) 0;
 }
 
-.runtime-environments__create,
-.runtime-environments__confirmation {
+.runtime-environments__danger,
+.runtime-environments__danger:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.btn--ghost.runtime-environments__danger {
+  background: var(--danger-fill);
+}
+
+.runtime-environments__create {
   margin-top: var(--space-16);
   padding-top: var(--space-16);
   border-top: 1px solid var(--line);

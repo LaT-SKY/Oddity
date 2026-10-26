@@ -176,26 +176,6 @@ const launchModeHint = computed(
               @input="queueSettingsSave()"
               @change="queueSettingsSave(0)"
             />
-            <DirectoryField
-              id="set-prefix"
-              v-model="form.prefix"
-              class="field"
-              label="原始环境 Wine prefix"
-              :disabled="runtimePathsLocked"
-              placeholder="~/.local/share/oddity/prefix"
-              @input="queueSettingsSave()"
-              @change="queueSettingsSave(0)"
-            />
-            <DirectoryField
-              id="set-proton"
-              v-model="form.protonPath"
-              class="field field--wide"
-              label="原始环境 Proton 路径"
-              :disabled="runtimePathsLocked"
-              placeholder="~/.local/share/Steam/compatibilitytools.d/GE-Proton..."
-              @input="queueSettingsSave()"
-              @change="queueSettingsSave(0)"
-            />
             <div class="field">
               <span>启动方式</span>
               <BaseSelect

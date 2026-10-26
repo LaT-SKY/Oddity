@@ -14,62 +14,6 @@ fn expands_home_paths_only() {
 }
 
 #[test]
-fn default_prefix_prefers_wineprefix() {
-    let mut env = EnvGuard::new();
-    let home = TempDir::new("prefix-home");
-    env.set("HOME", home.path());
-    env.remove("XDG_DATA_HOME");
-    env.remove("WINEPREFIX");
-    assert_eq!(default_prefix(), home.join(".local/share/oddity/prefix"));
-
-    // 空值等于没设置
-    env.set("WINEPREFIX", "");
-    assert_eq!(default_prefix(), home.join(".local/share/oddity/prefix"));
-
-    env.set("WINEPREFIX", "/custom/prefix");
-    assert_eq!(default_prefix(), PathBuf::from("/custom/prefix"));
-}
-
-#[test]
-fn steam_roots_deduplicate_and_follow_the_environment() {
-    let mut env = EnvGuard::new();
-    let home = TempDir::new("steam-home");
-    env.set("HOME", home.path());
-    env.remove("STEAM_COMPAT_CLIENT_INSTALL_PATH");
-    env.remove("XDG_DATA_HOME");
-
-    let roots = steam_roots();
-    assert_eq!(
-        roots,
-        vec![
-            home.join(".local/share/Steam"),
-            home.join(".steam/steam"),
-            home.join(".steam/root"),
-        ]
-    );
-
-    // 客户端路径在前，重复项被去掉
-    env.set("XDG_DATA_HOME", home.join("xdg"));
-    env.set(
-        "STEAM_COMPAT_CLIENT_INSTALL_PATH",
-        home.join(".local/share/Steam"),
-    );
-    let roots = steam_roots();
-    assert_eq!(roots[0], home.join(".local/share/Steam"));
-    assert_eq!(roots[1], home.join("xdg/Steam"));
-    assert_eq!(roots.len(), 4);
-
-    // 空值直接忽略，此时 XDG 里的 Steam 排在最前
-    env.set("STEAM_COMPAT_CLIENT_INSTALL_PATH", "");
-    let roots = steam_roots();
-    assert_eq!(roots.len(), 4);
-    assert_eq!(roots[0], home.join("xdg/Steam"));
-
-    env.remove("XDG_DATA_HOME");
-    assert_eq!(steam_roots().len(), 3);
-}
-
-#[test]
 fn install_seeds_cover_the_known_layouts() {
     let mut seeds = Vec::new();
     install_seeds(Path::new("/mnt/games"), Distribution::Cn, &mut seeds);

@@ -35,7 +35,7 @@ describe("浏览器命令桥接", () => {
       sourceId: id,
     });
     expect(copied.settings.runtimeEnvironments).toHaveLength(2);
-    expect(copied.settings.activeEnvironment).toBeNull();
+    expect(copied.settings.activeEnvironment).toBe(id);
     await expect(
       invoke("environment_create", {
         name: "缺失源",
@@ -54,7 +54,7 @@ describe("浏览器命令桥接", () => {
       }),
     ).rejects.toThrow("不匹配");
   });
-  it("模拟环境创建、切换、保留和删除, 并保护原始环境", async () => {
+  it("模拟环境创建、切换、保留和删除, 并保护当前和稳定环境", async () => {
     const { invoke } = await import("../../src/core/api");
     await expect(
       invoke("environment_create", {
@@ -89,19 +89,27 @@ describe("浏览器命令桥接", () => {
       invoke("environment_action", { action: "discard", id }),
     ).rejects.toThrow("不能删除");
     await invoke("environment_action", { action: "keep", id });
-    await invoke("environment_action", { action: "switch", id: null });
+    const next = await invoke("environment_create", {
+      name: "其他环境",
+      protonPath: "/proton-c",
+      sourceId: null,
+    });
+    const otherId = next.settings.runtimeEnvironments[1].id;
+    await invoke("environment_action", { action: "switch", id: otherId });
     await expect(
       invoke("environment_action", { action: "discard", id }),
     ).rejects.toThrow("不能删除");
-    await invoke("environment_action", { action: "keep", id: null });
+    await invoke("environment_action", { action: "keep", id: otherId });
     const removed = await invoke("environment_action", {
       action: "discard",
       id,
     });
-    expect(removed.settings.runtimeEnvironments).toEqual([]);
+    expect(
+      removed.settings.runtimeEnvironments.map((entry) => entry.id),
+    ).toEqual([otherId]);
     await expect(
       invoke("environment_action", { action: "discard", id: null }),
-    ).rejects.toThrow("不能删除");
+    ).rejects.toThrow("不存在");
   });
 
   it("使用默认路径并返回互不共享的启动快照", async () => {
@@ -141,8 +149,13 @@ describe("浏览器命令桥接", () => {
     const data = await invoke("bootstrap");
     expect(data.installRoot).toBe("/game/");
     expect(data.launcherRoot).toBe("/game/NTELauncher");
-    expect(data.protonPath).toBe("/steam/compatibilitytools.d/Query/proton");
-    expect(data.protonName).toBe("Query");
+    expect(data.protonPath).toBe("");
+    const created = await invoke("environment_create", {
+      name: "测试",
+      protonPath: "/proton",
+      sourceId: null,
+    });
+    expect(created.prefix).toContain("/data/oddity/environments/");
   });
 
   it.each(["{broken", "null", "42"])("忽略无效本地配置: %s", async (stored) => {
@@ -153,8 +166,8 @@ describe("浏览器命令桥接", () => {
       "/?home=++&dataHome=&steamRoot=&installRoot=&protonName=",
     );
     const { invoke } = await import("../../src/core/api");
-    expect((await invoke("bootstrap")).prefix).toBe(
-      "~/.local/share/oddity/prefix",
+    expect((await invoke("bootstrap")).installRoot).toBe(
+      "~/Games/Neverness To Everness",
     );
   });
 
@@ -191,6 +204,12 @@ describe("浏览器命令桥接", () => {
     ).toMatchObject({ installRoot: "/new", settings: { theme: "dark" } });
     await invoke("save_settings", { settings: { ...settings } });
     expect((await invoke("bootstrap")).installRoot).toBe("/new");
+    await expect(invoke("launch_official")).rejects.toThrow("请先创建");
+    await invoke("environment_create", {
+      name: "测试",
+      protonPath: "/proton",
+      sourceId: null,
+    });
     expect(await invoke("launch_official")).toMatchObject({
       mode: "official",
       pid: 23140,

@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 
-test("设置页四处目录均可选择、取消并自动保存", async ({ page }) => {
+test("设置页安装目录均可选择、取消并自动保存", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.addInitScript(() => {
@@ -21,8 +21,6 @@ test("设置页四处目录均可选择、取消并自动保存", async ({ page 
   for (const [id, label] of [
     ["set-install", "国服安装目录"],
     ["set-global-install", "国际服安装目录"],
-    ["set-prefix", "原始环境 Wine prefix"],
-    ["set-proton", "原始环境 Proton 路径"],
   ]) {
     const input = page.locator(`#${id}`);
     // 使用绝对路径, 使浏览器测试仅模拟目录选择 IPC.

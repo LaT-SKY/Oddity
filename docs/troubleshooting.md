@@ -18,7 +18,7 @@
 ```bash
 command -v umu-run
 ls /path/to/Proton/proton /path/to/Proton/toolmanifest.vdf
-ls -d ~/.local/share/oddity/prefix/drive_c
+ls -d ~/.local/share/oddity/environments/环境ID/prefix/drive_c
 ```
 
 请将示例中的 Proton 路径和 prefix 路径替换为实际路径. 三项都存在时, 再往下看具体现象.
@@ -40,13 +40,11 @@ ls -d ~/.local/share/oddity/prefix/drive_c
 
 若终端能找到 `umu-run` 而 Oddity 找不到, 请检查启动 Oddity 时的 `PATH`.
 
-Proton 设置应选择安装目录, 不要选择 `proton` 文件. 该目录需要同时包含 `proton` 和 `toolmanifest.vdf`.
+创建运行环境时应选择 Proton 安装目录, 不要选择 `proton` 文件. 该目录需要同时包含 `proton` 和 `toolmanifest.vdf`.
 
 ### Wine prefix 尚未初始化
 
-Oddity 要求前缀目录中存在 `drive_c`. 请按[安装指南](install.md#wine-prefix)准备前缀, 再在设置中选择该目录.
-
-> Oddity 不会在启动游戏前自动创建前缀.
+请先按[安装指南](install.md#wine-prefix)在设置中创建运行环境. 首次启动时由 Proton 初始化前缀. 若环境目录损坏或被移除, 请创建新环境后切换使用.
 
 ### 窗口黑屏, 花屏或闪退
 
@@ -113,13 +111,13 @@ Nix 包包含 GStreamer 插件, 其他安装方式需要结合系统的 WebKitGT
 | 设置          | `~/.config/oddity/settings.json`                |
 | 签到状态        | `~/.config/oddity/taygedo/state.json`           |
 | 日志目录        | `~/.local/share/oddity/logs/`                   |
-| 启动日志        | `~/.local/share/oddity/logs/nte-app-launch.log` |
-| 辅助日志        | `~/.local/share/oddity/logs/helper-window.log`  |
-| Wine prefix | `~/.local/share/oddity/prefix`                  |
+| 启动日志        | `~/.local/share/oddity/logs/environments/<环境 ID>/nte-app-launch.log` |
+| 辅助日志        | `~/.local/share/oddity/logs/environments/<环境 ID>/helper-window.log`  |
+| Wine prefix | `~/.local/share/oddity/environments/<环境 ID>/prefix`                  |
 
 配置和数据目录分别跟随 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`.
 
-Wine prefix 可以在设置中指定; 未指定时优先采用环境变量 `WINEPREFIX`, 再使用上表默认值.
+Wine prefix 由所选运行环境决定. 设置页会显示当前 prefix 的实际位置.
 
 ### 命令行诊断
 

@@ -183,8 +183,7 @@ impl Drop for Incomplete {
 
 pub fn create(
     data: &Path,
-    source: &Path,
-    source_proton: &Path,
+    source: Option<(&Path, &Path)>,
     proton: &Path,
     install_root: &Path,
     distribution: Distribution,
@@ -194,21 +193,12 @@ pub fn create(
     if name.is_empty() || name.chars().count() > 64 || name.chars().any(char::is_control) {
         bail!("环境名称应为 1-64 个字符, 且不能包含控制字符");
     }
-    let _prefix_lock = lock_prefix(source)?;
-    let source = source.canonicalize()?;
-    if !source.join("drive_c").is_dir() {
-        bail!("源 Wine prefix 尚未初始化");
-    }
     let pin = ProtonPin::capture(proton)?;
-    let source_pin = ProtonPin::capture(source_proton)?;
     let install_root = install_root.canonicalize()?;
     let root = data.join("environments");
     fs::create_dir_all(&root)?;
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
     let root = root.canonicalize()?;
-    if root.starts_with(&source) {
-        bail!("源 prefix 不能包含受管环境目录");
-    }
     let mut random = [0u8; 16];
     File::open("/dev/urandom")?.read_exact(&mut random)?;
     let id: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -216,24 +206,37 @@ pub fn create(
     let staging = root.join(format!(".creating-{id}"));
     fs::DirBuilder::new().mode(0o700).create(&staging)?;
     let cleanup = Incomplete(staging.clone());
-    let context = CopyContext {
-        source: &source,
-        destination: &final_dir.join("prefix"),
-        install: &install_root,
-        protons: RefCell::new(vec![source_pin, pin.clone()]),
-    };
-    let required = context.size(&source)?;
-    if available_space(&root)? < required {
-        bail!(
-            "复制 prefix 的可用空间不足, 至少需要 {} MiB",
-            required.div_ceil(1024 * 1024)
-        );
+    if let Some((source, source_proton)) = source {
+        let _prefix_lock = lock_prefix(source)?;
+        let source = source.canonicalize()?;
+        if !source.join("drive_c").is_dir() {
+            bail!("源 Wine prefix 尚未初始化");
+        }
+        if root.starts_with(&source) {
+            bail!("源 prefix 不能包含受管环境目录");
+        }
+        let context = CopyContext {
+            source: &source,
+            destination: &final_dir.join("prefix"),
+            install: &install_root,
+            protons: RefCell::new(vec![ProtonPin::capture(source_proton)?, pin.clone()]),
+        };
+        let required = context.size(&source)?;
+        if available_space(&root)? < required {
+            bail!(
+                "复制 prefix 的可用空间不足, 至少需要 {} MiB",
+                required.div_ceil(1024 * 1024)
+            );
+        }
+        context.copy(&source, &staging.join("prefix"))?;
+        for proton in context.protons.borrow().iter() {
+            proton.verify()?;
+        }
+    } else {
+        // 首次启动由 Proton 初始化注册表和系统文件.
+        fs::create_dir_all(staging.join("prefix/drive_c"))?;
     }
-    context.copy(&source, &staging.join("prefix"))?;
-    // 复制期间不能接受外部更新后的版本标识.
-    for proton in context.protons.borrow().iter() {
-        proton.verify()?;
-    }
+    pin.verify()?;
     fs::write(staging.join(".oddity-environment"), &id)?;
     fs::rename(&staging, &final_dir)?;
     drop(cleanup);
@@ -485,8 +488,7 @@ mod tests {
         fn create(&self) -> Result<RuntimeEnvironment> {
             create(
                 &self.0.join("data"),
-                &self.0.join("source"),
-                &self.0.join("proton-a"),
+                Some((&self.0.join("source"), &self.0.join("proton-a"))),
                 &self.0.join("proton-b"),
                 &self.0.join("install"),
                 Distribution::Cn,
@@ -583,8 +585,10 @@ mod tests {
         let first = fixture.create().unwrap();
         let second = create(
             &dir.join("data"),
-            &first.prefix(&dir.join("data")).unwrap(),
-            &first.proton.path,
+            Some((
+                &first.prefix(&dir.join("data")).unwrap(),
+                &first.proton.path,
+            )),
             &dir.join("proton-a"),
             &dir.join("install"),
             Distribution::Cn,
@@ -613,8 +617,7 @@ mod tests {
         symlink(&driver, dir.join("source").join(relative)).unwrap();
         let profile = create(
             &dir.join("data"),
-            &dir.join("source"),
-            &dir.join("proton-b"),
+            Some((&dir.join("source"), &dir.join("proton-b"))),
             &dir.join("proton-c"),
             &dir.join("install"),
             Distribution::Cn,
@@ -625,8 +628,7 @@ mod tests {
         assert_eq!(fs::read_link(prefix.join(relative)).unwrap(), driver);
         let second = create(
             &dir.join("data"),
-            &prefix,
-            &profile.proton.path,
+            Some((&prefix, &profile.proton.path)),
             &dir.join("proton-b"),
             &dir.join("install"),
             Distribution::Cn,
@@ -780,8 +782,7 @@ mod tests {
         dir.write("source/drive_c/NTE/game.pak", "large resource");
         let profile = create(
             &dir.join("data"),
-            &dir.join("source"),
-            &dir.join("proton-a"),
+            Some((&dir.join("source"), &dir.join("proton-a"))),
             &dir.join("proton-b"),
             &dir.join("source/drive_c/NTE"),
             Distribution::Cn,
@@ -807,8 +808,7 @@ mod tests {
         for name in ["", "\n", &"a".repeat(65)] {
             assert!(create(
                 &dir.join("data"),
-                &dir.join("source"),
-                &dir.join("proton-a"),
+                Some((&dir.join("source"), &dir.join("proton-a"))),
                 &dir.join("proton-b"),
                 &dir.join("install"),
                 Distribution::Cn,
@@ -818,8 +818,7 @@ mod tests {
         }
         assert!(create(
             &dir.join("source/data"),
-            &dir.join("source"),
-            &dir.join("proton-a"),
+            Some((&dir.join("source"), &dir.join("proton-a"))),
             &dir.join("proton-b"),
             &dir.join("install"),
             Distribution::Cn,

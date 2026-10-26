@@ -123,14 +123,14 @@ function previewOs() {
 const preview = previewPaths();
 
 const mock: Bootstrap = {
-  ok: true,
-  error: null,
+  ok: false,
+  error: "请先在设置中创建并选择 Proton 运行环境",
   installRoot: preview.installRoot,
   launcherRoot: preview.launcherRoot,
-  prefix: preview.prefix,
-  prefixExists: true,
-  protonName: preview.protonName,
-  protonPath: preview.protonPath,
+  prefix: "",
+  prefixExists: false,
+  protonName: "",
+  protonPath: "",
   umuAvailable: true,
   launcherVersion: "1.0.7.0924",
   launcherBuild: "1fba17f8",
@@ -142,8 +142,8 @@ const mock: Bootstrap = {
     { label: "启动器配置", ok: true, detail: preview.launcherRoot },
     { label: "游戏可执行文件", ok: true, detail: preview.gameExe },
     { label: "umu-launcher", ok: true, detail: "umu-run（PATH）" },
-    { label: "Proton", ok: true, detail: preview.protonName },
-    { label: "Wine prefix", ok: true, detail: preview.prefix },
+    { label: "Proton", ok: false, detail: "未选择运行环境" },
+    { label: "Wine prefix", ok: false, detail: "" },
     {
       label: "官方启动器",
       ok: true,
@@ -154,9 +154,6 @@ const mock: Bootstrap = {
     installRoot: null,
     globalInstallRoot: null,
     distribution: "cn",
-    prefix: null,
-    protonPath: null,
-    originalProtonPin: null,
     runtimeEnvironments: [],
     activeEnvironment: null,
     stableEnvironment: null,
@@ -171,6 +168,25 @@ const mock: Bootstrap = {
   appVersion: APP_VERSION,
   os: previewOs(),
 };
+
+function selectPreviewEnvironment(
+  profile: Bootstrap["settings"]["runtimeEnvironments"][number],
+) {
+  mock.settings.activeEnvironment = profile.id;
+  mock.prefix = joinPath(
+    preview.prefix.replace(/\/prefix$/, ""),
+    "environments",
+    profile.id,
+    "prefix",
+  );
+  mock.prefixExists = true;
+  mock.protonPath = profile.proton.path;
+  mock.protonName = mock.protonPath.split("/").pop() || preview.protonName;
+  mock.ok = true;
+  mock.error = null;
+  mock.checks[3] = { label: "Proton", ok: true, detail: mock.protonName };
+  mock.checks[4] = { label: "Wine prefix", ok: true, detail: mock.prefix };
+}
 
 const mockCheck: CheckResult = {
   installed: true,
@@ -471,9 +487,7 @@ async function previewInvoke(
         )
       )
         throw new Error("运行环境名称已存在");
-      mock.settings.prefix ??= mock.prefix;
-      mock.settings.protonPath ??= mock.protonPath;
-      mock.settings.runtimeEnvironments.push({
+      const profile = {
         id: String(mock.settings.runtimeEnvironments.length + 1).padStart(
           32,
           "0",
@@ -483,7 +497,12 @@ async function previewInvoke(
         installRoot: mock.installRoot,
         distribution: mock.settings.distribution,
         createdAt: Math.floor(Date.now() / 1000),
-      });
+      };
+      mock.settings.runtimeEnvironments.push(profile);
+      if (!mock.settings.activeEnvironment) {
+        mock.settings.stableEnvironment = profile.id;
+        selectPreviewEnvironment(profile);
+      }
       return clone(mock);
     }
     case "environment_action": {
@@ -491,7 +510,7 @@ async function previewInvoke(
       const profile = mock.settings.runtimeEnvironments.find(
         (entry) => entry.id === id,
       );
-      if (id && !profile) throw new Error("运行环境不存在");
+      if (!profile) throw new Error("运行环境不存在");
       if (action === "switch") {
         if (
           profile &&
@@ -499,21 +518,7 @@ async function previewInvoke(
             profile.installRoot !== mock.installRoot)
         )
           throw new Error("运行环境与当前游戏地区或安装目录不匹配");
-        mock.settings.activeEnvironment = id;
-        mock.prefix = profile
-          ? joinPath(
-              preview.prefix.replace(/\/prefix$/, ""),
-              "environments",
-              profile.id,
-              "prefix",
-            )
-          : mock.settings.prefix || preview.prefix;
-        mock.protonPath =
-          profile?.proton.path ||
-          mock.settings.protonPath ||
-          preview.protonPath;
-        mock.protonName =
-          mock.protonPath.split("/").pop() || preview.protonName;
+        selectPreviewEnvironment(profile);
       } else if (action === "keep") {
         mock.settings.stableEnvironment = id;
       } else {
@@ -522,7 +527,7 @@ async function previewInvoke(
           id === mock.settings.activeEnvironment ||
           id === mock.settings.stableEnvironment
         )
-          throw new Error("不能删除原始环境、当前环境或稳定环境");
+          throw new Error("不能删除当前环境或稳定环境");
         mock.settings.runtimeEnvironments =
           mock.settings.runtimeEnvironments.filter((entry) => entry.id !== id);
       }
@@ -663,6 +668,8 @@ async function previewInvoke(
     case "open_directory":
       throw new Error("请在 Oddity 桌面应用中导出日志");
     case "launch_official":
+      if (!mock.settings.activeEnvironment)
+        throw new Error("请先创建 Proton 运行环境");
       previewGame.running = true;
       previewGame.closing = false;
       previewGame.pid = 23140;

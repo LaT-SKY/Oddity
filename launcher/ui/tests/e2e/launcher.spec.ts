@@ -92,6 +92,10 @@ test("导航、更新、设置、快捷键与启动关闭流程", async ({ page 
   );
   await page.locator("#settings-redetect").click();
   await expect(page.locator("#set-install")).toHaveValue("/tmp/oddity-game");
+  await page.getByRole("button", { name: "创建运行环境", exact: true }).click();
+  await page.locator("#runtime-environment-name").fill("默认环境");
+  await page.locator("#runtime-environment-proton").fill("/opt/Proton");
+  await page.getByRole("button", { name: "创建环境", exact: true }).click();
   await page.keyboard.press("Control+1");
   await expect(page.locator("#page-home")).toBeVisible();
   await page.locator("#launch-btn").click();

@@ -573,38 +573,6 @@ fn expand_path(raw: &str) -> PathBuf {
     PathBuf::from(raw)
 }
 
-fn default_prefix() -> PathBuf {
-    std::env::var_os("WINEPREFIX")
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| data_dir().join("prefix"))
-}
-
-/// Steam roots in discovery order. Steam exports the client path while it is
-/// running; XDG and the legacy `~/.steam` layout cover the rest.
-fn steam_roots() -> Vec<PathBuf> {
-    fn push(roots: &mut Vec<PathBuf>, path: PathBuf) {
-        if !path.as_os_str().is_empty() && !roots.contains(&path) {
-            roots.push(path);
-        }
-    }
-
-    let mut roots = Vec::new();
-    if let Some(raw) = std::env::var_os("STEAM_COMPAT_CLIENT_INSTALL_PATH") {
-        push(&mut roots, PathBuf::from(raw));
-    }
-    if let Some(raw) = std::env::var_os("XDG_DATA_HOME") {
-        push(&mut roots, PathBuf::from(raw).join("Steam"));
-    }
-    push(
-        &mut roots,
-        home_dir().join(".local").join("share").join("Steam"),
-    );
-    push(&mut roots, home_dir().join(".steam").join("steam"));
-    push(&mut roots, home_dir().join(".steam").join("root"));
-    roots
-}
-
 fn install_seeds(base: &Path, distribution: Distribution, seeds: &mut Vec<PathBuf>) {
     for name in [
         distribution.default_install_name(),
@@ -940,60 +908,7 @@ fn proton_install(path: &Path) -> Option<ProtonInstall> {
 }
 
 fn detect_proton(settings: &Settings) -> Option<ProtonInstall> {
-    if settings.active_environment.is_some() || settings.original_proton_pin.is_some() {
-        return environment_commands::proton_path(settings).and_then(proton_install);
-    }
-    if let Some(raw) = &settings.proton_path {
-        return proton_install(&expand_path(raw));
-    }
-    if let Some(raw) = std::env::var_os("PROTONPATH") {
-        if let Some(install) = proton_install(&expand_path(&raw.to_string_lossy())) {
-            return Some(install);
-        }
-    }
-
-    let mut candidates: Vec<ProtonInstall> = Vec::new();
-    for root in steam_roots() {
-        // Custom Proton builds (GE-Proton, CachyOS, ...) live here.
-        let compat = root.join("compatibilitytools.d");
-        if let Ok(entries) = fs::read_dir(&compat) {
-            for entry in entries.flatten() {
-                if let Some(install) = proton_install(&entry.path()) {
-                    candidates.push(install);
-                }
-            }
-        }
-        // Valve's own builds live in the Steam library.
-        let common = root.join("steamapps").join("common");
-        if let Ok(entries) = fs::read_dir(&common) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if !name.starts_with("Proton") {
-                    continue;
-                }
-                if let Some(install) = proton_install(&entry.path()) {
-                    candidates.push(install);
-                }
-            }
-        }
-    }
-    fn proton_score(name: &str) -> u8 {
-        if name.contains("GE-Proton") {
-            0
-        } else if name.contains("CachyOS") {
-            1
-        } else if name.contains("Experimental") {
-            3
-        } else {
-            2
-        }
-    }
-    candidates.sort_by(|a, b| {
-        proton_score(&a.name)
-            .cmp(&proton_score(&b.name))
-            .then_with(|| b.name.cmp(&a.name))
-    });
-    candidates.into_iter().next()
+    environment_commands::proton_path(settings).and_then(proton_install)
 }
 
 fn ensure_sdk_link(prefix: &Path, install_dir: &Path) -> Result<(), String> {
@@ -1068,7 +983,7 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
             PathBuf::new()
         }
     };
-    let prefix_exists = prefix.join("drive_c").is_dir();
+    let prefix_exists = !prefix.as_os_str().is_empty() && prefix.join("drive_c").is_dir();
 
     let mut launcher_version = String::new();
     let mut launcher_build = String::new();
@@ -1105,7 +1020,7 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
         .map(|p| p.display().to_string())
         .unwrap_or_default();
     if let Err(message) = environment_commands::verify_proton(settings) {
-        error = Some(message);
+        error.get_or_insert(message);
     }
     let proton = detect_proton(settings);
     let umu = which("umu-run");
@@ -1360,9 +1275,6 @@ fn save_settings(
             .as_ref()
             .is_some_and(|session| session.closing || session_alive(session));
     environment_commands::validate_settings_change(&current, &next, busy)?;
-    if current.prefix != next.prefix || current.proton_path != next.proton_path {
-        next.original_proton_pin = None;
-    }
     if download_commands::blocks_changes(&guard.status) && download_paths_changed(&current, &next) {
         return Err("游戏资源任务正在进行, 暂时无法修改游戏地区或安装目录".into());
     }
