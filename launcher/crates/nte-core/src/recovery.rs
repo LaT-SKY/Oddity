@@ -16,6 +16,13 @@ use crate::settings::{Settings, UserPaths};
 #[derive(Debug)]
 pub struct LauncherLock(File);
 
+impl Drop for LauncherLock {
+    fn drop(&mut self) {
+        // 子进程可能短暂继承描述符, 显式解锁避免延长占用时间.
+        let _ = self.0.unlock();
+    }
+}
+
 fn open_lock(paths: &UserPaths, create: bool) -> Result<File> {
     if create {
         fs::create_dir_all(&paths.config_base).context("创建配置目录失败")?;

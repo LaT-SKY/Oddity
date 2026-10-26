@@ -113,6 +113,8 @@ ls -d "$HOME/.local/share/oddity/prefix/drive_c"
 
 > Oddity 不会在启动游戏前自动创建前缀.
 
+需要尝试其他 Proton 版本时, 可以在设置页[创建独立的实验运行环境](runtime-environments.md), 保留原始 prefix 并共享游戏资源.
+
 ## 首次配置
 
 打开 **设置**, 修改会自动保存.
@@ -121,8 +123,8 @@ ls -d "$HOME/.local/share/oddity/prefix/drive_c"
 | --- | --- |
 | 游戏地区 | 国服或国际服. 地区决定资源来源, 启动器程序和公告来源. |
 | 国服/国际服安装目录 | 分别设置, 不要让两个区服共用同一目录. |
-| Proton 路径 | 包含 `proton` 和 `toolmanifest.vdf` 的目录. |
-| Wine prefix | 已初始化且包含 `drive_c` 的前缀目录. |
+| 原始环境 Proton 路径 | 包含 `proton` 和 `toolmanifest.vdf` 的目录. |
+| 原始环境 Wine prefix | 已初始化且包含 `drive_c` 的前缀目录. |
 | 启动方式 | 默认使用 **后台启动**. |
 
 ![设置页](assets/launcher-settings.png)

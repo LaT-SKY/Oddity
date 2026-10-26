@@ -69,6 +69,7 @@ fn settings_round_trip_through_the_config_dir() {
         hero_media: "photo".to_string(),
         minimize_to_tray_on_close: false,
         show_launcher_after_game_exit: false,
+        ..Default::default()
     };
     persist_settings(&settings).expect("persist settings");
 

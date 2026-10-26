@@ -320,6 +320,7 @@ fn commands_reject_overlapping_tasks_and_running_games() {
         exit_notified: false,
         game_alive: Arc::new(AtomicBool::new(false)),
         _install_lock: None,
+        _prefix_lock: None,
         background: Some(background.clone()),
     });
     assert!(game_download_start(

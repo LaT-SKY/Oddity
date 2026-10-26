@@ -156,6 +156,10 @@ const mock: Bootstrap = {
     distribution: "cn",
     prefix: null,
     protonPath: null,
+    originalProtonPin: null,
+    runtimeEnvironments: [],
+    activeEnvironment: null,
+    stableEnvironment: null,
     launchMode: "background",
     language: "zh-CN",
     reduceMotion: false,
@@ -446,6 +450,84 @@ async function previewInvoke(
       return { video: null, image: null };
     case "bootstrap":
       return clone(mock);
+    case "environment_create": {
+      const { name, protonPath, sourceId } =
+        args as CommandArgs["environment_create"];
+      const source = mock.settings.runtimeEnvironments.find(
+        (profile) => profile.id === sourceId,
+      );
+      if (sourceId && !source) throw new Error("源运行环境不存在");
+      if (
+        source &&
+        (source.distribution !== mock.settings.distribution ||
+          source.installRoot !== mock.installRoot)
+      )
+        throw new Error("源运行环境与当前游戏地区或安装目录不匹配");
+      if (!name.trim() || !protonPath.trim())
+        throw new Error("请填写环境名称和 Proton 目录");
+      if (
+        mock.settings.runtimeEnvironments.some(
+          (profile) => profile.name === name.trim(),
+        )
+      )
+        throw new Error("运行环境名称已存在");
+      mock.settings.prefix ??= mock.prefix;
+      mock.settings.protonPath ??= mock.protonPath;
+      mock.settings.runtimeEnvironments.push({
+        id: String(mock.settings.runtimeEnvironments.length + 1).padStart(
+          32,
+          "0",
+        ),
+        name: name.trim(),
+        proton: { path: protonPath.trim(), identity: "browser-preview" },
+        installRoot: mock.installRoot,
+        distribution: mock.settings.distribution,
+        createdAt: Math.floor(Date.now() / 1000),
+      });
+      return clone(mock);
+    }
+    case "environment_action": {
+      const { action, id } = args as CommandArgs["environment_action"];
+      const profile = mock.settings.runtimeEnvironments.find(
+        (entry) => entry.id === id,
+      );
+      if (id && !profile) throw new Error("运行环境不存在");
+      if (action === "switch") {
+        if (
+          profile &&
+          (profile.distribution !== mock.settings.distribution ||
+            profile.installRoot !== mock.installRoot)
+        )
+          throw new Error("运行环境与当前游戏地区或安装目录不匹配");
+        mock.settings.activeEnvironment = id;
+        mock.prefix = profile
+          ? joinPath(
+              preview.prefix.replace(/\/prefix$/, ""),
+              "environments",
+              profile.id,
+              "prefix",
+            )
+          : mock.settings.prefix || preview.prefix;
+        mock.protonPath =
+          profile?.proton.path ||
+          mock.settings.protonPath ||
+          preview.protonPath;
+        mock.protonName =
+          mock.protonPath.split("/").pop() || preview.protonName;
+      } else if (action === "keep") {
+        mock.settings.stableEnvironment = id;
+      } else {
+        if (
+          !id ||
+          id === mock.settings.activeEnvironment ||
+          id === mock.settings.stableEnvironment
+        )
+          throw new Error("不能删除原始环境、当前环境或稳定环境");
+        mock.settings.runtimeEnvironments =
+          mock.settings.runtimeEnvironments.filter((entry) => entry.id !== id);
+      }
+      return clone(mock);
+    }
     case "check_update":
       await new Promise((resolve) => setTimeout(resolve, 620));
       return clone(mockCheck);

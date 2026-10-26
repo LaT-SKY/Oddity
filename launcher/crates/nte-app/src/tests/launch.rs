@@ -192,6 +192,45 @@ fn launch_official_mode_sets_the_proton_environment() {
 }
 
 #[test]
+fn managed_environment_launch_uses_its_prefix_proton_and_log_directory() {
+    let mut fixture = LaunchFixture::new("launch-managed-environment");
+    fixture.env.set("NTE_DISABLE_PRESENCE_TUNING", "1");
+    let target = fake_proton(fixture.dir.path(), "GE-Proton-New");
+    let profile = nte_core::environment::create(
+        &data_dir(),
+        &fixture.prefix,
+        &fixture.proton,
+        &target,
+        &fixture.dir.join("install"),
+        Distribution::Cn,
+        "新版测试",
+    )
+    .unwrap();
+    let mut settings = fixture.settings("official");
+    settings.active_environment = Some(profile.id.clone());
+    settings.runtime_environments.push(profile.clone());
+    let invocation = launch_impl(&settings).unwrap();
+    let prefix = profile.prefix(&data_dir()).unwrap();
+    let dump = fixture.dump();
+    assert_eq!(env_value(&dump, "WINEPREFIX"), prefix.to_str());
+    assert_eq!(env_value(&dump, "PROTONPATH"), target.to_str());
+    assert!(invocation
+        .result
+        .log
+        .contains(&format!("logs/environments/{}", profile.id)));
+    assert!(nte_core::environment::lock_prefix(&prefix).is_err());
+    fixture.stop(invocation);
+    assert!(nte_core::environment::lock_prefix(&prefix).is_ok());
+    fixture.dir.write("GE-Proton-New/proton", "changed version");
+    assert!(expect_launch_error(launch_impl(&settings)).contains("Proton 已变化"));
+    settings.active_environment = None;
+    assert_eq!(
+        environment_commands::prefix(&settings).unwrap(),
+        fixture.prefix
+    );
+}
+
+#[test]
 fn launch_background_mode_configures_the_native_session() {
     let fixture = LaunchFixture::new("launch-background");
     fixture.dir.write_text(

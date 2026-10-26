@@ -204,6 +204,62 @@ const text = (id: string) => document.getElementById(id)?.textContent;
 const button = (id: string) => document.getElementById(id) as HTMLButtonElement;
 const primary = () => wrapper!.find("#game-download-primary");
 const primaryText = () => primary().find(".btn__text").text();
+it("环境操作先保存修改, 处理期间拒绝重入并同步新登记", async () => {
+  const c = await boot();
+  const base = backend.invoke.getMockImplementation()!;
+  let finish!: (data: Bootstrap) => void;
+  backend.invoke.mockImplementation((command: string, args: never) =>
+    command === "environment_create"
+      ? new Promise<Bootstrap>((resolve) => {
+          finish = resolve;
+        })
+      : base(command, args),
+  );
+  c.form.theme = "dark";
+  const task = c.createRuntimeEnvironment("测试环境", "/new-proton", null);
+  await flushPromises();
+  expect(backend.invoke).toHaveBeenCalledWith("environment_create", {
+    name: "测试环境",
+    protonPath: "/new-proton",
+    sourceId: null,
+  });
+  expect(c.runtimeEnvironmentBusy.value).toBe(true);
+  expect(c.settingsPathsLocked.value).toBe(true);
+  expect(await c.createRuntimeEnvironment("重复", "/new-proton", null)).toBe(
+    false,
+  );
+  const next = bootstrap({
+    settings: {
+      ...backend.data.settings,
+      runtimeEnvironments: [
+        {
+          id: "a".repeat(32),
+          name: "测试环境",
+          proton: { path: "/new-proton", identity: "pin" },
+          installRoot: "/game",
+          distribution: "cn",
+          createdAt: 1,
+        },
+      ],
+    },
+  });
+  finish(next);
+  expect(await task).toBe(true);
+  expect(c.runtimeEnvironmentBusy.value).toBe(false);
+  expect(c.state.bootstrap?.settings.runtimeEnvironments).toHaveLength(1);
+  c.form.reduceMotion = false;
+  await c.saveSettings();
+  expect(backend.data.settings.runtimeEnvironments[0].name).toBe("测试环境");
+});
+
+it("环境操作失败时保留原选择并释放等待状态", async () => {
+  const c = await boot();
+  backend.invoke.mockRejectedValueOnce(new Error("固定的 Proton 已变化"));
+  expect(await c.runtimeEnvironmentAction("switch", "missing")).toBe(false);
+  expect(c.runtimeEnvironmentError.value).toContain("Proton 已变化");
+  expect(c.runtimeEnvironmentBusy.value).toBe(false);
+  expect(c.state.bootstrap?.settings.activeEnvironment).toBeNull();
+});
 const key = (value: string, options: KeyboardEventInit = {}) =>
   document.dispatchEvent(
     new KeyboardEvent("keydown", {
@@ -323,6 +379,7 @@ describe("启动与设置", () => {
     await c.saveSettings();
     expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
       settings: {
+        ...settings,
         installRoot: "/new",
         globalInstallRoot: null,
         distribution: "cn",

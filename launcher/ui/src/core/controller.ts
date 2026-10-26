@@ -24,6 +24,8 @@ const disposers: (() => void)[] = [];
 let downloadRevision = 0;
 let bootstrapRevision = 0;
 const downloadStarting = ref<"check" | "apply" | null>(null);
+export const runtimeEnvironmentBusy = ref(false);
+export const runtimeEnvironmentError = ref("");
 // 文本输入防抖, 失焦和开关类控件立即保存。
 const AUTO_SAVE_DELAY = 500;
 const SAVED_STATE_DURATION = 2000;
@@ -392,6 +394,7 @@ export const launchView = computed(() => ({
       }
     : LAUNCH_COPY[state.game]),
   busy:
+    runtimeEnvironmentBusy.value ||
     state.game === "launching" ||
     state.game === "closing" ||
     downloadBlocksLaunch(),
@@ -419,8 +422,20 @@ function downloadBlocksLaunch() {
 // 只有实际进入下载写入后才锁定路径; 启动下载前的保存仍读取表单。
 export const settingsPathsLocked = computed(
   () =>
-    state.download?.mode === "apply" &&
-    ["checking", "launcher", "game"].includes(state.download?.phase || ""),
+    runtimeEnvironmentBusy.value ||
+    state.game !== "idle" ||
+    (state.download?.mode === "apply" &&
+      ["checking", "launcher", "game"].includes(state.download?.phase || "")),
+);
+export const runtimePathsLocked = computed(
+  () => runtimeEnvironmentBusy.value || state.game !== "idle",
+);
+export const runtimeEnvironmentLocked = computed(
+  () =>
+    runtimeEnvironmentBusy.value ||
+    state.game !== "idle" ||
+    state.checking ||
+    downloadBusy(),
 );
 export function formatSize(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -1270,7 +1285,7 @@ async function syncGameStatus() {
 
 async function launchGame() {
   const epoch = generation;
-  if (state.game !== "idle") return;
+  if (state.game !== "idle" || runtimeEnvironmentBusy.value) return;
   if (!isTauri()) toast("浏览器预览：模拟启动流程。", "ok", 2600);
   setLaunchState("launching");
   const startedAt = performance.now();
@@ -1392,6 +1407,14 @@ function currentSettings(): Settings {
     distribution: persisted ? persisted.distribution : form.distribution,
     prefix: form.prefix.trim() || null,
     protonPath: form.protonPath.trim() || null,
+    originalProtonPin: JSON.parse(
+      JSON.stringify(state.bootstrap?.settings.originalProtonPin ?? null),
+    ),
+    runtimeEnvironments: JSON.parse(
+      JSON.stringify(state.bootstrap?.settings.runtimeEnvironments ?? []),
+    ),
+    activeEnvironment: state.bootstrap?.settings.activeEnvironment ?? null,
+    stableEnvironment: state.bootstrap?.settings.stableEnvironment ?? null,
     launchMode,
     language: "zh-CN",
     reduceMotion: form.reduceMotion,
@@ -1547,6 +1570,54 @@ export async function saveSettings(silent = false): Promise<boolean> {
   const ok = await enqueuePersist(silent, epoch);
   if (ok && epoch === generation && !autoSaveQueued) markSaved();
   return ok;
+}
+
+async function changeEnvironment(
+  operation: () => Promise<Bootstrap>,
+): Promise<boolean> {
+  if (runtimeEnvironmentLocked.value) return false;
+  const epoch = generation;
+  runtimeEnvironmentError.value = "";
+  // 先排空自动保存队列, 避免旧快照覆盖新创建的环境登记.
+  if (
+    !(await saveSettings()) ||
+    epoch !== generation ||
+    runtimeEnvironmentLocked.value
+  )
+    return false;
+  runtimeEnvironmentBusy.value = true;
+  try {
+    const data = await operation();
+    if (epoch !== generation) return false;
+    applyBootstrap(data);
+    toast("运行环境已更新.");
+    return true;
+  } catch (cause) {
+    if (epoch === generation) {
+      runtimeEnvironmentError.value = String(cause);
+      toast(runtimeEnvironmentError.value, "error", 6500);
+    }
+    return false;
+  } finally {
+    if (epoch === generation) runtimeEnvironmentBusy.value = false;
+  }
+}
+
+export function createRuntimeEnvironment(
+  name: string,
+  protonPath: string,
+  sourceId: string | null,
+) {
+  return changeEnvironment(() =>
+    invoke("environment_create", { name, protonPath, sourceId }),
+  );
+}
+
+export function runtimeEnvironmentAction(
+  action: "switch" | "keep" | "discard",
+  id: string | null,
+) {
+  return changeEnvironment(() => invoke("environment_action", { action, id }));
 }
 
 export async function redetect() {
@@ -1810,6 +1881,8 @@ export async function init() {
 
 export function dispose() {
   generation++;
+  runtimeEnvironmentBusy.value = false;
+  runtimeEnvironmentError.value = "";
   Object.assign(gameRecords, {
     loading: false,
     waiting: false,

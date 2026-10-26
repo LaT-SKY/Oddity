@@ -42,13 +42,17 @@ fn detect_proton_prefers_explicit_paths() {
     assert_eq!(install.name, "GE-Proton9-1");
     assert_eq!(install.root, proton);
 
-    // 设置无效时看 PROTONPATH
+    // 明确指定的版本不可用时不能静默改用其他版本
     env.set("PROTONPATH", &proton);
     let stale = Settings {
         proton_path: Some("/nope".to_string()),
         ..Default::default()
     };
-    assert_eq!(detect_proton(&stale).expect("from env").root, proton);
+    assert!(detect_proton(&stale).is_none());
+    assert_eq!(
+        detect_proton(&Settings::default()).expect("from env").root,
+        proton
+    );
 
     env.remove("PROTONPATH");
     assert!(detect_proton(&Settings::default()).is_none());

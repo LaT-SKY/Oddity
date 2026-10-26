@@ -21,6 +21,89 @@ beforeEach(() => {
 });
 
 describe("浏览器命令桥接", () => {
+  it("创建副本验证指定的源环境及其安装范围", async () => {
+    const { invoke } = await import("../../src/core/api");
+    const first = await invoke("environment_create", {
+      name: "A",
+      protonPath: "/proton-a",
+      sourceId: null,
+    });
+    const id = first.settings.runtimeEnvironments[0].id;
+    const copied = await invoke("environment_create", {
+      name: "A 副本",
+      protonPath: "/proton-b",
+      sourceId: id,
+    });
+    expect(copied.settings.runtimeEnvironments).toHaveLength(2);
+    expect(copied.settings.activeEnvironment).toBeNull();
+    await expect(
+      invoke("environment_create", {
+        name: "缺失源",
+        protonPath: "/proton-b",
+        sourceId: "missing",
+      }),
+    ).rejects.toThrow("源运行环境不存在");
+    await invoke("save_settings", {
+      settings: { ...copied.settings, distribution: "global" },
+    });
+    await expect(
+      invoke("environment_create", {
+        name: "不匹配",
+        protonPath: "/proton-b",
+        sourceId: id,
+      }),
+    ).rejects.toThrow("不匹配");
+  });
+  it("模拟环境创建、切换、保留和删除, 并保护原始环境", async () => {
+    const { invoke } = await import("../../src/core/api");
+    await expect(
+      invoke("environment_create", {
+        name: "",
+        protonPath: "/new",
+        sourceId: null,
+      }),
+    ).rejects.toThrow("请填写");
+    const created = await invoke("environment_create", {
+      sourceId: null,
+      name: "测试",
+      protonPath: "/proton-b",
+    });
+    const id = created.settings.runtimeEnvironments[0].id;
+    await expect(
+      invoke("environment_create", {
+        name: "测试",
+        protonPath: "/proton-b",
+        sourceId: null,
+      }),
+    ).rejects.toThrow("已存在");
+    await expect(
+      invoke("environment_action", { action: "switch", id: "missing" }),
+    ).rejects.toThrow("不存在");
+    const selected = await invoke("environment_action", {
+      action: "switch",
+      id,
+    });
+    expect(selected.prefix).toContain(`/environments/${id}/prefix`);
+    expect(selected.protonPath).toBe("/proton-b");
+    await expect(
+      invoke("environment_action", { action: "discard", id }),
+    ).rejects.toThrow("不能删除");
+    await invoke("environment_action", { action: "keep", id });
+    await invoke("environment_action", { action: "switch", id: null });
+    await expect(
+      invoke("environment_action", { action: "discard", id }),
+    ).rejects.toThrow("不能删除");
+    await invoke("environment_action", { action: "keep", id: null });
+    const removed = await invoke("environment_action", {
+      action: "discard",
+      id,
+    });
+    expect(removed.settings.runtimeEnvironments).toEqual([]);
+    await expect(
+      invoke("environment_action", { action: "discard", id: null }),
+    ).rejects.toThrow("不能删除");
+  });
+
   it("使用默认路径并返回互不共享的启动快照", async () => {
     const { invoke, listenGameState } = await import("../../src/core/api");
     const first = await invoke("bootstrap");
