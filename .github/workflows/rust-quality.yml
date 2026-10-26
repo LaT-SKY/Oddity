@@ -65,13 +65,9 @@ jobs:
           "$RUNNER_TEMP/portage/bin/pip" install portage==3.0.81.2
           "$RUNNER_TEMP/portage/bin/python" scripts/test_gentoo_upgrade.py
 
-      - name: 安装 shellcheck
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends shellcheck
-
       - name: 检查 shell 脚本
         run: |
+          shellcheck --version
           mapfile -t files < <(git ls-files '*.sh')
           shellcheck --format=gcc "${files[@]}"
 
