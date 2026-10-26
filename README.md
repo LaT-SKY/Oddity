@@ -1,12 +1,12 @@
 <div align="center">
 
-<img src="launcher/ui/public/assets/app-icon.svg" width="88" alt="Oddity">
+<img src="launcher/ui/public/assets/app-icon.svg" width="76" alt="Oddity 图标">
 
 # Oddity
 
-**《异环》的 Linux 原生启动器**
+**《异环》的 Linux 启动器**
 
-原生 Wayland / X11 窗口 · 官方 CDN 安装与更新 · 游戏通过 Proton 运行
+游戏资源的安装, 更新和启动, 都在同一个窗口里完成.
 
 [![Release](https://img.shields.io/github/v/release/LaT-SKY/Oddity?include_prereleases&label=release)](https://github.com/LaT-SKY/Oddity/releases)
 [![Platform](https://img.shields.io/badge/platform-Linux-informational)](https://github.com/LaT-SKY/Oddity)
@@ -14,109 +14,62 @@
 
 </div>
 
-![Oddity 主界面](docs/assets/launcher-home.png)
+<p align="center">
+  <img src="docs/assets/launcher-home.png" width="880" alt="Oddity 启动页">
+</p>
 
-> 功能与界面仍可能调整。遇到问题时请附上系统信息与日志，见[排障指南](docs/troubleshooting.md)。
+> 界面截图为浏览器预览, 资源与账号数据为模拟内容.
 
-Oddity 是《异环》的 Linux 启动器：从官方 CDN 安装、检查和更新游戏资源，游戏本体通过 Proton 运行。Oddity 不内置游戏资源，也不绕过任何反作弊或登录校验。
+Oddity 不附带游戏文件, 资源来自官方服务. 它把检查, 下载, 校验和启动放在一起, 让 Linux 上的《异环》不必在多个窗口之间来回切换.
 
-## 快速开始
+## 能做什么
 
-### 1. 准备环境
+| 能力        | 你会得到什么                                  |
+|-----------|-----------------------------------------|
+| **安装与更新** | 检查官方资源清单, 只下载缺失或变化的文件; 下载可以暂停, 下次接着来.   |
+| **两个区服**  | 国服与国际服使用独立目录, 资源来源和启动配置, 互不覆盖.          |
+| **完整校验**  | 怀疑文件损坏时逐个核对哈希, 再按结果修复.                  |
+| **后台启动**  | 等官方资源检查完成再自动登录并启动, 隐藏官方主窗口; 需要时也可以切到前台. |
+| **国服工具**  | 塔吉多登录, 自动签到, 体力与周本查询.                   |
+| **桌面细节**  | 亮色/暗色主题, 自动获取官方视频/照片主页.                 |
 
-需要一台 x86_64 Linux 机器，并已准备好：
+## 开始使用
 
-- WebKitGTK 4.1 与 GTK 3；
-- `umu-launcher`（确保终端能运行 `umu-run`）；
-- Proton，推荐 GE-Proton 11-5 或更新的版本；
-- 一个可写的游戏安装目录，或已有的《异环》安装目录。
+1. **安装 Oddity**. 从 [Releases](https://github.com/LaT-SKY/Oddity/releases) 选择发行版安装包, 各发行版的命令见[安装指南](docs/install.md#安装-oddity).
+2. **准备运行环境**. 安装 `umu-launcher`, 准备 Proton 和已初始化的 Wine prefix, 见[环境准备](docs/install.md#准备游戏环境).
+3. **完成首次设置**. 在设置页选择地区, 填写安装目录, Proton 路径和 Wine prefix.
+4. **检查并启动**. 在更新页点击 **检查资源**, 按提示安装或更新, 完成后回到启动页.
 
-各发行版的依赖安装命令、Proton 与游戏准备步骤见 **[安装指南](docs/install.md)**。
-
-### 2. 安装
-
-从 [Releases](https://github.com/LaT-SKY/Oddity/releases) 下载对应发行版的 `.deb`、`.rpm`、`.pkg.tar.zst` 或 `.AppImage`, 然后按[安装指南](docs/install.md#从-release-安装)安装.
-包内已经包含桌面入口和图标. Arch Linux 也可以直接安装 AUR 的 `oddity-bin`. NixOS 可以使用 [Nix flake](docs/nix.md), Gentoo 使用 [oddity-overlay](docs/gentoo.md).
-
-也可以从源码构建:
-
-```bash
-git clone https://github.com/LaT-SKY/Oddity.git
-cd Oddity/launcher
-pnpm --dir ui install --frozen-lockfile
-pnpm --dir ui run build
-cargo build --release --locked -p nte-app
-./scripts/install-desktop.sh ./target/release/oddity
-./target/release/oddity
-```
-
-### 3. 首次启动
-
-1. 打开左侧 **设置**，选择游戏地区并填写该地区的安装目录, 也可点击 **浏览** 打开系统目录选择框。国服和国际服使用不同目录。
-2. 确认 **Proton 路径** 与 **Wine prefix** 正确。
-3. 国服和国际服均可选择 **后台启动**, 修改会自动保存.
-4. 前往 **更新** 页，点击 **检查资源**；按提示点击 **安装游戏** 或 **更新游戏**，完成后回到 **启动** 页启动游戏。
-
-首次启动的初始化可能需要几分钟，请不要重复点击。更完整的首次配置说明见[安装指南](docs/install.md#首次配置)。
+> 首次安装会先处理启动器文件, 再下载游戏资源. 资源体积较大, 建议留出足够空间和时间.
 
 ## 系统要求
 
-| 项目 | 要求 |
-|---|---|
-| 系统 | Linux x86_64，Wayland 或 X11 |
-| 图形 | 支持 Vulkan 的显卡驱动 |
-| 依赖 | WebKitGTK 4.1、GTK 3、`umu-launcher` |
-| 兼容层 | Proton；推荐 GE-Proton 11-5 或更新版本 |
-| 游戏 | 可写的安装目录或已有安装 |
+| 项目   | 要求                                                       |
+|------|----------------------------------------------------------|
+| 系统   | Linux x86_64, Wayland 或 X11                              |
+| 运行库  | GTK 3, WebKitGTK 4.1                                     |
+| 图形   | 支持 Vulkan 的显卡驱动                                          |
+| 游戏环境 | `umu-launcher`, Proton (推荐 GE-Proton), 已初始化的 Wine prefix |
+| 存储   | 可写的游戏安装目录, 首次安装需要完整资源                                    |
 
-已有安装的目录结构示例：
+## 文档
 
-```text
-Neverness To Everness/
-├── NTELauncher/Config/Config.ini
-└── Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe
-```
+| 文档                                            | 内容                         |
+|-----------------------------------------------|----------------------------|
+| [安装指南](docs/install.md)                       | 发行版安装, 游戏环境, 首次设置, 更新与卸载.  |
+| [排障指南](docs/troubleshooting.md)               | 启动失败, 黑屏, 下载中断, 日志导出和数据位置. |
+| [塔吉多指南](docs/taygedo.md)                      | 国服账号登录, 自动签到, 体力与周本.       |
+| [Nix](docs/nix.md) / [Gentoo](docs/gentoo.md) | 对应发行版的安装方式.                |
+| [贡献指南](CONTRIBUTING.md)                       | 代码风格, 目录结构, 检查与 PR 约定.        |
+| [安全政策](SECURITY.md)                           | 私密报告漏洞的范围与方式.              |
+| [第三方组件](THIRD_PARTY.md)                       | 字体, 图标, 依赖和协议参考的许可证.       |
 
-## 日常使用
-
-- **启动 / 关闭游戏**：主页按钮会在“启动游戏”“正在启动”“关闭游戏”之间切换。
-- **托盘**：启动成功后窗口会收起到托盘；游戏退出后默认重新显示主界面，可在设置中关闭。托盘菜单可以显示主界面、隐藏到后台或退出。
-- **检查与更新**：启动器打开时会静默快速检查一次游戏资源，尽早发现小版本更新；更新页主按钮通过后显示 **检查通过**，需要处理时按官方本地资源清单显示 **安装游戏** 或 **更新游戏**，支持资源检查与续传。
-- **塔吉多签到**: 支持手机号 / 密码或短信验证码登录、多账号管理, 可选择开机时、启动器打开时、每日定时或手动签到, 见[签到配置](docs/taygedo.md).
-- **外观**：设置中可以切换亮色 / 暗色主题、主页视频或照片，以及减少动态效果；所有设置修改后自动保存。主页主视觉优先使用本地官方启动器素材, 未找到时使用内置画面.
-
-## 数据与日志
-
-| 内容 | 路径 |
-|---|---|
-| 设置 | `~/.config/oddity/settings.json` |
-| 启动日志 | `~/.local/share/oddity/logs/nte-app-launch.log` |
-| 辅助日志 | `~/.local/share/oddity/logs/helper-window.log` |
-| Wine prefix | 默认 `~/.local/share/oddity/prefix` |
-| 启动器文件 | `<安装目录>/NTELauncher` |
-
-## 遇到问题
-
-- 启动失败、找不到 Proton、Wine prefix 未初始化、NVIDIA + Wayland 黑屏等常见问题：[排障指南](docs/troubleshooting.md)
-- 查看日志、使用命令行诊断、更新或卸载 Oddity：[排障指南](docs/troubleshooting.md#日志与诊断)
-- 其他问题：[提交 Issue](https://github.com/LaT-SKY/Oddity/issues)
-
-## 参与贡献
-
-- 提交代码前请阅读 [贡献指南](CONTRIBUTING.md)。
-- 安全漏洞请按 [安全政策](SECURITY.md) 私下报告，不要在公开 Issue 中披露细节。
+没有找到答案? 感谢您移步至 [Issues](https://github.com/LaT-SKY/Oddity/issues) 提交问题, 并附上 Oddity 版本和脱敏日志.
 
 ## 许可证
 
-Oddity 以 [GPL-3.0-or-later](LICENSE) 发布，Copyright (C) 2026 LaT-SKY。字体与图标等第三方组件见[第三方组件](THIRD_PARTY.md)。
-
-## 合规
-
-- 仅替代启动器；游戏本体、账号与资源仍来自官方渠道。
-- 仅按官方清单安装和更新游戏文件；不注入游戏进程，不绕过 ACE 或其他反作弊。
-- 不内置、不分发游戏资源或账号凭据。
-- 使用前请自行确认所在地法律与服务条款。
+项目代码使用 [GPL-3.0-or-later](LICENSE); 第三方组件见[许可说明](THIRD_PARTY.md).
 
 <div align="center">
-<sub>Oddity 与《异环》开发/发行方无隶属关系。游戏名称与商标归其权利人所有。</sub>
+<sub>Oddity 是第三方项目, 与《异环》开发方和发行方无隶属关系. 游戏名称与商标归其权利人所有.</sub>
 </div>

@@ -1,205 +1,233 @@
 # 安装指南
 
-本页说明如何准备环境、安装 Oddity，并完成第一次启动。
+Oddity 负责资源检查, 下载和启动; 游戏本身仍由 Proton 运行. 下面的顺序按依赖关系排列, 先准备好环境, 再让 Oddity 接管资源和启动.
 
-## 前置条件
+## 系统要求
 
 | 项目 | 要求 |
-|---|---|
-| 系统 | Linux x86_64，Wayland 或 X11 桌面 |
-| 图形 | 支持 Vulkan 的显卡驱动；NVIDIA 用户建议使用较新的专有驱动 |
-| 依赖 | WebKitGTK 4.1、GTK 3、`umu-launcher`（`umu-run`） |
-| 兼容层 | Proton；推荐 **GE-Proton 11-5** 或更新版本 |
-| 游戏 | 可写的安装目录，或已有的《异环》安装目录 |
-| 构建 | Rust 稳定版工具链 (edition 2021), Node.js 24 LTS 与 pnpm 12.14.0 |
+| --- | --- |
+| 系统 | Linux x86_64, Wayland 或 X11 |
+| 运行库 | GTK 3, WebKitGTK 4.1, `libsecret`, `xdg-utils` |
+| 图形 | 支持 Vulkan 的显卡驱动 |
+| 游戏环境 | `umu-launcher`, Proton, 已初始化的 Wine prefix |
+| 存储 | 可写的游戏安装目录, 首次安装需要完整游戏资源 |
 
-Oddity 可以从官方 CDN 安装游戏资源，也可以检查已有安装。已有安装的目录结构示例：
-
-```text
-Neverness To Everness/
-├── NTELauncher/
-│   └── Config/Config.ini
-└── Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe
-```
-
-## 安装构建依赖
-
-仅从源码构建 Oddity 时需要这些依赖; 使用 Release 中的包可以跳过本节.
-
-### Debian / Ubuntu
-
-```bash
-sudo apt install build-essential curl wget file libssl-dev libxdo-dev \
-  libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev
-```
-
-### Fedora
-
-```bash
-sudo dnf install gcc gcc-c++ make curl wget file openssl-devel \
-  webkit2gtk4.1-devel gtk3-devel libappindicator-gtk3-devel librsvg2-devel
-```
-
-### Arch Linux
-
-```bash
-sudo pacman -S --needed base-devel curl wget file openssl \
-  webkit2gtk-4.1 libappindicator-gtk3 librsvg
-```
-
-## 准备 umu-launcher 与 Proton
-
-1. 安装 [umu-launcher](https://github.com/Open-Wine-Components/umu-launcher)，并确认终端中可以运行：
-
-   ```bash
-   command -v umu-run
-   ```
-
-2. 安装 GE-Proton。可以使用 ProtonUp-Qt 等工具，也可以把解压后的 GE-Proton 放到：
-
-   ```text
-   ~/.local/share/Steam/compatibilitytools.d/
-   ```
-
-Oddity 会自动查找 Steam 的兼容工具目录。如果 Proton 放在其他位置，可以在设置中手动指定。
-
-> Proton 路径必须指向安装目录，该目录中应同时包含 `proton` 和 `toolmanifest.vdf`。不要选择 `proton` 可执行文件本身。
+> 安装包会声明 GTK 3, WebKitGTK 4.1 等必需依赖. `umu-launcher` 在 `.deb` 和 `.rpm` 中为推荐依赖, 在 Arch 包中为可选依赖, 需要确认已经安装.
 
 ## 安装 Oddity
 
-### 从 Release 安装
+从 [Releases](https://github.com/LaT-SKY/Oddity/releases) 下载对应格式的包, 在下载目录执行:
 
-在 [Releases](https://github.com/LaT-SKY/Oddity/releases) 下载对应发行版的包. 每个包都会安装 Oddity、`nte-cli`、桌面入口和图标.
+| 发行版 | 命令 |
+| --- | --- |
+| Debian / Ubuntu | `pkexec apt install ./oddity_*_amd64.deb` |
+| Fedora | `pkexec dnf install ./oddity-*.x86_64.rpm` |
+| openSUSE | `pkexec zypper install ./oddity-*.x86_64.rpm` |
+| Arch Linux | `pkexec pacman -U ./oddity-bin-*.pkg.tar.zst` |
 
-| 系统 | 包 | 安装命令 |
-|---|---|---|
-| Debian / Ubuntu | `.deb` | `sudo apt install ./oddity_*_amd64.deb` |
-| Fedora | `.rpm` | `sudo dnf install ./oddity-*.x86_64.rpm` |
-| openSUSE | `.rpm` | `sudo zypper install ./oddity-*.x86_64.rpm` |
-| Arch Linux | `.pkg.tar.zst` | `sudo pacman -U oddity-bin-*.pkg.tar.zst` |
-| Arch Linux (AUR) | `oddity-bin` | `yay -S oddity-bin` 或 `paru -S oddity-bin` |
-| NixOS | Nix Flake | `nix run github:LaT-SKY/Oddity` |
-| Gentoo | Overlay | 见[Gentoo 安装](gentoo.md) |
-| 通用 Linux | `.AppImage` | `chmod +x oddity-*.AppImage && ./oddity-*.AppImage` |
+包管理器会从已配置的软件源补齐必需依赖. `.deb`, `.rpm` 和 `.pkg.tar.zst` 安装后会注册桌面入口和图标; 各安装包都提供 `nte-cli`.
 
-AUR 的 `oddity-bin` 与 Release 中的 `.pkg.tar.zst` 内容一致, 都通过系统包管理器处理依赖. 原生包会处理 WebKitGTK 4.1、GTK 3、`libsecret` 和 `xdg-utils` 等依赖. `umu-launcher` 作为推荐依赖安装; Proton 仍需按上面的步骤准备. NixOS 见[Nix 文档](nix.md), Gentoo 见[Gentoo 文档](gentoo.md).
+Arch Linux 也可以从 [AUR](https://aur.archlinux.org/packages/oddity-bin) 安装:
 
-AppImage 需要系统提供 FUSE 2. 如果无法运行, 可以使用 `./oddity-*.AppImage --appimage-extract-and-run`, 或改用对应发行版的原生包. 主页视频还依赖系统的 GStreamer 插件; 缺少时仍可使用照片模式.
+```bash
+yay -S oddity-bin
+# 或
+paru -S oddity-bin
+```
 
-### 从源码构建
+AppImage 下载后先赋予执行权限:
+
+```bash
+chmod +x ./oddity-*.AppImage
+./oddity-*.AppImage
+```
+
+若出现 FUSE 错误, 可以解包运行:
+
+```bash
+./oddity-*.AppImage --appimage-extract-and-run
+```
+
+Nix 和 Gentoo 用户分别参阅 [Nix 指南](nix.md)和 [Gentoo 指南](gentoo.md).
+
+## 准备游戏环境
+
+Oddity 通过 `umu-run` 调用 Proton. 开始前需要三样东西: `umu-run`, Proton 和已初始化的 Wine prefix.
+
+### umu-launcher
+
+**Debian / RHEL**
+
+可以从 [umu Releases](https://github.com/Open-Wine-Components/umu-launcher/releases) 获取对应发行版和架构的包, 其他安装方式见[上游说明](https://github.com/Open-Wine-Components/umu-launcher#installing).
+
+**Arch / CachyOS**
+
+Arch 的 `umu-launcher` 位于 [multilib 仓库](https://archlinux.org/packages/multilib/x86_64/umu-launcher/), 需要先确认该仓库已启用:
+
+```bash
+sudo pacman -S --needed multilib/umu-launcher
+```
+
+若提示找不到仓库或目标, 请检查 `/etc/pacman.conf` 的 `[multilib]` 配置并更新软件包数据库, 仓库启用方法见 [ArchWiki](https://wiki.archlinux.org/title/Official_repositories#multilib).
+
+CachyOS 用户也可以在 `CachyOS Hello` 中选择 `安装游戏软件包`.
+
+**确认**
+
+安装后在终端确认能找到 `umu-run`:
+
+```bash
+command -v umu-run
+```
+
+若安装在 `~/.local/bin`, 请确认该目录已加入启动 Oddity 时的 `PATH`.
+
+### Proton
+
+推荐使用 GE-Proton. Oddity 已针对其启动参数被 UE 误识别为地图路径而导致的崩溃做处理.
+
+从 [GE-Proton Releases](https://github.com/GloriousEggroll/proton-ge-custom/releases) 下载 Linux x86_64 压缩包, 解压到 `~/.local/share/Steam/compatibilitytools.d/`, 保留压缩包内的 Proton 文件夹.
+
+Oddity 会搜索该目录, 也可以在设置中手动选择解压后的文件夹. 所选目录应同时包含 `proton` 和 `toolmanifest.vdf`, 不要选择 `proton` 文件本身.
+
+游戏还需要正确安装的 Vulkan 显卡驱动, 见 [GE-Proton 环境要求](https://github.com/GloriousEggroll/proton-ge-custom#installation).
+
+### Wine prefix
+
+Wine prefix 是 Proton 保存 Windows 环境和登录状态的目录. Oddity 要求其中已有 `drive_c`, 可以选择已有的游戏前缀.
+
+首次使用时, 可以通过 umu 创建前缀. 将 `/path/to/Proton` 替换为上一步的 Proton 文件夹路径:
+
+```bash
+WINEPREFIX="$HOME/.local/share/oddity/prefix" \
+PROTONPATH="/path/to/Proton" umu-run createprefix
+```
+
+命令结束后, 确认已生成 `drive_c`:
+
+```bash
+ls -d "$HOME/.local/share/oddity/prefix/drive_c"
+```
+
+最后在 Oddity 设置中选择同一个 Proton 文件夹和 Wine prefix 目录.
+
+> Oddity 不会在启动游戏前自动创建前缀.
+
+## 首次配置
+
+打开 **设置**, 修改会自动保存.
+
+| 项目 | 说明 |
+| --- | --- |
+| 游戏地区 | 国服或国际服. 地区决定资源来源, 启动器程序和公告来源. |
+| 国服/国际服安装目录 | 分别设置, 不要让两个区服共用同一目录. |
+| Proton 路径 | 包含 `proton` 和 `toolmanifest.vdf` 的目录. |
+| Wine prefix | 已初始化且包含 `drive_c` 的前缀目录. |
+| 启动方式 | 默认使用 **后台启动**. |
+
+![设置页](assets/launcher-settings.png)
+
+> 浏览器预览, 路径与检测结果为模拟数据.
+
+设置页底部的 **运行环境** 会显示检测结果, 点击顶部的 **重新检测** 可以刷新.
+
+**已有安装**
+
+可以选择安装根目录或对应的启动器目录:
+
+| 区服 | 启动器配置 |
+| --- | --- |
+| 国服 | `<安装根目录>/NTELauncher/Config/Config.ini` |
+| 国际服 | `<安装根目录>/NTEGlobal/Config/Config.ini` |
+
+**新安装**
+
+先选择一个空目录, 再到 **更新** 页安装资源.
+
+国服和国际服的安装目录互相独立, 切换地区不会移动或覆盖另一区服的文件.
+
+## 安装, 更新与启动
+
+1. 打开 **更新**, 点击 **检查资源**.
+2. 按提示点击 **安装游戏** 或 **更新游戏**. 首次安装会先处理启动器文件, 再处理游戏资源.
+3. 完成后回到 **启动**, 点击 **启动游戏**.
+
+![更新页](assets/launcher-update.png)
+
+> 浏览器预览, 资源状态为模拟数据.
+
+| 启动方式 | 行为 |
+| --- | --- |
+| **后台启动** (推荐) | 等待官方资源检查并尝试自动启动游戏, 隐藏官方主窗口. |
+| **前台启动** | 显示官方窗口, 需要在该窗口中点击启动游戏. |
+| **直接启动** | 跳过官方登录, 目前在界面中标为开发中. |
+
+若后台启动出现异常或提示官方组件版本尚未验证, 请改用 **前台启动**.
+
+游戏退出后默认重新显示 Oddity, 可以在设置中关闭 **游戏退出后打开启动器**. 开启 **关闭窗口时最小化到托盘** 后, 关闭主窗口不会退出 Oddity, 可以从托盘菜单重新打开.
+
+## 检查与修复
+
+- **检查资源** 执行快速检查; 通过后按钮显示 **检查通过**.
+- **完整校验** 计算文件哈希, 用于检查内容损坏. 发现问题后再点击主按钮修复.
+- 下载期间可以点击 **暂停下载**; 重新打开 Oddity 后, 对同一地区和目录重新检查并安装或更新, 可以复用保留的下载文件.
+- 资源任务进行中, 地区和安装目录暂时不能修改.
+- 首次安装第一阶段显示的是启动器下载量, 不是完整游戏体积.
+
+安装和更新前请确认磁盘有足够空间. 完整资源会占用较大容量, 更新时还需要额外的临时空间.
+
+## 更新 Oddity
+
+手动下载的 `.deb`, `.rpm` 或 `.pkg.tar.zst` 需要重新下载新版, 再执行对应安装命令.
+
+AppImage 需要退出旧版本后替换文件.
+
+从源码运行时, 拉取源码后重复构建与桌面入口安装步骤.
+
+通过 AUR, Nix 或 Gentoo 安装时, 使用对应工具更新.
+
+## 卸载
+
+先在设置中关闭自动签到并移除塔吉多账号, 再退出 Oddity.
+
+通过包管理器安装的版本, 使用同一包管理器卸载; AppImage 删除文件即可.
+
+从源码运行后安装的桌面入口和图标可以按以下命令删除:
+
+```bash
+rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/applications/oddity.desktop"
+rm -f "${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps/oddity.svg"
+rm -f "${XDG_DATA_HOME:-$HOME/.local/share}"/icons/hicolor/*/apps/oddity.png
+```
+
+配置, 日志和默认前缀不会随上述操作删除, 位置见[排障指南](troubleshooting.md#数据位置).
+
+如需清理, 请先备份; 删除默认前缀也会删除其中的 Windows 环境和登录数据.
+
+## 从源码构建
+
+需要 Rust 工具链, Node.js >= 24.19.0 和 pnpm 12.14.0. Debian / Ubuntu 的构建依赖可以按 [CI 依赖列表](../.github/actions/install-linux-deps/action.yml)安装:
+
+```bash
+pkexec apt install build-essential pkg-config libssl-dev libxdo-dev \
+  libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
+  librsvg2-dev
+```
+
+在仓库根目录执行:
 
 ```bash
 git clone https://github.com/LaT-SKY/Oddity.git
 cd Oddity/launcher
-
 pnpm --dir ui install --frozen-lockfile
 pnpm --dir ui run build
-cargo build --release --locked -p nte-app
+cargo build --release --locked -p nte-app -p nte-cli
 ./scripts/install-desktop.sh ./target/release/oddity
 ./target/release/oddity
 ```
 
-`install-desktop.sh` 只把图标和桌面入口安装到当前用户目录，不需要 `sudo`。安装后也可以从应用菜单启动 Oddity。
+发布构建会内嵌前端文件, 所以需要先执行 `pnpm --dir ui run build`. 桌面入口指向构建目录中的可执行文件, 移动源码目录后需要重新运行安装脚本.
 
-> 不需要桌面入口时，直接运行 `./target/release/oddity` 即可。
+## 遇到问题
 
-## 首次配置
-
-打开左侧 **设置**：
-
-| 设置项 | 说明 |
-|---|---|
-| **游戏地区与安装目录** | 国服和国际服分别设置安装根目录，例如 `~/Games/Neverness To Everness`；两个地区不能共用目录 |
-| **Wine prefix** | 游戏使用的 Wine 前缀，目录中应包含 `drive_c`。留空时使用默认目录 |
-| **Proton 路径** | Proton 安装目录，目录中应同时包含 `proton` 和 `toolmanifest.vdf` |
-| **启动方式** | 已验证版本的国服和国际服启动器可选择 **后台启动** |
-| **游戏退出后打开启动器** | 默认开启。检测到游戏进程结束后，自动显示 Oddity 主界面 |
-
-![设置页](assets/launcher-settings.png)
-
-填写后会自动保存。游戏资源下载或安装期间，游戏地区与两个安装目录会暂时禁用，其他设置仍可修改。设置页顶部的检测项会标出缺失的组件；
-全部通过后再回到主页。启动器文件和游戏资源都安装在所选目录中, 切换目录后需要在新目录重新检查和安装。
-
-### 启动方式说明
-
-| 方式           | 适合场景         | 说明 |
-|--------------|--------------|---|
-| **后台启动**（推荐） | 已验证的国服和国际服启动器版本 | 等待官方资源初始化, 自动触发正常启动并登录, 隐藏官方主窗口 |
-| **前台启动**     | 查看官方窗口或启动器版本尚未验证时 | 显示官方窗口, 请从窗口中点击启动游戏 |
-| **直接启动**     | 开发中          | 不经过启动器登录链路，不能用于正常游玩 |
-
-后台模式保留官方资源检查和登录交接, 由官方组件创建游戏进程. 当前自动操作适用于已验证的国服和国际服组件; 官方组件更新后若提示版本尚未验证, 请切换前台启动. 初始化超过等待时限时会终止本轮启动并提示失败. 关闭游戏只清理本轮后台会话, 不关闭共享 Wine 服务. 窗口守卫在官方主窗口的显示请求生效前阻止映射, 登录遮罩和游戏窗口保持正常显示.
-
-Windows 与 Linux 共用安装时, 请确认 Windows 更新后, 当前 Linux 用户仍可写入 `GameLauncher.config` 和 `patchersdk_serverlist` 目录. Oddity 会在启动前检查这些运行配置的权限; 若不可写, 请先修复对应路径的所有者和权限.
-
-## 第一次启动
-
-1. 前往 **更新** 页，选择地区与安装目录，点击 **检查资源**。检查通过时按钮会显示 **检查通过**；发现缺失或变更时，按钮会显示 **安装游戏** 或 **更新游戏**，点击后从官方 CDN 获取启动器文件和游戏资源。
-2. 更新完成后回到 **启动** 页，点击 **启动游戏**。Oddity 会通过 Proton 启动官方后台组件，完成登录与后续启动流程。
-3. 启动成功后，Oddity 窗口会收起到系统托盘，游戏开始运行。游戏退出后，Oddity 默认重新显示主界面；可在设置中关闭 **游戏退出后打开启动器**。
-
-![检查更新](assets/launcher-update.png)
-
-> **首次启动可能较慢。** 官方组件需要初始化登录环境，期间请不要重复点击启动。若长时间没有反应，请查看[排障指南](troubleshooting.md)。
-
-### 资源检查与修复
-
-- **检查资源** 是更新页的主按钮. 它使用本地资源记录和文件大小快速核对; 没有可信记录的大文件会显示为尚未验证, 不会直接报告就绪. 检查通过后按钮显示 **检查通过**.
-- **启动快速检查** 在每次打开启动器时静默执行一次, 用于尽早发现小版本更新; 检查失败不会打断启动, 可在更新页手动重试.
-- **切换地区或安装目录** 后会同时刷新启动器文件与游戏资源状态; 若新目录尚未安装启动器, 两张状态卡都会提示安装.
-- **安装游戏 / 更新游戏** 由官方本地资源清单 `ResList.xml` 是否存在来决定. 清单存在时视为已安装并显示 **更新游戏**, 否则显示 **安装游戏**. 点击后会先重新检查资源, 再下载需要处理的文件.
-- **首次安装分为两步**: 先下载并安装启动器文件 (国服约 238 MiB, 国际服约 262 MiB 下载量), 完成后才会检查并下载游戏资源. 因此更新页在第一步显示的体积只包含启动器文件, 不是完整游戏体积.
-- **完整校验** 会计算文件哈希. 发现问题后, 主按钮会保留完整校验要求并继续修复; 当前会话内, 同一地区和安装目录会保留完整校验要求, 直至修复完成. 重新打开 Oddity 后可再次完整校验.
-- **暂停下载** 仅在下载或写入资源时出现, 会保留未完成文件. 退出并重新打开 Oddity 后, 对相同地区和目录再次检查资源并点击 **更新游戏** / **安装游戏** 即可继续.
-- 进度条表示已处理完成的文件比例. 实际传输量单独显示; 补丁处理、校验和写入仍在进行时, 任务不会显示为完成.
-
-当前验证范围见[游戏下载验证记录](download-verification.md).
-
-## 更新 Oddity
-
-使用发行版包时, 通过系统包管理器更新即可:
-
-```bash
-sudo apt update && sudo apt upgrade      # Debian / Ubuntu
-sudo dnf upgrade                          # Fedora
-sudo zypper update                        # openSUSE
-sudo pacman -Syu                          # Arch Linux
-```
-
-AppImage 没有自动更新, 需要重新下载新版本并替换旧文件.
-
-从源码构建时按下面的步骤更新:
-
-```bash
-cd Oddity
-git pull
-cd launcher
-pnpm --dir ui install --frozen-lockfile
-pnpm --dir ui run build
-cargo build --release --locked -p nte-app
-./scripts/install-desktop.sh ./target/release/oddity
-```
-
-然后退出并重新启动 Oddity。
-
-## 卸载
-
-删除桌面入口与图标：
-
-```bash
-rm -f ~/.local/share/applications/oddity.desktop
-rm -f ~/.local/share/icons/hicolor/scalable/apps/oddity.svg
-rm -f ~/.local/share/icons/hicolor/*/apps/oddity.png
-```
-
-再删除 Oddity 的配置与数据：
-
-```bash
-rm -rf ~/.config/oddity ~/.local/share/oddity
-```
-
-> 删除 `~/.local/share/oddity` 会同时删除默认 Wine prefix 和日志，登录状态可能需要重新建立。游戏本体不会受影响。
-
----
-
-返回 [README](../README.md) · 遇到问题请查看[排障指南](troubleshooting.md)。
+先查看[排障指南](troubleshooting.md). 提交问题时请附上版本, 发行版, 桌面环境和脱敏日志.
