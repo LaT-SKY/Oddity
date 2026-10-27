@@ -73,82 +73,18 @@ jobs:
       contents: read
       pull-requests: write
       issues: write
+    concurrency:
+      group: pr-labels-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
     steps:
-      - name: 根据标题添加或移除 breaking
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-          TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          set -euo pipefail
-          if [[ "$TITLE" =~ ^[a-zA-Z]+(\([^\)]*\))?!: ]]; then
-            gh pr edit "$PR" --add-label breaking
-          else
-            gh pr edit "$PR" --remove-label breaking
-          fi
-
-      # 标题类型标签只增不删；breaking 单独同步，ci、docs 和 area 标签按路径同步。
-      - name: 根据标题同步类型和范围标签
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-          TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$TITLE" =~ ^([a-zA-Z]+)(\(([^\)]+)\))?!?: ]]; then
-            echo "标题格式无法解析，跳过自动标签"
-            exit 0
-          fi
-
-          type="${BASH_REMATCH[1],,}"
-          scope="${BASH_REMATCH[3],,}"
-          labels=()
-
-          case "$type" in
-            feat) labels+=("feature") ;;
-            fix) labels+=("bug") ;;
-            perf) labels+=("performance") ;;
-            security) labels+=("security") ;;
-            docs) labels+=("docs") ;;
-            refactor) labels+=("refactor") ;;
-            ci|release|build) labels+=("ci") ;;
-            chore|test|style) labels+=("chore") ;;
-            deps) labels+=("dependencies") ;;
-          esac
-
-          case "$type" in
-            ui|cli|launcher|updater|proton|login|packaging)
-              labels+=("area: $type")
-              ;;
-            app)
-              labels+=("area: launcher")
-              ;;
-          esac
-
-          case "$scope" in
-            ui|cli|launcher|updater|proton|login|packaging)
-              labels+=("area: $scope")
-              ;;
-            app)
-              labels+=("area: launcher")
-              ;;
-          esac
-
-          if [[ ${#labels[@]} -eq 0 ]]; then
-            echo "没有可自动添加的标签"
-            exit 0
-          fi
-
-          mapfile -t labels < <(printf '%s\n' "${labels[@]}" | sort -u)
-          args=()
-          for label in "${labels[@]}"; do
-            args+=(--add-label "$label")
-          done
-          gh pr edit "$PR" "${args[@]}"
-
-      - name: 按路径同步 area、ci 和 docs 标签
-        uses: actions/labeler@v7
+      - uses: actions/checkout@v7
         with:
-          sync-labels: true
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+          sparse-checkout: scripts
+      - name: 同步标题和路径标签
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { syncPrLabels } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/sync-pr-labels.mjs`);
+            await syncPrLabels({ github, context });
