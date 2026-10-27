@@ -101,6 +101,21 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
   await expect(panel).toBeVisible();
   await screenshot(page, "home-panel-dark.png");
   await page.setViewportSize({ width: 980, height: 640 });
+  // 视口缩小时面板高度异步归位, 等布局稳定后再测量。
+  await expect
+    .poll(async () => {
+      const gap = await page.evaluate(() => {
+        const stats = document
+          .querySelector(".game-records__secondary")!
+          .getBoundingClientRect();
+        const footer = document
+          .querySelector(".game-records__foot")!
+          .getBoundingClientRect();
+        return footer.top - stats.bottom;
+      });
+      return gap >= 12 && gap <= 20;
+    })
+    .toBe(true);
   const positions = await page.evaluate(() => {
     const panel = document
       .querySelector(".game-records__panel")!
