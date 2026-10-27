@@ -20,6 +20,7 @@ import {
 
 const expanded = ref(false);
 const frontHeight = ref(96);
+const cardHeights = ref<Record<number, number>>({});
 const root = ref<HTMLElement | null>(null);
 const prefersReduced = useReducedMotion();
 const reduced = computed(() => form.reduceMotion || prefersReduced.value);
@@ -48,19 +49,51 @@ const interaction = computed(() =>
     ? { duration: 0 }
     : { type: "spring" as const, stiffness: 440, damping: 32 },
 );
+const cardHeight = (id: number) => cardHeights.value[id] ?? frontHeight.value;
+const stackY = (id: number) =>
+  expanded.value
+    ? settled.value
+        .slice(0, depth(id))
+        .reduce((total, item) => total + cardHeight(item.id) + 10, 0)
+    : depth(id) * 10;
+const listHeight = computed(() =>
+  expanded.value
+    ? settled.value.reduce(
+        (total, item) => total + cardHeight(item.id) + 10,
+        0,
+      ) - (settled.value.length ? 10 : 0)
+    : settled.value.length
+      ? frontHeight.value + (Math.min(settled.value.length, 3) - 1) * 10
+      : 0,
+);
 let observer: ResizeObserver | undefined;
+function readHeights() {
+  const heights: Record<number, number> = {};
+  root.value
+    ?.querySelectorAll<HTMLElement>(".notification-slot")
+    .forEach((slot) => {
+      const card = slot.querySelector<HTMLElement>(".notification-card")!;
+      heights[Number(slot.dataset.notificationId)] = card.offsetHeight + 2;
+    });
+  if (
+    Object.keys(heights).length !== Object.keys(cardHeights.value).length ||
+    Object.entries(heights).some(
+      ([id, height]) => cardHeights.value[Number(id)] !== height,
+    )
+  )
+    cardHeights.value = heights;
+  const front = settled.value.find((item) => !retiring.value.includes(item.id));
+  if (front && heights[front.id]) frontHeight.value = heights[front.id];
+}
 async function measure() {
   await nextTick();
   pauseNotifications("focus", !!root.value?.contains(document.activeElement));
   if (!notifications.length) pauseNotifications("hover", false);
   observer?.disconnect();
-  const card = root.value?.querySelector<HTMLElement>(
-    '[data-front="true"]:not(.is-retiring) .notification-surface',
-  );
-  if (card) {
-    frontHeight.value = card.offsetHeight;
-    observer?.observe(card);
-  }
+  readHeights();
+  root.value
+    ?.querySelectorAll<HTMLElement>(".notification-card")
+    .forEach((card) => observer?.observe(card));
 }
 watch(
   () => notifications.map((item) => `${item.id}:${item.revision}`).join(","),
@@ -72,10 +105,9 @@ watch(
 watch([landed, retiring], () => {
   void measure();
 });
-watch(expanded, async (value) => {
+watch(expanded, (value) => {
   pauseNotifications("expanded", value);
-  await nextTick();
-  pauseNotifications("focus", !!root.value?.contains(document.activeElement));
+  void measure();
 });
 function onFocusOut(event: FocusEvent) {
   if (!root.value?.contains(event.relatedTarget as Node | null))
@@ -93,9 +125,7 @@ function outside(event: PointerEvent) {
     expanded.value = false;
 }
 onMounted(() => {
-  observer = new ResizeObserver((entries) => {
-    frontHeight.value = (entries[0].target as HTMLElement).offsetHeight;
-  });
+  observer = new ResizeObserver(readHeights);
   void measure();
   visibility();
   document.addEventListener("visibilitychange", visibility);
@@ -150,19 +180,11 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </motion.div>
-    <div
-      class="notification-list"
-      :style="{
-        paddingBottom: expanded
-          ? '0px'
-          : `${Math.max(0, Math.min(settled.length, 3) - 1) * 10}px`,
-      }"
-    >
+    <div class="notification-list" :style="{ height: `${listHeight}px` }">
       <motion.div
         v-for="item in visible"
         :key="item.id"
         class="notification-slot"
-        layout="position"
         :data-notification-id="item.id"
         :data-front="landed.includes(item.id) && depth(item.id) === 0"
         :class="{
@@ -170,10 +192,6 @@ onBeforeUnmount(() => {
           'is-retiring': retiring.includes(item.id),
         }"
         :style="{
-          position:
-            landed.includes(item.id) && (expanded || depth(item.id) === 0)
-              ? 'relative'
-              : 'absolute',
           zIndex:
             incoming === item.id || retiring.includes(item.id)
               ? displayed.length + 1
@@ -190,19 +208,25 @@ onBeforeUnmount(() => {
         "
         :inert="!contentReady(item.id) || (!expanded && depth(item.id) > 0)"
         :initial="false"
-        :animate="{ opacity: 1, y: 0, scale: 1 }"
+        :animate="{
+          opacity: 1,
+          y: landed.includes(item.id) ? stackY(item.id) : 0,
+        }"
         :transition="interaction"
       >
         <motion.div
           class="notification-depth"
+          :class="{
+            'is-behind':
+              !expanded && depth(item.id) > 0 && !retiring.includes(item.id),
+          }"
           :animate="{
-            y: expanded ? 0 : depth(item.id) * 10,
+            height:
+              !expanded && depth(item.id) > 0 && !retiring.includes(item.id)
+                ? frontHeight
+                : 'auto',
             scale: expanded ? 1 : 1 - depth(item.id) * 0.035,
             opacity: expanded ? 1 : 1 - depth(item.id) * 0.16,
-          }"
-          :style="{
-            height:
-              !expanded && depth(item.id) > 0 ? `${frontHeight}px` : undefined,
           }"
           :transition="interaction"
         >

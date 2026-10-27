@@ -30,24 +30,27 @@
   --notice-error: #f2b8af;
 }
 .notification-stack.is-expanded:not(.is-animating) {
-  overflow-y: auto;
+  overflow: hidden auto;
   overscroll-behavior: contain;
-  scrollbar-width: thin;
+  scrollbar-width: none;
   border-radius: 20px;
+}
+.notification-stack::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .notification-list {
   position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
 }
 .notification-slot {
+  position: absolute;
   top: 0;
   left: 0;
   width: 100%;
 }
 .notification-depth {
-  transform-origin: center bottom;
+  transform-origin: center top;
   overflow: clip;
   border-radius: 20px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
@@ -215,4 +218,8 @@
 }
 .notification-flight {
   width: 100%;
+}
+
+.notification-depth.is-behind {
+  background: var(--notice-bg);
 }

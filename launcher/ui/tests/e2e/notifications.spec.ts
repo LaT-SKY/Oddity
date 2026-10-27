@@ -110,6 +110,11 @@ test("圆球、正方形过冲、矩形归位与旧通知第三段下移", async
       window as unknown as { notificationProbe: typeof probe }
     ).notificationProbe = probe;
     const start = performance.now();
+    const baseline = document
+      .querySelector<HTMLElement>(
+        `[data-notification-id="${oldId}"] .notification-depth`,
+      )!
+      .getBoundingClientRect().top;
     function sample() {
       const root = document.querySelector<HTMLElement>(".notification-stack");
       const shell = root?.querySelector<HTMLElement>(
@@ -126,7 +131,7 @@ test("圆球、正方形过冲、矩形归位与旧通知第三段下移", async
           height: box.height,
           x: box.left + box.width / 2,
           y: box.top + box.height / 2,
-          oldY: new DOMMatrixReadOnly(getComputedStyle(old).transform).m42,
+          oldY: old.getBoundingClientRect().top - baseline,
         });
       }
       if (performance.now() - start < 1600) requestAnimationFrame(sample);
@@ -187,6 +192,7 @@ test("圆球、正方形过冲、矩形归位与旧通知第三段下移", async
   expect(frames.some((frame) => frame.phase === 3 && frame.oldY > 8)).toBe(
     true,
   );
+  expect(Math.max(...frames.map((frame) => frame.oldY))).toBeLessThan(20);
   await expect(stack).toHaveAttribute("data-phase", "0");
   const front = page.locator(
     '.notification-slot[data-front="true"] .notification-surface',
@@ -308,4 +314,211 @@ test("最后一条通知沿弧线缩回图标, 动画结束后再移除", async 
   expect(Math.abs(last.y - logo!.y - logo!.height - 12)).toBeLessThan(5);
   expect(last.opacity).toBeLessThan(0.5);
   await expect(stack).toHaveCount(0);
+});
+
+test("连续启动和关闭时, 旧通知只下移一层且不跳到下一行", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/#settings");
+  await page.getByRole("button", { name: "创建运行环境", exact: true }).click();
+  await page.locator("#runtime-environment-name").fill("通知动画验证");
+  await page.locator("#runtime-environment-proton").fill("/opt/Proton");
+  await page.getByRole("button", { name: "创建环境", exact: true }).click();
+  const stack = page.locator(".notification-stack");
+  const expand = page.getByRole("button", { name: /展开 \d+ 条通知/ });
+  if (await expand.count()) {
+    await expand.click();
+    await page.getByRole("button", { name: "全部清除", exact: true }).click();
+  } else {
+    await stack.getByRole("button", { name: "关闭通知", exact: true }).click();
+  }
+  await expect(stack).toHaveCount(0);
+  await page.locator('[data-page="home"]').click();
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.locator("#launch-btn").click();
+  await expect(page.locator("#launch-btn")).toHaveText(/关闭游戏/);
+  await expect(stack).toHaveAttribute("data-phase", "0");
+  const oldId = await page
+    .locator('.notification-slot[data-front="true"]')
+    .getAttribute("data-notification-id");
+  await page.evaluate((oldId) => {
+    const old = document.querySelector<HTMLElement>(
+      `[data-notification-id="${oldId}"] .notification-depth`,
+    )!;
+    const baseline = old.getBoundingClientRect();
+    const probe = {
+      baseline: { top: baseline.top, height: baseline.height },
+      frames: [] as {
+        phase: number;
+        shift: number;
+        height: number;
+        centerX: number;
+        centerY: number;
+      }[],
+      done: false,
+    };
+    (window as unknown as { multiNoticeProbe: typeof probe }).multiNoticeProbe =
+      probe;
+    const start = performance.now();
+    function sample() {
+      const root = document.querySelector<HTMLElement>(".notification-stack");
+      const incoming = root?.querySelector<HTMLElement>(
+        ".is-arriving .notification-surface",
+      );
+      if (root && incoming && old.isConnected) {
+        const rect = old.getBoundingClientRect();
+        const fresh = incoming.getBoundingClientRect();
+        probe.frames.push({
+          phase: Number(root.dataset.phase),
+          shift: rect.top - baseline.top,
+          height: rect.height,
+          centerX: fresh.left + fresh.width / 2,
+          centerY: fresh.top + fresh.height / 2,
+        });
+      }
+      if (performance.now() - start < 1800) requestAnimationFrame(sample);
+      else probe.done = true;
+    }
+    requestAnimationFrame(sample);
+  }, oldId);
+  await page.locator("#launch-btn").click();
+  await page.waitForFunction(
+    () =>
+      (window as unknown as { multiNoticeProbe: { done: boolean } })
+        .multiNoticeProbe.done,
+  );
+  const probe = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          multiNoticeProbe: {
+            baseline: { top: number; height: number };
+            frames: {
+              phase: number;
+              shift: number;
+              height: number;
+              centerX: number;
+              centerY: number;
+            }[];
+          };
+        }
+      ).multiNoticeProbe,
+  );
+  expect(probe.frames.length).toBeGreaterThan(5);
+  expect(
+    probe.frames
+      .filter((frame) => frame.phase === 1 || frame.phase === 2)
+      .every((frame) => Math.abs(frame.shift) < 0.6),
+  ).toBe(true);
+  expect(Math.max(...probe.frames.map((frame) => frame.shift))).toBeLessThan(
+    20,
+  );
+  expect(Math.max(...probe.frames.map((frame) => frame.height))).toBeLessThan(
+    probe.baseline.height + 1,
+  );
+  await expect(stack).toHaveAttribute("data-phase", "0");
+  const settled = await page
+    .locator('.notification-slot[data-front="true"] .notification-surface')
+    .boundingBox();
+  const last = probe.frames.at(-1)!;
+  expect(
+    Math.hypot(
+      last.centerX - settled!.x - settled!.width / 2,
+      last.centerY - settled!.y - settled!.height / 2,
+    ),
+  ).toBeLessThan(12);
+  const old = await page
+    .locator(`[data-notification-id="${oldId}"] .notification-depth`)
+    .boundingBox();
+  expect(old!.y - probe.baseline.top).toBeCloseTo(10, 0);
+  await stack.getByRole("button", { name: /展开 \d+ 条通知/ }).click();
+  await expect(stack).toHaveClass(/is-expanded/);
+  const surfaces = page.locator(".notification-depth");
+  await expect
+    .poll(async () => {
+      const rects = await surfaces.evaluateAll((elements) =>
+        elements.map((el) => el.getBoundingClientRect().toJSON()),
+      );
+      return rects[1].top >= rects[0].bottom + 8;
+    })
+    .toBe(true);
+  await page.getByRole("button", { name: "收起", exact: true }).click();
+  await expect
+    .poll(async () => {
+      const rects = await surfaces.evaluateAll((elements) =>
+        elements.map((el) => el.getBoundingClientRect().toJSON()),
+      );
+      return Math.abs(rects[1].top - rects[0].top - 10) < 0.6;
+    })
+    .toBe(true);
+});
+
+test("展开和收起不产生滚动条占位, 超出可用高度时仍能滚动", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/");
+  await page.locator("#launch-btn").click();
+  await page.locator("#settings-redetect").click();
+  const stack = page.locator(".notification-stack");
+  await expect(page.locator(".notification-card")).toHaveCount(3);
+  await page.setViewportSize({ width: 1180, height: 320 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.evaluate(() => {
+    const probe = {
+      frames: [] as { gutter: number; width: number; scrollbar: string }[],
+      done: false,
+    };
+    (
+      window as unknown as { notificationScrollProbe: typeof probe }
+    ).notificationScrollProbe = probe;
+    const start = performance.now();
+    function sample() {
+      const el = document.querySelector<HTMLElement>(".notification-stack")!;
+      probe.frames.push({
+        gutter: el.offsetWidth - el.clientWidth,
+        width: el.clientWidth,
+        scrollbar: getComputedStyle(el).scrollbarWidth,
+      });
+      if (performance.now() - start < 900) requestAnimationFrame(sample);
+      else probe.done = true;
+    }
+    requestAnimationFrame(sample);
+  });
+  await stack.getByRole("button", { name: "展开 3 条通知" }).click();
+  await page.waitForFunction(
+    () =>
+      (window as unknown as { notificationScrollProbe: { done: boolean } })
+        .notificationScrollProbe.done,
+  );
+  const frames = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          notificationScrollProbe: {
+            frames: { gutter: number; width: number; scrollbar: string }[];
+          };
+        }
+      ).notificationScrollProbe.frames,
+  );
+  expect(frames.every((frame) => frame.gutter === 0)).toBe(true);
+  expect(new Set(frames.map((frame) => frame.width)).size).toBe(1);
+  const scroll = await stack.evaluate((el) => ({
+    height: el.clientHeight,
+    content: el.scrollHeight,
+    scrollbar: getComputedStyle(el).scrollbarWidth,
+    webkitScrollbar: getComputedStyle(el, "::-webkit-scrollbar").display,
+  }));
+  expect(scroll.content).toBeGreaterThan(scroll.height);
+  expect(scroll.scrollbar).toBe("none");
+  expect(scroll.webkitScrollbar).toBe("none");
+  await stack.hover();
+  await page.mouse.wheel(0, 180);
+  await expect
+    .poll(() => stack.evaluate((el) => el.scrollTop))
+    .toBeGreaterThan(0);
+  await stack.getByRole("button", { name: "收起", exact: true }).click();
+  await expect.poll(() => stack.evaluate((el) => el.scrollTop)).toBe(0);
+  expect(
+    await stack.evaluate(
+      (el) => (el as HTMLElement).offsetWidth - el.clientWidth,
+    ),
+  ).toBe(0);
 });
