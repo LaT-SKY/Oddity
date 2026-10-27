@@ -208,3 +208,42 @@ fieldset:disabled .control-switch {
   background: var(--surface-solid);
   box-shadow: 0 1px 3px rgb(7 17 29 / 7%);
 }
+
+/* 设置与公告共用分类按钮的尺寸和选中层。 */
+.control-tabs--navigation {
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.category-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border-radius: var(--r-control);
+  color: var(--muted);
+  text-align: left;
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+
+.category-tab:hover,
+.category-tab[aria-current="true"],
+.category-tab[aria-selected="true"] {
+  color: var(--bone);
+}
+.category-tab[aria-current="true"],
+.category-tab[aria-selected="true"] {
+  font-weight: var(--weight-semibold);
+}
+.category-tab__selection {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--line);
+  border-radius: inherit;
+  background: var(--ghost-bg);
+  box-shadow: none;
+}

@@ -320,6 +320,7 @@ export const form = reactive({
   theme: "light",
   heroMedia: "video",
   reduceMotion: false,
+  stackBulletins: false,
   minimizeToTrayOnClose: true,
   showLauncherAfterGameExit: true,
 });
@@ -1032,6 +1033,7 @@ function applyBootstrap(
   form.distribution = settings.distribution || "cn";
   form.launchMode = settings.launchMode || "background";
 
+  form.stackBulletins = settings.stackBulletins;
   applyReduceMotion(Boolean(settings.reduceMotion));
   applyHeroMedia(settings.heroMedia || "video");
   form.minimizeToTrayOnClose = settings.minimizeToTrayOnClose ?? true;
@@ -1228,17 +1230,24 @@ export async function fetchBulletins(silent = true, force = false) {
   const distribution = state.bootstrap?.settings.distribution || "cn";
   if (state.bulletinsLoading) return;
   const cached = readBulletinCache(distribution);
-  if (!force && cached && Date.now() - cached.savedAt < BULLETIN_CACHE_TTL_MS) {
+  if (
+    !force &&
+    cached &&
+    cached.feed.errors.length === 0 &&
+    !state.bulletins?.errors.length &&
+    Date.now() - cached.savedAt < BULLETIN_CACHE_TTL_MS
+  ) {
     state.bulletins = cached.feed;
     return;
   }
   const request = ++bulletinRequest;
+  if (!state.bulletins && cached) state.bulletins = cached.feed;
   state.bulletinsLoading = true;
   try {
     const feed = await invoke("fetch_bulletins", { distribution });
     if (epoch !== generation || request !== bulletinRequest) return;
     state.bulletins = feed;
-    writeBulletinCache(feed, distribution);
+    if (feed.errors.length === 0) writeBulletinCache(feed, distribution);
     if (!silent && feed.errors.length > 0 && feed.items.length === 0) {
       notify("公告暂时无法更新，请稍后重试。", "error", 6000, {
         key: "bulletins",
@@ -1455,6 +1464,7 @@ function currentSettings(): Settings {
     launchMode,
     language: "zh-CN",
     reduceMotion: form.reduceMotion,
+    stackBulletins: form.stackBulletins,
     theme: THEMES.has(form.theme) ? form.theme : "light",
     heroMedia: HERO_MEDIA.has(form.heroMedia) ? form.heroMedia : "video",
     minimizeToTrayOnClose: form.minimizeToTrayOnClose,

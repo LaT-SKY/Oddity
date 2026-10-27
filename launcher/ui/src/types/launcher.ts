@@ -63,6 +63,7 @@ export interface Settings {
   launchMode: string;
   language: string;
   reduceMotion: boolean;
+  stackBulletins: boolean;
   theme: string;
   heroMedia: string;
   minimizeToTrayOnClose: boolean;
@@ -180,7 +181,7 @@ export interface DownloadStatus {
   pendingFiles: number;
   error: string;
 }
-export type BulletinKind = "bilibili" | "preview" | "maintenance";
+export type BulletinKind = "bilibili" | "x" | "preview" | "maintenance";
 export interface BulletinItem {
   kind: BulletinKind;
   title: string;

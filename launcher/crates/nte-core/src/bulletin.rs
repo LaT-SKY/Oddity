@@ -15,6 +15,10 @@ pub const OFFICIAL_ANNOUNCEMENT_URL: &str = "https://yh.wanmei.com/news/gamebroa
 pub const OFFICIAL_LAUNCHER_URL: &str = "https://yh.wanmei.com/launcher/launcher_ob2.html?expand=0";
 pub const OFFICIAL_SWIPER_URL: &str =
     "https://static.games.wanmei.com/public/commonData/gamesData/gameSwiper/yh-gameSwiper.js";
+pub const X_PROFILE_URL: &str = "https://x.com/NTE_JP";
+const X_TIMELINE_URL: &str =
+    "https://syndication.twitter.com/srv/timeline-profile/screen-name/NTE_JP?showReplies=false";
+
 pub const BILIBILI_SPACE_URL: &str = "https://space.bilibili.com/3546636978489848/dynamic";
 pub const BILIBILI_API_URL: &str =
     "https://api.bilibili.com/x/polymer/web-dynamic/desktop/v1/feed/space?host_mid=3546636978489848&features=itemOpusStyle";
@@ -23,6 +27,7 @@ pub const BILIBILI_API_URL: &str =
 #[serde(rename_all = "lowercase")]
 pub enum BulletinKind {
     Bilibili,
+    X,
     Preview,
     Maintenance,
 }
@@ -55,9 +60,20 @@ fn fetch_text(url: &str, limit: u64, referer: Option<&str>) -> Result<String> {
             "User-Agent",
             referer.map_or(USER_AGENT, |_| BROWSER_USER_AGENT),
         )
-        .header("Accept", "text/html,application/json,*/*")
+        .header(
+            "Accept",
+            if url == BILIBILI_API_URL {
+                "application/json, text/plain, */*"
+            } else {
+                "text/html,application/json,*/*"
+            },
+        )
         .config()
-        .timeout_global(Some(Duration::from_secs(15)))
+        .timeout_global(Some(Duration::from_secs(if url == BILIBILI_API_URL {
+            8
+        } else {
+            15
+        })))
         .build();
     if let Some(referer) = referer {
         request = request.header("Referer", referer);
@@ -178,7 +194,22 @@ fn parse_official_list(
             } else {
                 format!("{origin}/{}", href.trim_start_matches('/'))
             },
-            image_url: None,
+            image_url: block
+                .find("<img ")
+                .and_then(|start| {
+                    let tag = &block[start..];
+                    attr(tag.split_once('>')?.0, "src")
+                })
+                .filter(|url| !url.is_empty())
+                .map(|url| {
+                    if url.starts_with("//") {
+                        format!("https:{url}")
+                    } else if url.starts_with('/') {
+                        format!("{origin}{url}")
+                    } else {
+                        url
+                    }
+                }),
             published_at: class_text(block, "date"),
             source: "官方公告".to_string(),
         });
@@ -410,36 +441,171 @@ pub fn parse_bilibili_json(body: &str) -> Result<Vec<BulletinItem>> {
     Ok(output.into_iter().take(5).map(|(_, item)| item).collect())
 }
 
-/// 国际服公告与新闻使用国际服官网, 不读取国服社区动态.
+/// 公开嵌入时间线与官网公告分别读取, 单个来源失败不影响其他来源。
+fn fetch_x() -> Result<Vec<BulletinItem>> {
+    let mut response = ureq::get(X_TIMELINE_URL)
+        .header("User-Agent", BROWSER_USER_AGENT)
+        .header("Accept", "text/html")
+        .header("Referer", "https://platform.twitter.com/")
+        .config()
+        .timeout_global(Some(Duration::from_secs(12)))
+        .build()
+        .call()
+        .map_err(|error| {
+            Error::Http(match error {
+                ureq::Error::StatusCode(429) => "X 暂时拒绝请求或限制访问, 请稍后重试.".to_string(),
+                ureq::Error::StatusCode(403) => {
+                    "X 拒绝公开时间线请求, 可打开官方账号查看.".to_string()
+                }
+                ureq::Error::StatusCode(code) => format!("X 服务返回 HTTP {code}, 请稍后重试."),
+                _ => "无法连接 X. 在中国大陆可能需要使用可访问 X 的网络连接.".to_string(),
+            })
+        })?;
+    let mut body = String::new();
+    response
+        .body_mut()
+        .as_reader()
+        .take(2 * 1024 * 1024)
+        .read_to_string(&mut body)
+        .map_err(|_| Error::Http("读取 X 动态超时或连接中断, 请重试.".to_string()))?;
+    parse_x_timeline(&body)
+}
+
+pub fn parse_x_timeline(html: &str) -> Result<Vec<BulletinItem>> {
+    let start = html
+        .find("id=\"__NEXT_DATA__\"")
+        .and_then(|start| html[start..].find('>').map(|offset| start + offset + 1))
+        .ok_or_else(|| Error::Parse("X 未返回公开动态数据.".to_string()))?;
+    let end = html[start..]
+        .find("</script>")
+        .map(|offset| start + offset)
+        .ok_or_else(|| Error::Parse("X 动态数据不完整.".to_string()))?;
+    let root: Value = serde_json::from_str(&html[start..end])
+        .map_err(|_| Error::Parse("X 动态数据格式已变化.".to_string()))?;
+    let entries = root
+        .pointer("/props/pageProps/timeline/entries")
+        .and_then(Value::as_array)
+        .ok_or_else(|| Error::Parse("X 未提供公开时间线, 可打开官方账号查看.".to_string()))?;
+    let mut items = Vec::new();
+    for entry in entries {
+        if entry.get("type").and_then(Value::as_str) != Some("tweet") {
+            continue;
+        }
+        let Some(tweet) = entry.pointer("/content/tweet") else {
+            continue;
+        };
+        if !value_text(tweet.pointer("/user/screen_name")).eq_ignore_ascii_case("NTE_JP") {
+            continue;
+        }
+        let id = value_text(tweet.get("id_str"));
+        let text = value_text(tweet.get("full_text").or_else(|| tweet.get("text")));
+        if id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_digit()) || text.is_empty() {
+            continue;
+        }
+        let (title, summary) = split_dynamic_text(&decode_entities(&text));
+        items.push(BulletinItem {
+            kind: BulletinKind::X,
+            title,
+            summary,
+            url: format!("{X_PROFILE_URL}/status/{id}"),
+            image_url: tweet
+                .pointer("/extended_entities/media/0/media_url_https")
+                .or_else(|| tweet.pointer("/entities/media/0/media_url_https"))
+                .and_then(Value::as_str)
+                .filter(|url| !url.is_empty())
+                .map(str::to_string),
+            published_at: value_text(tweet.get("created_at")),
+            source: "X / NTE_JP".to_string(),
+        });
+        if items.len() == 5 {
+            break;
+        }
+    }
+    Ok(items)
+}
+
+fn retry_bilibili(
+    mut fetch: impl FnMut() -> Result<Vec<BulletinItem>>,
+    delay: Duration,
+) -> Result<Vec<BulletinItem>> {
+    let first = fetch();
+    if matches!(&first, Ok(items) if !items.is_empty()) {
+        return first;
+    }
+    std::thread::sleep(delay);
+    let items = fetch()?;
+    if items.is_empty() {
+        return Err(Error::Parse("B 站未返回可用动态, 请稍后重试.".to_string()));
+    }
+    Ok(items)
+}
+
+fn collect(
+    feed: &mut BulletinFeed,
+    label: &str,
+    result: std::thread::Result<Result<Vec<BulletinItem>>>,
+) {
+    match result {
+        Ok(Ok(items)) => feed.items.extend(items),
+        Ok(Err(error)) => {
+            let message = match error {
+                Error::Http(message) | Error::Parse(message) => message,
+                error => error.to_string(),
+            };
+            feed.errors.push(format!("{label}: {message}"));
+        }
+        Err(_) => feed
+            .errors
+            .push(format!("{label}: 抓取任务异常结束, 请重试.")),
+    }
+}
+
 pub fn fetch_for(distribution: Distribution) -> BulletinFeed {
     if distribution == Distribution::Cn {
         return fetch_cn();
     }
-    let origin = "https://nte.perfectworld.com";
-    let mut feed = BulletinFeed::default();
-    for (channel, kind) in [
-        ("gamenews", BulletinKind::Preview),
-        ("gamebroad", BulletinKind::Maintenance),
-    ] {
-        let url = format!("{origin}/en/article/news/{channel}/index.html");
-        match fetch_text(&url, 1024 * 1024, Some(&url)) {
-            Ok(html) => feed.items.extend(parse_official_list(
+    let x = std::thread::spawn(fetch_x);
+    let news = std::thread::spawn(|| {
+        let origin = "https://nte.perfectworld.com";
+        let url = format!("{origin}/en/article/news/gamenews/index.html");
+        fetch_text(&url, 1024 * 1024, Some(&url)).map(|html| {
+            parse_official_list(
                 &html,
                 origin,
-                &format!("/en/article/news/{channel}/"),
-                kind,
-            )),
-            Err(error) => feed.errors.push(format!("国际服官方公告: {error}")),
-        }
-    }
+                "/en/article/news/gamenews/",
+                BulletinKind::Preview,
+            )
+        })
+    });
+    let maintenance = std::thread::spawn(|| {
+        let origin = "https://nte.perfectworld.com";
+        let url = format!("{origin}/en/article/news/gamebroad/index.html");
+        fetch_text(&url, 1024 * 1024, Some(&url)).map(|html| {
+            parse_official_list(
+                &html,
+                origin,
+                "/en/article/news/gamebroad/",
+                BulletinKind::Maintenance,
+            )
+        })
+    });
+    let mut feed = BulletinFeed::default();
+    collect(&mut feed, "X / NTE_JP", x.join());
+    collect(&mut feed, "国际服新闻", news.join());
+    collect(&mut feed, "国际服公告", maintenance.join());
     feed
 }
 
 /// 并发拉取三个来源，输出顺序固定为 B 站动态、最新前瞻、停服公告。
 fn fetch_cn() -> BulletinFeed {
     let bilibili = std::thread::spawn(|| {
-        fetch_text(BILIBILI_API_URL, 2 * 1024 * 1024, Some(BILIBILI_SPACE_URL))
-            .and_then(|body| parse_bilibili_json(&body))
+        retry_bilibili(
+            || {
+                fetch_text(BILIBILI_API_URL, 2 * 1024 * 1024, Some(BILIBILI_SPACE_URL))
+                    .and_then(|body| parse_bilibili_json(&body))
+            },
+            Duration::from_millis(900),
+        )
     });
     let preview = std::thread::spawn(|| {
         fetch_text(OFFICIAL_SWIPER_URL, 256 * 1024, Some(OFFICIAL_LAUNCHER_URL))
@@ -455,17 +621,6 @@ fn fetch_cn() -> BulletinFeed {
     });
 
     let mut feed = BulletinFeed::default();
-    fn collect(
-        feed: &mut BulletinFeed,
-        label: &str,
-        result: std::thread::Result<Result<Vec<BulletinItem>>>,
-    ) {
-        match result {
-            Ok(Ok(items)) => feed.items.extend(items),
-            Ok(Err(error)) => feed.errors.push(format!("{label}：{error}")),
-            Err(_) => feed.errors.push(format!("{label}：抓取线程异常退出")),
-        }
-    }
     collect(&mut feed, "B站动态", bilibili.join());
     collect(&mut feed, "版本前瞻", preview.join());
     collect(&mut feed, "停服公告", maintenance.join());
@@ -569,5 +724,87 @@ mod tests {
             items[0].image_url.as_deref(),
             Some("https://img.test/draw.jpg")
         );
+    }
+    #[test]
+    fn official_news_accepts_image_and_text_only_entries() {
+        let html = r#"<a href="/news/a"><h2 class="title">配图新闻</h2><img src="//images.test/news.jpg"></a><a href="/news/b"><h2 class="title">文字新闻</h2></a><a href="/news/c"><h2 class="title">站内配图</h2><img src="/images/news.jpg"></a>"#;
+        let items = parse_official_list(
+            html,
+            "https://official.test",
+            "/news/",
+            BulletinKind::Preview,
+        );
+        assert_eq!(items.len(), 3);
+        assert_eq!(
+            items[0].image_url.as_deref(),
+            Some("https://images.test/news.jpg")
+        );
+        assert_eq!(items[1].image_url, None);
+        assert_eq!(
+            items[2].image_url.as_deref(),
+            Some("https://official.test/images/news.jpg")
+        );
+    }
+
+    #[test]
+    fn x_timeline_keeps_official_photo_and_text_posts() {
+        let root = serde_json::json!({"props":{"pageProps":{"timeline":{"entries":[
+            {"type":"tweet","content":{"tweet":{"id_str":"123","full_text":"お知らせ\nNTE &amp; 新情報","user":{"screen_name":"NTE_JP"},"extended_entities":{"media":[{"media_url_https":"https://pbs.twimg.com/media/photo.jpg"}]}}}},
+            {"type":"tweet","content":{"tweet":{"id_str":"456","text":"文字のお知らせ","user":{"screen_name":"nte_jp"}}}},
+            {"type":"tweet","content":{"tweet":{"id_str":"789","text":"別のアカウント","user":{"screen_name":"other"}}}},
+            {"type":"tweet","content":{"tweet":{"id_str":"invalid/id","text":"不正なリンク","user":{"screen_name":"NTE_JP"}}}}
+        ]}}}});
+        let html =
+            format!("<script id=\"__NEXT_DATA__\" type=\"application/json\">{root}</script>");
+        let items = parse_x_timeline(&html).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].kind, BulletinKind::X);
+        assert_eq!(items[0].title, "お知らせ");
+        assert_eq!(items[0].summary, "NTE & 新情報");
+        assert_eq!(items[0].url, "https://x.com/NTE_JP/status/123");
+        assert_eq!(
+            items[0].image_url.as_deref(),
+            Some("https://pbs.twimg.com/media/photo.jpg")
+        );
+        assert_eq!(items[1].image_url, None);
+        assert!(parse_x_timeline("<html>Sign in</html>").is_err());
+        assert!(parse_x_timeline(r#"<script id="__NEXT_DATA__">{}</script>"#).is_err());
+    }
+
+    #[test]
+    fn bilibili_retries_transient_errors_and_empty_responses_once() {
+        for empty in [false, true] {
+            let mut calls = 0;
+            let result = retry_bilibili(|| {
+                calls += 1;
+                if calls == 1 {
+                    if empty { Ok(vec![]) } else { Err(Error::Http("temporary".into())) }
+                } else {
+                    parse_bilibili_json(r#"{"code":0,"data":{"items":[{"id_str":"123","modules":{"module_dynamic":{"desc":{"text":"官方动态"}}}}]}}"#)
+                }
+            }, Duration::ZERO).unwrap();
+            assert_eq!(calls, 2);
+            assert_eq!(result[0].title, "官方动态");
+        }
+        let mut calls = 0;
+        let result = retry_bilibili(
+            || {
+                calls += 1;
+                Ok(vec![])
+            },
+            Duration::ZERO,
+        );
+        assert_eq!(calls, 2);
+        assert!(result.unwrap_err().to_string().contains("未返回可用动态"));
+        let mut calls = 0;
+        let result = retry_bilibili(
+            || {
+                calls += 1;
+                Err(Error::Http("offline".into()))
+            },
+            Duration::ZERO,
+        );
+        assert_eq!(calls, 2);
+        assert!(result.unwrap_err().to_string().contains("offline"));
     }
 }

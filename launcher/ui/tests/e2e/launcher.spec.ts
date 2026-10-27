@@ -457,11 +457,12 @@ test("国际服切换同步启动方式、公告来源和专属功能", async ({
     1,
   );
   await page.locator('[data-page="bulletin"]').click();
-  await expect(page.locator("#preview-title")).toHaveText("国际服新闻");
-  await expect(page.locator(".bulletin-card").first()).toContainText(
+  await expect(page.locator(".bulletin-entry").first()).toContainText(
     "国际服官方新闻",
   );
-  await expect(page.locator("#bilibili-title")).toHaveCount(0);
+  await expect(page.locator(".bulletin-entry__meta")).not.toContainText([
+    "B站",
+  ]);
   await page.evaluate(() => {
     window.open = (url) => {
       document.body.dataset.openedUrl = String(url);

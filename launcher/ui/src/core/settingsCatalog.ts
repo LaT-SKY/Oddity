@@ -29,6 +29,13 @@ export const settingsEntries = [
     keywords: "壁纸 背景 视频 照片 封面",
   },
   {
+    id: "bulletins",
+    category: "appearance",
+    label: "堆叠公告",
+    description: "将同一来源的公告合并为卡叠, 点击展开.",
+    keywords: "公告 卡片 堆叠 列表 显示",
+  },
+  {
     id: "motion",
     category: "appearance",
     label: "减少动效",

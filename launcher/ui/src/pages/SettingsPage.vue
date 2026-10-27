@@ -245,7 +245,7 @@ function resultKeys(event: KeyboardEvent) {
             v-for="category in settingsCategories"
             :key="category.id"
             type="button"
-            class="settings-category"
+            class="settings-category category-tab"
             :data-category="category.id"
             :aria-current="
               !searching && navigation.category === category.id
@@ -260,7 +260,7 @@ function resultKeys(event: KeyboardEvent) {
           >
             <motion.span
               v-if="navigation.category === category.id"
-              class="settings-category__focus"
+              class="settings-category__focus category-tab__selection"
               layout-id="settings-category-focus"
               :animate="{ opacity: searching ? 0.35 : 1 }"
               :transition="control"
@@ -347,6 +347,22 @@ function resultKeys(event: KeyboardEvent) {
                         applyHeroMedia(form.heroMedia);
                         queueSettingsSave(0);
                       "
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    data-setting="bulletins"
+                    tabindex="-1"
+                    :label="entry('bulletins').label"
+                    :description="entry('bulletins').description"
+                    for="set-stack-bulletins"
+                    v-slot="{ describedby }"
+                  >
+                    <BaseSwitch
+                      id="set-stack-bulletins"
+                      v-model="form.stackBulletins"
+                      :label="entry('bulletins').label"
+                      :describedby="describedby"
+                      @change="queueSettingsSave(0)"
                     />
                   </SettingRow>
                   <SettingRow

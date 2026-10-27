@@ -9,9 +9,6 @@
   .field--wide {
     grid-column: auto;
   }
-  .bulletin-cards {
-    grid-template-columns: 1fr;
-  }
   .page {
     padding: 28px;
   }

@@ -8,6 +8,7 @@ const props = defineProps<{
   label: string;
   disabled?: boolean;
   controls?: string;
+  variant?: "segmented" | "navigation";
 }>();
 const emit = defineEmits<{
   "update:modelValue": [value: T];
@@ -50,6 +51,7 @@ function keydown(event: KeyboardEvent) {
 <template>
   <div
     class="control-tabs"
+    :class="{ 'control-tabs--navigation': variant === 'navigation' }"
     role="tablist"
     :aria-label="label"
     @keydown="keydown"
@@ -60,6 +62,7 @@ function keydown(event: KeyboardEvent) {
       type="button"
       role="tab"
       class="control-tabs__tab"
+      :class="{ 'category-tab': variant === 'navigation' }"
       :disabled="disabled || option.disabled"
       :aria-selected="modelValue === option.value"
       :aria-controls="controls"
@@ -69,6 +72,7 @@ function keydown(event: KeyboardEvent) {
       <motion.span
         v-if="modelValue === option.value"
         class="control-tabs__selection"
+        :class="{ 'category-tab__selection': variant === 'navigation' }"
         :layout-id="`${uid}-selection`"
         :transition="control"
       />

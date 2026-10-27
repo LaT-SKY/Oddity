@@ -1787,10 +1787,6 @@ it("版本显示随后台快照刷新, 缺失值显示未知而非固定版本",
   });
   await c.redetect();
   expect(c.displayVersion.value).toBe("9.8.7");
-  expect(wrapper!.find(".bulletin-number").text()).toBe("6.5.4");
-  expect(wrapper!.find(".bulletin-copy").text()).toContain(
-    "3.2.1 / build abcd",
-  );
   backend.data = bootstrap({
     appVersion: "",
     gameVersion: "",
@@ -1800,13 +1796,6 @@ it("版本显示随后台快照刷新, 缺失值显示未知而非固定版本",
   });
   await c.redetect();
   expect(c.displayVersion.value).toBe(APP_VERSION);
-  expect(wrapper!.find(".bulletin-number").text()).toBe("未检测");
-  expect(wrapper!.find(".bulletin-copy").text()).toContain(
-    "尚未检测到游戏资源",
-  );
-  expect(wrapper!.find(".bulletin-copy").text()).toContain(
-    "启动器版本 未知 / build 未知",
-  );
 });
 
 it("后台会话事件通过响应式绑定更新按钮文字、图标和禁用状态", async () => {
@@ -2126,11 +2115,30 @@ it("区服切换后隔离公告缓存并丢弃旧请求", async () => {
   finishCn({ items: [], errors: ["old cn feed"] });
   await pending;
   expect(c.state.bulletins).toEqual(globalFeed);
-  expect(localStorage.getItem("nte.bulletins.v2.global")).toContain(
-    "global feed",
-  );
+  expect(localStorage.getItem("nte.bulletins.v2.global")).toBeNull();
   expect(localStorage.getItem("nte.bulletins.v2.cn")).toBeNull();
   expect(wrapper!.findComponent({ name: "HomeGameRecords" }).exists()).toBe(
     false,
   );
+});
+
+it("公告来源失败不缓存, 下次读取会重新请求", async () => {
+  const c = await boot();
+  localStorage.removeItem("nte.bulletins.v2.cn");
+  backend.invoke.mockResolvedValueOnce({
+    items: [],
+    errors: ["B站动态: 暂时不可用"],
+  });
+  await c.fetchBulletins(true, true);
+  expect(c.state.bulletins?.errors).toHaveLength(1);
+  expect(localStorage.getItem("nte.bulletins.v2.cn")).toBeNull();
+  backend.invoke.mockResolvedValueOnce({ items: [], errors: [] });
+  await c.fetchBulletins();
+  expect(c.state.bulletins?.errors).toEqual([]);
+  expect(localStorage.getItem("nte.bulletins.v2.cn")).toContain('"errors":[]');
+  backend.invoke.mockResolvedValueOnce({ items: [], errors: ["临时失败"] });
+  await c.fetchBulletins(true, true);
+  backend.invoke.mockResolvedValueOnce({ items: [], errors: [] });
+  await c.fetchBulletins();
+  expect(c.state.bulletins?.errors).toEqual([]);
 });
