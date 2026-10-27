@@ -49,3 +49,7 @@
   width: auto;
   min-width: 0;
 }
+
+.attendance-login-fields {
+  margin-top: var(--space-18);
+}

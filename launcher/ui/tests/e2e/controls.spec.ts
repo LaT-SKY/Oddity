@@ -58,3 +58,86 @@ test("分段控件保持键盘焦点, 登录表单跟随选择切换", async ({ 
   await expect(password).toBeFocused();
   await expect(dialog.locator("#attendance-password")).toBeVisible();
 });
+
+test("登录字段横向交接、弹窗高度连续变化与快速切换", async ({ page }) => {
+  await page.goto("/#settings");
+  await settingsCategory(page, "account");
+  await page.locator("#attendance-action").click();
+  const dialog = page.getByRole("dialog");
+  const panel = dialog.locator(".modal__panel");
+  await expect(panel).toHaveCSS("opacity", "1");
+  const phone = await dialog.locator("#attendance-phone").boundingBox();
+  const password = await dialog.locator("#attendance-password").boundingBox();
+  const tabs = await dialog.getByRole("tablist").boundingBox();
+  const phoneLabel = await dialog
+    .locator("label", { has: page.locator("#attendance-phone") })
+    .boundingBox();
+  expect(phoneLabel!.y - tabs!.y - tabs!.height).toBeGreaterThanOrEqual(17);
+  expect(password!.y).toBeGreaterThan(phone!.y + phone!.height);
+  await page.evaluate(() => {
+    const probe = {
+      frames: [] as { height: number; x: number; opacity: number }[],
+      done: false,
+    };
+    Object.assign(window, { modalSwitchProbe: probe });
+    const start = performance.now();
+    function frame() {
+      const panel = document.querySelector<HTMLElement>(".modal__panel")!;
+      const current = panel.querySelector<HTMLElement>(
+        'form .view-stack > fieldset:not([aria-hidden="true"])',
+      )!;
+      probe.frames.push({
+        height: panel.getBoundingClientRect().height,
+        x: new DOMMatrixReadOnly(getComputedStyle(current).transform).m41,
+        opacity: Number(getComputedStyle(current).opacity),
+      });
+      if (performance.now() - start < 1000) requestAnimationFrame(frame);
+      else probe.done = true;
+    }
+    requestAnimationFrame(frame);
+  });
+  await dialog.getByRole("tab", { name: "短信验证码" }).click();
+  await page.waitForFunction(
+    () =>
+      (window as unknown as { modalSwitchProbe: { done: boolean } })
+        .modalSwitchProbe.done,
+  );
+  const frames = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          modalSwitchProbe: {
+            frames: { height: number; x: number; opacity: number }[];
+          };
+        }
+      ).modalSwitchProbe.frames,
+  );
+  const heights = frames.map((frame) => frame.height);
+  expect(
+    new Set(heights.map((height) => Math.round(height))).size,
+  ).toBeGreaterThan(5);
+  expect(
+    frames.some(
+      (frame) => frame.x > 1 && frame.opacity > 0 && frame.opacity < 1,
+    ),
+  ).toBe(true);
+  const distance = Math.abs(heights.at(-1)! - heights[0]);
+  expect(distance).toBeGreaterThan(10);
+  expect(
+    Math.max(
+      ...heights
+        .slice(1)
+        .map((height, index) => Math.abs(height - heights[index])),
+    ),
+  ).toBeLessThan(distance * 0.7);
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowLeft");
+  await expect(dialog.locator("#attendance-phone")).toHaveCount(1);
+  await expect(dialog.locator("#attendance-password")).toBeVisible();
+  await expect(
+    dialog.locator('[aria-hidden="true"].view-stack__page'),
+  ).toHaveCount(0);
+  await dialog.getByRole("button", { name: "返回账号列表" }).click();
+  await expect(dialog.getByRole("button", { name: "添加账号" })).toBeVisible();
+});

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseView from "./BaseView.vue";
 import BaseTabs from "./BaseTabs.vue";
 import BaseInput from "./BaseInput.vue";
 import BaseButton from "./BaseButton.vue";
@@ -240,6 +241,8 @@ async function remove(id: string) {
 <template>
   <BaseModal
     :open="open"
+    :view-key="mode"
+    :direction="mode === 'add' ? 1 : -1"
     :theme="form.theme"
     :reduce-motion="form.reduceMotion"
     :title="mode === 'list' ? '塔吉多账号' : '添加塔吉多账号'"
@@ -372,67 +375,74 @@ async function remove(id: string) {
       <p v-if="relogin" class="attendance__hint">
         请输入需要重新登录的账号手机号和登录凭据
       </p>
-      <div class="field-grid">
-        <label class="field" :class="{ 'field--wide': loginMode === 'sms' }"
-          ><span>手机号码</span
-          ><BaseInput
-            id="attendance-phone"
-            v-model="phone"
-            type="tel"
-            inputmode="numeric"
-            autocomplete="username"
-            maxlength="11"
-            pattern="[0-9]{11}"
-            required
-            :disabled="attendance.busy"
-        /></label>
-        <label v-if="loginMode === 'password'" class="field"
-          ><span>密码</span
-          ><BaseInput
-            id="attendance-password"
-            v-model="password"
-            type="password"
-            autocomplete="current-password"
-            required
-            :disabled="attendance.busy"
-        /></label>
-        <div v-else class="field field--wide">
-          <span>短信验证码</span>
-          <div class="attendance__code-row">
-            <BaseInput
-              id="attendance-code"
-              v-model="code"
-              aria-label="短信验证码"
+      <BaseView
+        class="attendance-login-fields"
+        :view-key="loginMode"
+        :direction="loginMode === 'sms' ? 1 : -1"
+        :reduce-motion="form.reduceMotion"
+      >
+        <div class="field-grid">
+          <label class="field field--wide"
+            ><span>手机号码</span
+            ><BaseInput
+              id="attendance-phone"
+              v-model="phone"
+              type="tel"
               inputmode="numeric"
-              autocomplete="one-time-code"
-              maxlength="8"
+              autocomplete="username"
+              maxlength="11"
+              pattern="[0-9]{11}"
               required
               :disabled="attendance.busy"
-            />
-            <BaseButton
-              type="button"
-              variant="secondary"
-              :disabled="attendance.busy || sending || cooldown > 0"
-              @click="sendCode"
-            >
-              {{
-                sending
-                  ? "正在发送"
-                  : cooldown
-                    ? `重新发送 (${cooldown}s)`
-                    : "发送验证码"
-              }}
-            </BaseButton>
+          /></label>
+          <label v-if="loginMode === 'password'" class="field field--wide"
+            ><span>密码</span
+            ><BaseInput
+              id="attendance-password"
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              required
+              :disabled="attendance.busy"
+          /></label>
+          <div v-else class="field field--wide">
+            <span>短信验证码</span>
+            <div class="attendance__code-row">
+              <BaseInput
+                id="attendance-code"
+                v-model="code"
+                aria-label="短信验证码"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                maxlength="8"
+                required
+                :disabled="attendance.busy"
+              />
+              <BaseButton
+                type="button"
+                variant="secondary"
+                :disabled="attendance.busy || sending || cooldown > 0"
+                @click="sendCode"
+              >
+                {{
+                  sending
+                    ? "正在发送"
+                    : cooldown
+                      ? `重新发送 (${cooldown}s)`
+                      : "发送验证码"
+                }}
+              </BaseButton>
+            </div>
           </div>
         </div>
-      </div>
-      <label v-if="loginMode === 'password'" class="attendance__remember"
-        ><input
-          v-model="remember"
-          type="checkbox"
-          :disabled="attendance.busy"
-        />保存密码, 登录失效时自动恢复</label
-      >
+        <label v-if="loginMode === 'password'" class="attendance__remember"
+          ><input
+            v-model="remember"
+            type="checkbox"
+            :disabled="attendance.busy"
+          />保存密码, 登录失效时自动恢复</label
+        >
+      </BaseView>
       <footer class="modal__foot">
         <BaseButton
           id="attendance-login"

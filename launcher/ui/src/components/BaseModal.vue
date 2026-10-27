@@ -5,6 +5,7 @@ import {
   useControlMotion,
   surfaceSpring,
 } from "../composables/useControlMotion";
+import BaseView from "./BaseView.vue";
 import BaseButton from "./BaseButton.vue";
 const [, animate] = useAnimate();
 const { reduced } = useControlMotion();
@@ -14,10 +15,49 @@ const props = defineProps<{
   title: string;
   theme?: string;
   reduceMotion?: boolean;
+  viewKey?: string | number;
+  direction?: 1 | -1;
 }>();
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
 const titleId = useId();
 const panel = ref<HTMLElement | null>(null);
+const content = ref<HTMLElement | null>(null);
+let resizeObserver: ResizeObserver | undefined;
+let resizeAnimation: ReturnType<typeof animate> | undefined;
+let bodyHeight = 0;
+watch(
+  content,
+  (element) => {
+    resizeObserver?.disconnect();
+    resizeAnimation?.stop();
+    bodyHeight = 0;
+    if (!element) return;
+    const body = element.parentElement!;
+    resizeObserver = new ResizeObserver(() => {
+      const style = getComputedStyle(body);
+      const height =
+        element.offsetHeight +
+        Number.parseFloat(style.paddingTop) +
+        Number.parseFloat(style.paddingBottom);
+      if (Math.abs(height - bodyHeight) < 0.5) return;
+      resizeAnimation?.stop();
+      const previous = bodyHeight;
+      bodyHeight = height;
+      if (!previous || reducedMotion()) {
+        body.style.height = `${height}px`;
+        return;
+      }
+      resizeAnimation = animate(Number.parseFloat(body.style.height), height, {
+        ...surfaceSpring,
+        onUpdate: (value) => {
+          body.style.height = `${value}px`;
+        },
+      });
+    });
+    resizeObserver.observe(element);
+  },
+  { flush: "post" },
+);
 let animations: ReturnType<typeof animate>[] = [];
 let animationRun = 0;
 function stopMotion() {
@@ -130,6 +170,8 @@ watch(
 );
 onBeforeUnmount(() => {
   stopMotion();
+  resizeObserver?.disconnect();
+  resizeAnimation?.stop();
   restore();
 });
 // 切换表单或移除账号后, 将焦点留在弹窗内。
@@ -209,7 +251,16 @@ function keydown(event: KeyboardEvent) {
               @click="close"
             />
           </header>
-          <div class="modal__body"><slot /></div>
+          <div class="modal__body">
+            <div ref="content" class="modal__content">
+              <BaseView
+                :view-key="viewKey ?? 0"
+                :direction="direction"
+                :reduce-motion="!!reduceMotion"
+                ><slot
+              /></BaseView>
+            </div>
+          </div>
         </section>
       </div>
     </Transition>
