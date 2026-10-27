@@ -60,9 +60,13 @@ test("分段控件保持键盘焦点, 登录表单跟随选择切换", async ({ 
 });
 
 test("登录字段横向交接、弹窗高度连续变化与快速切换", async ({ page }) => {
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
   await page.goto("/#settings");
+  await page.clock.runFor(1500);
   await settingsCategory(page, "account");
   await page.locator("#attendance-action").click();
+  await page.clock.runFor(1000);
   const dialog = page.getByRole("dialog");
   const panel = dialog.locator(".modal__panel");
   await expect(panel).toHaveCSS("opacity", "1");
@@ -97,6 +101,7 @@ test("登录字段横向交接、弹窗高度连续变化与快速切换", async
     requestAnimationFrame(frame);
   });
   await dialog.getByRole("tab", { name: "短信验证码" }).click();
+  await page.clock.runFor(1100);
   await page.waitForFunction(
     () =>
       (window as unknown as { modalSwitchProbe: { done: boolean } })
@@ -130,6 +135,7 @@ test("登录字段横向交接、弹窗高度连续变化与快速切换", async
         .map((height, index) => Math.abs(height - heights[index])),
     ),
   ).toBeLessThan(distance * 0.7);
+  await page.clock.resume();
   await page.keyboard.press("ArrowLeft");
   await page.keyboard.press("ArrowRight");
   await page.keyboard.press("ArrowLeft");
