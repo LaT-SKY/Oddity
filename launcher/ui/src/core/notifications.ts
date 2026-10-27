@@ -24,6 +24,7 @@ export interface NotificationItem extends NotificationOptions {
   count: number;
   busy: boolean;
   actionError: string;
+  swiped?: boolean;
 }
 export const notifications = reactive<NotificationItem[]>([]);
 let nextId = 0;
@@ -80,10 +81,13 @@ export function notify(
   startClock();
   return item.id;
 }
-export function dismissNotification(id: number) {
+export function dismissNotification(id: number, swiped = false) {
   stopClock();
   const index = notifications.findIndex((item) => item.id === id);
-  if (index >= 0) notifications.splice(index, 1);
+  if (index >= 0) {
+    notifications[index].swiped = swiped;
+    notifications.splice(index, 1);
+  }
   startClock();
 }
 export function pauseNotifications(reason: string, paused: boolean) {

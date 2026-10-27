@@ -84,6 +84,10 @@ export function useNotificationArrival(
     reorder();
   }
   async function retire(id: number) {
+    if (displayed.value.find((item) => item.id === id)?.swiped) {
+      drop(id);
+      return;
+    }
     retiring.value = [...retiring.value, id];
     pauseNotifications("departure", true);
     await nextTick();

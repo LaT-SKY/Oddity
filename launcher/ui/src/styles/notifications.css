@@ -55,8 +55,8 @@
   border-radius: 20px;
   box-shadow: 0 8px 24px rgb(0 0 0 / 12%);
 }
-.is-arriving > .notification-depth,
-.is-retiring > .notification-depth {
+.is-arriving .notification-depth,
+.is-retiring .notification-depth {
   overflow: visible;
   border-radius: 0;
   box-shadow: none;
@@ -222,4 +222,9 @@
 
 .notification-depth.is-behind {
   background: var(--notice-bg);
+}
+
+.notification-swipe {
+  touch-action: pan-y;
+  user-select: none;
 }

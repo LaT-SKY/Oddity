@@ -10,6 +10,7 @@ import {
 import { MotionConfig, motion } from "motion-v";
 import { init, ui, form, state, showPage, dispose } from "./core/controller";
 import { useSceneMotion, playerExpanded } from "./composables/useSceneMotion";
+import { navigationScrubbing } from "./composables/navigationGesture";
 import NotificationCenter from "./components/NotificationCenter.vue";
 import TitleBar from "./components/layout/TitleBar.vue";
 import HeroMedia from "./components/HeroMedia.vue";
@@ -27,7 +28,9 @@ watch(
   () => state.page,
   async (page, previous) => {
     playerExpanded.value = false;
+    const scrubbing = navigationScrubbing.value;
     await nextTick();
+    if (scrubbing || navigationScrubbing.value) return;
     if (page !== "home") {
       content.value
         ?.querySelector<HTMLElement>(".page.is-active h2")

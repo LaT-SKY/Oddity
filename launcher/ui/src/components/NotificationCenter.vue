@@ -8,6 +8,7 @@ import {
   watch,
 } from "vue";
 import { motion, useReducedMotion } from "motion-v";
+import NotificationSwipe from "./NotificationSwipe.vue";
 import NotificationActions from "./NotificationActions.vue";
 import { useNotificationArrival } from "../composables/useNotificationArrival";
 import { form } from "../core/controller";
@@ -214,110 +215,123 @@ onBeforeUnmount(() => {
         }"
         :transition="interaction"
       >
-        <motion.div
-          class="notification-depth"
-          :class="{
-            'is-behind':
-              !expanded && depth(item.id) > 0 && !retiring.includes(item.id),
-          }"
-          :animate="{
-            height:
-              !expanded && depth(item.id) > 0 && !retiring.includes(item.id)
-                ? frontHeight
-                : 'auto',
-            scale: expanded ? 1 : 1 - depth(item.id) * 0.035,
-            opacity: expanded ? 1 : 1 - depth(item.id) * 0.16,
-          }"
-          :transition="interaction"
+        <NotificationSwipe
+          :id="item.id"
+          :revision="item.revision"
+          :enabled="
+            contentReady(item.id) &&
+            incoming !== item.id &&
+            !item.busy &&
+            (expanded || depth(item.id) === 0)
+          "
+          :leaving="retiring.includes(item.id)"
+          :reduced="!!reduced"
         >
-          <div class="notification-flight">
-            <div class="notification-surface">
-              <motion.article
-                :initial="false"
-                :animate="{
-                  opacity: contentReady(item.id) ? 1 : 0,
-                  y: contentReady(item.id) ? 0 : 6,
-                }"
-                :transition="{ duration: reduced ? 0 : 0.12 }"
-                class="notification-card"
-                :data-kind="item.kind"
-                :aria-busy="item.busy"
-              >
-                <div class="notification-heading">
-                  <svg class="icon notification-symbol" aria-hidden="true">
-                    <use
-                      :href="
-                        item.kind === 'error'
-                          ? '#i-warning-circle'
-                          : item.kind === 'ok'
-                            ? '#i-check-circle'
-                            : '#i-info'
-                      "
-                    />
-                  </svg>
-                  <div class="notification-copy">
-                    <strong v-if="item.title" class="notification-title">{{
-                      item.title
-                    }}</strong>
-                    <p
-                      class="notification-message"
-                      role="status"
-                      aria-live="polite"
-                      aria-atomic="true"
-                    >
-                      {{ item.message }}
-                    </p>
-                  </div>
-                  <span
-                    v-if="item.count > 1"
-                    class="notification-repeat"
-                    :aria-label="`重复 ${item.count} 次`"
-                    >×{{ item.count }}</span
-                  >
-                  <motion.button
-                    v-if="
-                      !expanded &&
-                      depth(item.id) === 0 &&
-                      notifications.length > 1
-                    "
-                    class="notification-icon-button"
-                    :disabled="incoming !== null && phase < 3"
-                    type="button"
-                    :aria-label="`展开 ${notifications.length} 条通知`"
-                    :while-press="{ scale: 0.88 }"
-                    @click="expanded = true"
-                  >
-                    <span class="notification-count">{{
-                      notifications.length
-                    }}</span>
-                    <svg class="icon" aria-hidden="true">
-                      <use href="#i-caret-down" />
-                    </svg>
-                  </motion.button>
-                  <motion.button
-                    class="notification-icon-button notification-dismiss"
-                    type="button"
-                    aria-label="关闭通知"
-                    :while-press="{ scale: 0.88 }"
-                    @click="dismissNotification(item.id)"
-                  >
-                    <svg class="icon" aria-hidden="true">
-                      <use href="#i-x" />
-                    </svg>
-                  </motion.button>
-                </div>
-                <p
-                  v-if="item.actionError"
-                  class="notification-action-error"
-                  role="alert"
+          <motion.div
+            class="notification-depth"
+            :class="{
+              'is-behind':
+                !expanded && depth(item.id) > 0 && !retiring.includes(item.id),
+            }"
+            :animate="{
+              height:
+                !expanded && depth(item.id) > 0 && !retiring.includes(item.id)
+                  ? frontHeight
+                  : 'auto',
+              scale: expanded ? 1 : 1 - depth(item.id) * 0.035,
+              opacity: expanded ? 1 : 1 - depth(item.id) * 0.16,
+            }"
+            :transition="interaction"
+          >
+            <div class="notification-flight">
+              <div class="notification-surface">
+                <motion.article
+                  :initial="false"
+                  :animate="{
+                    opacity: contentReady(item.id) ? 1 : 0,
+                    y: contentReady(item.id) ? 0 : 6,
+                  }"
+                  :transition="{ duration: reduced ? 0 : 0.12 }"
+                  class="notification-card"
+                  :data-kind="item.kind"
+                  :aria-busy="item.busy"
                 >
-                  {{ item.actionError }}
-                </p>
-                <NotificationActions :item="item" :reduced="reduced" />
-              </motion.article>
+                  <div class="notification-heading">
+                    <svg class="icon notification-symbol" aria-hidden="true">
+                      <use
+                        :href="
+                          item.kind === 'error'
+                            ? '#i-warning-circle'
+                            : item.kind === 'ok'
+                              ? '#i-check-circle'
+                              : '#i-info'
+                        "
+                      />
+                    </svg>
+                    <div class="notification-copy">
+                      <strong v-if="item.title" class="notification-title">{{
+                        item.title
+                      }}</strong>
+                      <p
+                        class="notification-message"
+                        role="status"
+                        aria-live="polite"
+                        aria-atomic="true"
+                      >
+                        {{ item.message }}
+                      </p>
+                    </div>
+                    <span
+                      v-if="item.count > 1"
+                      class="notification-repeat"
+                      :aria-label="`重复 ${item.count} 次`"
+                      >×{{ item.count }}</span
+                    >
+                    <motion.button
+                      v-if="
+                        !expanded &&
+                        depth(item.id) === 0 &&
+                        notifications.length > 1
+                      "
+                      class="notification-icon-button"
+                      :disabled="incoming !== null && phase < 3"
+                      type="button"
+                      :aria-label="`展开 ${notifications.length} 条通知`"
+                      :while-press="{ scale: 0.88 }"
+                      @click="expanded = true"
+                    >
+                      <span class="notification-count">{{
+                        notifications.length
+                      }}</span>
+                      <svg class="icon" aria-hidden="true">
+                        <use href="#i-caret-down" />
+                      </svg>
+                    </motion.button>
+                    <motion.button
+                      class="notification-icon-button notification-dismiss"
+                      type="button"
+                      aria-label="关闭通知"
+                      :while-press="{ scale: 0.88 }"
+                      @click="dismissNotification(item.id)"
+                    >
+                      <svg class="icon" aria-hidden="true">
+                        <use href="#i-x" />
+                      </svg>
+                    </motion.button>
+                  </div>
+                  <p
+                    v-if="item.actionError"
+                    class="notification-action-error"
+                    role="alert"
+                  >
+                    {{ item.actionError }}
+                  </p>
+                  <NotificationActions :item="item" :reduced="reduced" />
+                </motion.article>
+              </div>
             </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        </NotificationSwipe>
       </motion.div>
     </div>
   </section>

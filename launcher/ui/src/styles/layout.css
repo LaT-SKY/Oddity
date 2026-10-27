@@ -116,6 +116,8 @@
   display: flex;
 }
 .rail__nav {
+  touch-action: none;
+  user-select: none;
   display: flex;
   align-items: center;
   gap: 8px;
