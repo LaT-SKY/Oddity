@@ -48,7 +48,7 @@ async function render() {
     await import("../../src/components/RuntimeEnvironments.vue");
   return mount(Component, {
     attachTo: document.body,
-    global: { stubs: { transition: false } },
+    global: { stubs: { transition: false, teleport: true } },
   });
 }
 

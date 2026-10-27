@@ -116,16 +116,23 @@ async function discard() {
           :disabled="runtimeEnvironmentLocked"
           placeholder="请选择运行环境"
         />
-        <small v-if="profile" class="field__hint">
-          Proton: {{ profile.proton.path }}<br />游戏安装:
-          {{ profile.installRoot }} ({{
-            profile.distribution === "cn" ? "国服" : "国际服"
-          }})
-        </small>
+        <small v-if="profile" class="field__hint"
+          >Proton: {{ profile.proton.path }}</small
+        >
       </div>
     </div>
     <p v-else class="field__hint">请先创建 Proton 运行环境, 再启动游戏.</p>
     <div class="runtime-environments__actions">
+      <button
+        type="button"
+        class="btn"
+        :class="profiles.length ? 'btn--ghost' : 'btn--primary'"
+        :disabled="runtimeEnvironmentLocked || !state.bootstrap"
+        @click="openCreate"
+      >
+        <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
+        {{ profiles.length ? "创建环境或副本" : "创建运行环境" }}
+      </button>
       <template v-if="profiles.length">
         <button
           type="button"
@@ -156,20 +163,17 @@ async function discard() {
           删除环境
         </button>
       </template>
-      <button
-        type="button"
-        class="btn"
-        :class="profiles.length ? 'btn--ghost' : 'btn--primary'"
-        :disabled="runtimeEnvironmentLocked || !state.bootstrap"
-        @click="openCreate"
-      >
-        {{ profiles.length ? "创建环境或副本" : "创建运行环境" }}
-      </button>
     </div>
     <small v-if="active" class="field__hint"
       >当前 prefix: {{ state.bootstrap?.prefix || "不可用" }}</small
     >
-    <div v-if="creating" class="runtime-environments__create">
+    <BaseModal
+      :open="creating"
+      title="创建运行环境"
+      :theme="form.theme"
+      :reduce-motion="form.reduceMotion"
+      @update:open="creating = $event"
+    >
       <div class="field-grid">
         <div v-if="profiles.length" class="field field--wide">
           <label for="runtime-environment-source">创建来源</label>
@@ -180,7 +184,7 @@ async function discard() {
             :disabled="runtimeEnvironmentLocked"
           />
         </div>
-        <div class="field">
+        <div class="field field--wide">
           <label for="runtime-environment-name">环境名称</label>
           <input
             id="runtime-environment-name"
@@ -194,6 +198,7 @@ async function discard() {
           id="runtime-environment-proton"
           v-model="proton"
           label="Proton 目录"
+          class="field--wide"
           :disabled="runtimeEnvironmentLocked"
         />
       </div>
@@ -205,6 +210,12 @@ async function discard() {
         创建独立 prefix, 首次启动时由 Proton 初始化.
         首个环境会自动设为当前和稳定环境.
       </p>
+      <p v-if="runtimeEnvironmentBusy" role="status" aria-live="polite">
+        正在创建运行环境, 请稍候.
+      </p>
+      <p v-if="runtimeEnvironmentError" role="alert">
+        {{ runtimeEnvironmentError }}
+      </p>
       <div class="runtime-environments__actions">
         <button
           type="button"
@@ -212,6 +223,9 @@ async function discard() {
           :disabled="runtimeEnvironmentLocked || !name.trim() || !proton.trim()"
           @click="create"
         >
+          <svg class="icon" aria-hidden="true">
+            <use :href="source ? '#i-copy' : '#i-plus'" />
+          </svg>
           {{ source ? "创建副本" : "创建环境" }}
         </button>
         <button
@@ -223,11 +237,15 @@ async function discard() {
           取消创建
         </button>
       </div>
-    </div>
-    <p v-if="runtimeEnvironmentBusy" role="status" aria-live="polite">
+    </BaseModal>
+    <p
+      v-if="runtimeEnvironmentBusy && !creating && !confirming"
+      role="status"
+      aria-live="polite"
+    >
       正在处理运行环境, 请稍候.
     </p>
-    <p v-if="runtimeEnvironmentError && !confirming" role="alert">
+    <p v-if="runtimeEnvironmentError && !creating && !confirming" role="alert">
       {{ runtimeEnvironmentError }}
     </p>
     <BaseModal
@@ -246,22 +264,26 @@ async function discard() {
       <p v-if="runtimeEnvironmentError" role="alert">
         {{ runtimeEnvironmentError }}
       </p>
+      <p v-if="runtimeEnvironmentBusy" role="status" aria-live="polite">
+        正在删除运行环境, 请稍候.
+      </p>
       <div class="runtime-environments__actions">
-        <button
-          type="button"
-          class="btn btn--ghost"
-          :disabled="runtimeEnvironmentBusy"
-          @click="confirming = false"
-        >
-          取消
-        </button>
         <button
           type="button"
           class="btn btn--ghost runtime-environments__danger"
           :disabled="runtimeEnvironmentLocked"
           @click="discard"
         >
+          <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
           确定删除
+        </button>
+        <button
+          type="button"
+          class="btn btn--link"
+          :disabled="runtimeEnvironmentBusy"
+          @click="confirming = false"
+        >
+          取消
         </button>
       </div>
     </BaseModal>
@@ -285,18 +307,13 @@ async function discard() {
 }
 
 .runtime-environments__danger,
+.runtime-environments__danger .icon,
 .runtime-environments__danger:hover:not(:disabled) {
   color: var(--danger);
 }
 
 .btn--ghost.runtime-environments__danger {
   background: var(--danger-fill);
-}
-
-.runtime-environments__create {
-  margin-top: var(--space-16);
-  padding-top: var(--space-16);
-  border-top: 1px solid var(--line);
 }
 
 .field__hint {

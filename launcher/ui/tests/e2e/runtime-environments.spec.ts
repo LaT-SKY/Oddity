@@ -15,15 +15,54 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
   await section
     .getByRole("button", { name: "创建运行环境", exact: true })
     .click();
+  const createDialog = page.getByRole("dialog", {
+    name: "创建运行环境",
+    exact: true,
+  });
+  await expect(createDialog).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(createDialog).toHaveCount(0);
+  await expect(
+    section.getByRole("button", { name: "创建运行环境", exact: true }),
+  ).toBeFocused();
+  await section
+    .getByRole("button", { name: "创建运行环境", exact: true })
+    .click();
   await page.locator("#runtime-environment-name").fill("稳定 A");
   await page.locator("#runtime-environment-proton").fill("/opt/Proton-A");
   // 创建表单中的目录选择按钮仍可访问.
   await expect(
     page.getByRole("button", { name: "浏览Proton 目录" }),
   ).toBeEnabled();
-  await section.getByRole("button", { name: "创建环境", exact: true }).click();
+  const createButton = createDialog.getByRole("button", {
+    name: "创建环境",
+    exact: true,
+  });
+  await expect(createButton.locator("svg use")).toHaveAttribute(
+    "href",
+    "#i-plus",
+  );
+  expect((await createButton.boundingBox())!.x).toBeLessThan(
+    (await createDialog
+      .getByRole("button", { name: "取消创建", exact: true })
+      .boundingBox())!.x,
+  );
+  await expect(createDialog).toHaveCSS("opacity", "1");
+  await expect(createDialog).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
+  await page.screenshot({ path: "test-results/environment-create-dialog.png" });
+  await createDialog
+    .getByRole("button", { name: "创建环境", exact: true })
+    .click();
   const select = page.locator("#runtime-environment-trigger");
   await expect(select).toHaveText("稳定 A · 当前 · 稳定");
+  await expect(
+    section
+      .locator(".runtime-environments__actions")
+      .first()
+      .getByRole("button")
+      .first(),
+  ).toHaveText("创建环境或副本");
+  await expect(section.getByText(/^Proton:/)).not.toContainText("游戏安装:");
   await expect(
     section.getByRole("button", { name: "删除环境", exact: true }),
   ).toBeDisabled();
@@ -32,7 +71,9 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
     .click();
   await page.locator("#runtime-environment-name").fill("实验 B");
   await page.locator("#runtime-environment-proton").fill("/opt/Proton-B");
-  await section.getByRole("button", { name: "创建副本", exact: true }).click();
+  await createDialog
+    .getByRole("button", { name: "创建副本", exact: true })
+    .click();
   await select.click();
   await page.getByRole("option", { name: "实验 B", exact: true }).click();
   await section.getByRole("button", { name: "切换到此环境" }).click();
@@ -45,12 +86,19 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
   await section
     .getByRole("button", { name: "创建环境或副本", exact: true })
     .click();
-  await expect(section).toContainText("源环境: 稳定 A");
+  await expect(createDialog).toContainText("源环境: 稳定 A");
+  await expect(
+    createDialog
+      .getByRole("button", { name: "创建副本", exact: true })
+      .locator("svg use"),
+  ).toHaveAttribute("href", "#i-copy");
   await expect(page.locator("#runtime-environment-proton")).toHaveValue(
     "/opt/Proton-A",
   );
   await page.locator("#runtime-environment-name").fill("A 的副本");
-  await section.getByRole("button", { name: "创建副本", exact: true }).click();
+  await createDialog
+    .getByRole("button", { name: "创建副本", exact: true })
+    .click();
   await expect(page.locator("#runtime-environment-name")).toHaveCount(0);
   await expect(section.getByText(/^当前 prefix:/)).toHaveText(currentPrefix);
   await select.click();
@@ -68,6 +116,19 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
     dialog.getByRole("button", { name: "确定删除", exact: true }),
   ).toHaveCSS("color", dangerColor);
   await expect(dialog.getByRole("button", { name: "关闭弹窗" })).toBeFocused();
+  const confirmButton = dialog.getByRole("button", {
+    name: "确定删除",
+    exact: true,
+  });
+  await expect(confirmButton.locator("svg use")).toHaveAttribute(
+    "href",
+    "#i-trash",
+  );
+  expect((await confirmButton.boundingBox())!.x).toBeLessThan(
+    (await dialog
+      .getByRole("button", { name: "取消", exact: true })
+      .boundingBox())!.x,
+  );
   await expect(dialog).toHaveCSS("opacity", "1");
   await expect(dialog).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
   await page.screenshot({ path: "test-results/environment-delete-dialog.png" });
