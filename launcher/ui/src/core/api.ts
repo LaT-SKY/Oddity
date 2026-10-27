@@ -150,6 +150,14 @@ const mock: Bootstrap = {
       detail: joinPath(preview.launcherRoot, distributions.cn.clientExe),
     },
   ],
+  runtimeInstallations: [
+    { distribution: "cn", installRoot: preview.installRoot, installed: true },
+    {
+      distribution: "global",
+      installRoot: "~/Games/Neverness To Everness Global",
+      installed: false,
+    },
+  ],
   settings: {
     installRoot: null,
     globalInstallRoot: null,
@@ -169,9 +177,42 @@ const mock: Bootstrap = {
   os: previewOs(),
 };
 
+function applyPreviewDistribution() {
+  if (mock.settings.distribution === "global")
+    mock.installRoot =
+      mock.settings.globalInstallRoot || "~/Games/Neverness To Everness Global";
+  else mock.installRoot = mock.settings.installRoot || preview.installRoot;
+  mock.launcherRoot = joinPath(
+    mock.installRoot,
+    distributions[mock.settings.distribution].launcherDir,
+  );
+  mock.sdkPath = joinPath(mock.launcherRoot, "WPGameClientSDK_64.dll");
+  mock.gameExe = joinPath(
+    mock.installRoot,
+    "Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe",
+  );
+  for (const item of mock.checks) {
+    if (item.label === "启动器配置") item.detail = mock.launcherRoot;
+    if (item.label === "游戏可执行文件") item.detail = mock.gameExe;
+    if (
+      item.detail.endsWith("NTEGame.exe") ||
+      item.detail.endsWith("NTEGlobalGame.exe")
+    ) {
+      item.detail = joinPath(
+        mock.launcherRoot,
+        distributions[mock.settings.distribution].clientExe,
+      );
+    }
+  }
+  mockCheck.distribution = mock.settings.distribution;
+  mockCheck.installRoot = mock.installRoot;
+}
+
 function selectPreviewEnvironment(
   profile: Bootstrap["settings"]["runtimeEnvironments"][number],
 ) {
+  mock.settings.distribution = profile.distribution;
+  applyPreviewDistribution();
   mock.settings.activeEnvironment = profile.id;
   mock.prefix = joinPath(
     preview.prefix.replace(/\/prefix$/, ""),
@@ -467,18 +508,16 @@ async function previewInvoke(
     case "bootstrap":
       return clone(mock);
     case "environment_create": {
-      const { name, protonPath, sourceId } =
+      const { name, protonPath, sourceId, distribution } =
         args as CommandArgs["environment_create"];
       const source = mock.settings.runtimeEnvironments.find(
         (profile) => profile.id === sourceId,
       );
       if (sourceId && !source) throw new Error("源运行环境不存在");
-      if (
-        source &&
-        (source.distribution !== mock.settings.distribution ||
-          source.installRoot !== mock.installRoot)
-      )
-        throw new Error("源运行环境与当前游戏地区或安装目录不匹配");
+      const target = mock.runtimeInstallations.find(
+        (entry) => entry.distribution === distribution,
+      );
+      if (!target?.installed) throw new Error("尚未安装所选区服, 请先安装游戏");
       if (!name.trim() || !protonPath.trim())
         throw new Error("请填写环境名称和 Proton 目录");
       if (
@@ -494,8 +533,8 @@ async function previewInvoke(
         ),
         name: name.trim(),
         proton: { path: protonPath.trim(), identity: "browser-preview" },
-        installRoot: mock.installRoot,
-        distribution: mock.settings.distribution,
+        installRoot: target.installRoot,
+        distribution,
         createdAt: Math.floor(Date.now() / 1000),
       };
       mock.settings.runtimeEnvironments.push(profile);
@@ -512,12 +551,11 @@ async function previewInvoke(
       );
       if (!profile) throw new Error("运行环境不存在");
       if (action === "switch") {
-        if (
-          profile &&
-          (profile.distribution !== mock.settings.distribution ||
-            profile.installRoot !== mock.installRoot)
-        )
-          throw new Error("运行环境与当前游戏地区或安装目录不匹配");
+        const target = mock.runtimeInstallations.find(
+          (entry) => entry.distribution === profile.distribution,
+        );
+        if (target?.installRoot !== profile.installRoot)
+          throw new Error("运行环境与绑定的游戏目录不匹配");
         selectPreviewEnvironment(profile);
       } else if (action === "keep") {
         mock.settings.stableEnvironment = id;
@@ -558,34 +596,21 @@ async function previewInvoke(
     case "save_settings": {
       const settings = (args as { settings: Settings }).settings;
       mock.settings = { ...mock.settings, ...settings };
-      if (settings.distribution === "global")
-        mock.installRoot =
-          settings.globalInstallRoot || "~/Games/Neverness To Everness Global";
-      else if (settings.installRoot) mock.installRoot = settings.installRoot;
-      mock.launcherRoot = joinPath(
-        mock.installRoot,
-        distributions[settings.distribution].launcherDir,
-      );
-      mock.sdkPath = joinPath(mock.launcherRoot, "WPGameClientSDK_64.dll");
-      mock.gameExe = joinPath(
-        mock.installRoot,
-        "Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe",
-      );
-      for (const item of mock.checks) {
-        if (item.label === "启动器配置") item.detail = mock.launcherRoot;
-        if (item.label === "游戏可执行文件") item.detail = mock.gameExe;
-        if (
-          item.detail.endsWith("NTEGame.exe") ||
-          item.detail.endsWith("NTEGlobalGame.exe")
-        ) {
-          item.detail = joinPath(
-            mock.launcherRoot,
-            distributions[settings.distribution].clientExe,
-          );
-        }
-      }
-      mockCheck.distribution = settings.distribution;
-      mockCheck.installRoot = mock.installRoot;
+      mock.runtimeInstallations = [
+        {
+          distribution: "cn",
+          installRoot: mock.settings.installRoot || preview.installRoot,
+          installed: true,
+        },
+        {
+          distribution: "global",
+          installRoot:
+            mock.settings.globalInstallRoot ||
+            "~/Games/Neverness To Everness Global",
+          installed: Boolean(mock.settings.globalInstallRoot),
+        },
+      ];
+      applyPreviewDistribution();
       return clone(mock);
     }
     case "game_download_status":

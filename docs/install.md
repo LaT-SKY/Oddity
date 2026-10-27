@@ -94,7 +94,7 @@ Oddity 会搜索该目录, 也可以在设置中手动选择解压后的文件�
 
 ### Wine prefix
 
-Wine prefix 是 Proton 保存 Windows 环境和登录状态的目录. 在 Oddity 设置中打开 **Proton 运行环境**, 点击 **创建运行环境**, 输入名称并选择包含 `proton` 和 `toolmanifest.vdf` 的 Proton 文件夹.
+Wine prefix 是 Proton 保存 Windows 环境和登录状态的目录. 在 Oddity 设置中打开 **Proton 运行环境**, 点击 **创建运行环境**, 选择已安装的游戏区服, 输入名称并选择包含 `proton` 和 `toolmanifest.vdf` 的 Proton 文件夹.
 
 首个环境会自动设为当前和稳定环境. Oddity 为它准备独立 prefix, 首次启动游戏时由 Proton 初始化 Windows 环境. 启动游戏前必须先创建运行环境.
 

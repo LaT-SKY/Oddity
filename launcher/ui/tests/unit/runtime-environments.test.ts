@@ -69,6 +69,7 @@ it("首次使用时创建全新运行环境", async () => {
     "首个环境",
     "/proton-a",
     null,
+    "cn",
   );
   await flushPromises();
   expect(wrapper.find("#runtime-environment-name").exists()).toBe(false);
@@ -96,11 +97,12 @@ it("使用 B 时选中稳定 A, 副本请求使用 A 且不切换当前环境", 
     "A 副本",
     "/proton-a",
     a,
+    "cn",
   );
   expect(controller.state.bootstrap.settings.activeEnvironment).toBe(b);
   expect(wrapper.find("#runtime-environment-name").exists()).toBe(true);
   wrapper
-    .findAllComponents({ name: "BaseSelect" })[1]
+    .findAllComponents({ name: "BaseSelect" })[2]
     .vm.$emit("update:modelValue", "");
   await flushPromises();
   expect(wrapper.text()).toContain("创建独立 prefix");

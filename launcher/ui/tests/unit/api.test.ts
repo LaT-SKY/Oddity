@@ -24,12 +24,14 @@ describe("浏览器命令桥接", () => {
   it("创建副本验证指定的源环境及其安装范围", async () => {
     const { invoke } = await import("../../src/core/api");
     const first = await invoke("environment_create", {
+      distribution: "cn",
       name: "A",
       protonPath: "/proton-a",
       sourceId: null,
     });
     const id = first.settings.runtimeEnvironments[0].id;
     const copied = await invoke("environment_create", {
+      distribution: "cn",
       name: "A 副本",
       protonPath: "/proton-b",
       sourceId: id,
@@ -38,32 +40,54 @@ describe("浏览器命令桥接", () => {
     expect(copied.settings.activeEnvironment).toBe(id);
     await expect(
       invoke("environment_create", {
+        distribution: "cn",
         name: "缺失源",
         protonPath: "/proton-b",
         sourceId: "missing",
       }),
     ).rejects.toThrow("源运行环境不存在");
-    await invoke("save_settings", {
-      settings: { ...copied.settings, distribution: "global" },
-    });
     await expect(
       invoke("environment_create", {
-        name: "不匹配",
+        distribution: "global",
+        name: "国际服",
         protonPath: "/proton-b",
         sourceId: id,
       }),
-    ).rejects.toThrow("不匹配");
+    ).rejects.toThrow("尚未安装");
+    await invoke("save_settings", {
+      settings: { ...copied.settings, globalInstallRoot: "/global-game" },
+    });
+    const global = await invoke("environment_create", {
+      distribution: "global",
+      name: "国际服",
+      protonPath: "/proton-b",
+      sourceId: id,
+    });
+    const profile = global.settings.runtimeEnvironments.at(-1)!;
+    expect(profile).toMatchObject({
+      distribution: "global",
+      installRoot: "/global-game",
+    });
+    expect(global.settings.distribution).toBe("cn");
+    const switched = await invoke("environment_action", {
+      action: "switch",
+      id: profile.id,
+    });
+    expect(switched.settings.distribution).toBe("global");
+    expect(switched.installRoot).toBe("/global-game");
   });
   it("模拟环境创建、切换、保留和删除, 并保护当前和稳定环境", async () => {
     const { invoke } = await import("../../src/core/api");
     await expect(
       invoke("environment_create", {
+        distribution: "cn",
         name: "",
         protonPath: "/new",
         sourceId: null,
       }),
     ).rejects.toThrow("请填写");
     const created = await invoke("environment_create", {
+      distribution: "cn",
       sourceId: null,
       name: "测试",
       protonPath: "/proton-b",
@@ -71,6 +95,7 @@ describe("浏览器命令桥接", () => {
     const id = created.settings.runtimeEnvironments[0].id;
     await expect(
       invoke("environment_create", {
+        distribution: "cn",
         name: "测试",
         protonPath: "/proton-b",
         sourceId: null,
@@ -90,6 +115,7 @@ describe("浏览器命令桥接", () => {
     ).rejects.toThrow("不能删除");
     await invoke("environment_action", { action: "keep", id });
     const next = await invoke("environment_create", {
+      distribution: "cn",
       name: "其他环境",
       protonPath: "/proton-c",
       sourceId: null,
@@ -151,6 +177,7 @@ describe("浏览器命令桥接", () => {
     expect(data.launcherRoot).toBe("/game/NTELauncher");
     expect(data.protonPath).toBe("");
     const created = await invoke("environment_create", {
+      distribution: "cn",
       name: "测试",
       protonPath: "/proton",
       sourceId: null,
@@ -203,9 +230,12 @@ describe("浏览器命令桥接", () => {
       }),
     ).toMatchObject({ installRoot: "/new", settings: { theme: "dark" } });
     await invoke("save_settings", { settings: { ...settings } });
-    expect((await invoke("bootstrap")).installRoot).toBe("/new");
+    expect((await invoke("bootstrap")).installRoot).toBe(
+      "~/Games/Neverness To Everness",
+    );
     await expect(invoke("launch_official")).rejects.toThrow("请先创建");
     await invoke("environment_create", {
+      distribution: "cn",
       name: "测试",
       protonPath: "/proton",
       sourceId: null,

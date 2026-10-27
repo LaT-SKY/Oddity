@@ -1,13 +1,44 @@
 //! 运行环境操作与启动/资源任务共用互斥边界.
 use std::path::{Path, PathBuf};
 
+use nte_core::distribution::Distribution;
 use nte_core::environment::{self, RuntimeEnvironment};
+use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
 use crate::{
     bootstrap_impl, data_dir, detect_launcher_root, detect_proton, effective_install_root,
     expand_path, persist_settings, session_alive, AppState, Bootstrap, Settings,
 };
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Installation {
+    pub distribution: Distribution,
+    pub install_root: PathBuf,
+    pub installed: bool,
+}
+
+fn installation(settings: &Settings, distribution: Distribution) -> Installation {
+    let mut target = settings.clone();
+    target.distribution = distribution;
+    let launcher = detect_launcher_root(&target);
+    Installation {
+        distribution,
+        install_root: effective_install_root(&target, launcher.as_deref()),
+        installed: launcher
+            .as_deref()
+            .and_then(crate::game_exe_for)
+            .is_some_and(|game| game.is_file()),
+    }
+}
+
+pub fn installations(settings: &Settings) -> Vec<Installation> {
+    [Distribution::Cn, Distribution::Global]
+        .into_iter()
+        .map(|distribution| installation(settings, distribution))
+        .collect()
+}
 
 pub fn selected(settings: &Settings) -> Result<&RuntimeEnvironment, String> {
     let id = settings
@@ -116,6 +147,7 @@ pub async fn environment_create(
     name: String,
     proton_path: String,
     source_id: Option<String>,
+    distribution: Distribution,
 ) -> Result<Bootstrap, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<AppState>();
@@ -126,6 +158,7 @@ pub async fn environment_create(
             source_id.as_deref(),
             &name,
             &proton_path,
+            distribution,
         )
     })
     .await
@@ -138,9 +171,10 @@ fn create_impl(
     source_id: Option<&str>,
     name: &str,
     proton_path: &str,
+    distribution: Distribution,
 ) -> Result<Bootstrap, String> {
     let _task = Task::begin(state, downloads)?;
-    let mut snapshot = state
+    let snapshot = state
         .settings
         .lock()
         .map_err(|error| error.to_string())?
@@ -152,15 +186,37 @@ fn create_impl(
     {
         return Err("运行环境名称已存在".into());
     }
+    let target = installation(&snapshot, distribution);
+    if !target.installed {
+        return Err(format!(
+            "尚未安装{}, 请先安装游戏",
+            if distribution == Distribution::Cn {
+                "国服"
+            } else {
+                "国际服"
+            }
+        ));
+    }
     let source = if let Some(id) = source_id {
-        snapshot.active_environment = Some(id.into());
-        validate_selection(&snapshot)?;
-        Some((prefix(&snapshot)?, selected(&snapshot)?.proton.path.clone()))
+        let source = snapshot
+            .runtime_environments
+            .iter()
+            .find(|entry| entry.id == id)
+            .ok_or("源运行环境不存在")?;
+        source
+            .proton
+            .verify()
+            .map_err(|error| format!("{error:#}"))?;
+        Some((
+            source
+                .prefix(&data_dir())
+                .map_err(|error| format!("{error:#}"))?,
+            source.proton.path.clone(),
+        ))
     } else {
         None
     };
-    let launcher = detect_launcher_root(&snapshot);
-    let install = effective_install_root(&snapshot, launcher.as_deref());
+    let install = target.install_root;
     let _install_lock = nte_core::install_lock::InstallLock::acquire(&install)
         .map_err(|error| error.to_string())?;
     let created = environment::create(
@@ -170,7 +226,7 @@ fn create_impl(
             .map(|(prefix, proton)| (prefix.as_path(), proton.as_path())),
         &expand_path(proton_path),
         &install,
-        snapshot.distribution,
+        distribution,
         name,
     )
     .map_err(|error| format!("创建运行环境失败: {error:#}"))?;
@@ -178,6 +234,7 @@ fn create_impl(
     let mut next = settings.clone();
     // 首个环境创建后即可使用, 后续副本不改变当前选择.
     if next.active_environment.is_none() {
+        next.distribution = distribution;
         next.active_environment = Some(created.id.clone());
         next.stable_environment = Some(created.id.clone());
     }
@@ -235,11 +292,13 @@ fn action_impl(
         .ok_or("运行环境不存在")?;
     match action {
         "switch" => {
+            next.distribution = environment.distribution;
             next.active_environment = Some(id);
             validate_selection(&next)?;
         }
         "keep" => {
             let mut candidate = next.clone();
+            candidate.distribution = environment.distribution;
             candidate.active_environment = Some(id.clone());
             validate_selection(&candidate)?;
             next.stable_environment = Some(id);
@@ -305,6 +364,7 @@ mod tests {
             let state = AppState {
                 settings: Mutex::new(Settings {
                     install_root: Some(directory.join("install").display().to_string()),
+                    global_install_root: Some(directory.join("global").display().to_string()),
                     ..Default::default()
                 }),
                 game: Mutex::new(GameTracker::default()),
@@ -329,6 +389,31 @@ mod tests {
                 source,
                 name,
                 &self.directory.join(proton).display().to_string(),
+                Distribution::Cn,
+            )
+        }
+
+        fn install_global(&self) {
+            self.directory.write_text(
+                "global/NTEGlobal/Config/Config.ini",
+                "[General]\nGameID=3000001\n[VERSION]\nVersion=1.0\n",
+            );
+            self.directory
+                .write("global/NTEGlobal/NTEGlobalGame.exe", "MZ");
+            self.directory.write(
+                "global/Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe",
+                "MZ",
+            );
+        }
+
+        fn create_global(&self, name: &str, source: Option<&str>) -> Result<Bootstrap, String> {
+            create_impl(
+                &self.state,
+                &self.downloads,
+                source,
+                name,
+                &self.directory.join("Proton-B").display().to_string(),
+                Distribution::Global,
             )
         }
 
@@ -453,19 +538,105 @@ mod tests {
     }
 
     #[test]
-    fn fresh_environment_can_be_created_for_a_new_installation() {
+    fn missing_game_cannot_be_used_to_create_an_environment() {
         let fixture = Fixture::new();
-        fixture.state.settings.lock().unwrap().install_root =
-            Some(fixture.directory.join("new-install").display().to_string());
-        let created = fixture.create("新安装", None, "Proton-A").unwrap();
-        let profile = &created.settings.runtime_environments[0];
-        assert_eq!(profile.install_root, fixture.directory.join("new-install"));
-        assert!(profile
-            .prefix(&data_dir())
+        let availability = installations(&fixture.state.settings.lock().unwrap());
+        assert!(availability[0].installed);
+        assert!(!availability[1].installed);
+        assert!(fixture
+            .create_global("国际服", None)
+            .unwrap_err()
+            .contains("尚未安装国际服"));
+        std::fs::remove_file(
+            fixture
+                .directory
+                .join("install/Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe"),
+        )
+        .unwrap();
+        assert!(fixture
+            .create("国服", None, "Proton-A")
+            .unwrap_err()
+            .contains("尚未安装国服"));
+        assert!(!installations(&fixture.state.settings.lock().unwrap())[0].installed);
+        assert!(fixture
+            .state
+            .settings
+            .lock()
             .unwrap()
-            .join("drive_c")
-            .is_dir());
-        assert!(created.error.unwrap().contains("尚未安装启动器"));
+            .runtime_environments
+            .is_empty());
+        assert!(!data_dir().join("environments").exists());
+    }
+
+    #[test]
+    fn copies_bind_the_selected_region_and_switch_with_its_installation() {
+        let fixture = Fixture::new();
+        fixture.install_global();
+        let a = fixture.first();
+        let source = a.prefix(&data_dir()).unwrap();
+        std::fs::write(source.join("user.reg"), "CN settings").unwrap();
+        let relative = "drive_c/Program Files (x86)/Neverness To Everness";
+        std::fs::create_dir_all(source.join(relative).parent().unwrap()).unwrap();
+        std::os::unix::fs::symlink(&a.install_root, source.join(relative)).unwrap();
+        let created = fixture.create_global("国际服副本", Some(&a.id)).unwrap();
+        let global = created.settings.runtime_environments.last().unwrap();
+        assert_eq!(global.distribution, Distribution::Global);
+        assert_eq!(global.install_root, fixture.directory.join("global"));
+        let copied = global.prefix(&data_dir()).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(copied.join("user.reg")).unwrap(),
+            "CN settings"
+        );
+        assert_eq!(
+            std::fs::read_link(copied.join(relative)).unwrap(),
+            global.install_root
+        );
+        assert_eq!(created.settings.distribution, Distribution::Cn);
+        assert_eq!(
+            created.settings.active_environment.as_deref(),
+            Some(a.id.as_str())
+        );
+        let kept = fixture.action("keep", Some(&global.id)).unwrap();
+        assert_eq!(kept.settings.distribution, Distribution::Cn);
+        let switched = fixture.action("switch", Some(&global.id)).unwrap();
+        assert_eq!(switched.settings.distribution, Distribution::Global);
+        assert_eq!(
+            switched.install_root,
+            global.install_root.display().to_string()
+        );
+        assert!(switched.game_exists);
+        assert!(switched
+            .runtime_installations
+            .iter()
+            .all(|entry| entry.installed));
+        let back = fixture
+            .create("国服副本", Some(&global.id), "Proton-A")
+            .unwrap();
+        let cn = back.settings.runtime_environments.last().unwrap();
+        assert_eq!(cn.distribution, Distribution::Cn);
+        assert_eq!(cn.install_root, a.install_root);
+        assert_eq!(back.settings.distribution, Distribution::Global);
+        let switched = fixture.action("switch", Some(&cn.id)).unwrap();
+        assert_eq!(switched.settings.distribution, Distribution::Cn);
+    }
+
+    #[test]
+    fn first_environment_activates_the_selected_installed_region() {
+        let fixture = Fixture::new();
+        fixture.install_global();
+        let created = fixture.create_global("国际服", None).unwrap();
+        let global = &created.settings.runtime_environments[0];
+        assert_eq!(created.settings.distribution, Distribution::Global);
+        assert_eq!(
+            created.settings.active_environment.as_deref(),
+            Some(global.id.as_str())
+        );
+        assert_eq!(
+            created.settings.active_environment,
+            created.settings.stable_environment
+        );
+        assert!(created.game_exists);
+        assert!(created.ok);
     }
 
     #[test]

@@ -37,6 +37,10 @@ export const bootstrap = (overrides: Partial<Bootstrap> = {}): Bootstrap => ({
   gameExists: true,
   sdkPath: "/game/sdk.dll",
   checks: [{ label: "Proton", ok: true, detail: "/proton" }],
+  runtimeInstallations: [
+    { distribution: "cn", installRoot: "/game", installed: true },
+    { distribution: "global", installRoot: "/global-game", installed: false },
+  ],
   settings: { ...settings },
   appVersion: "0.1.0",
   os: "linux",

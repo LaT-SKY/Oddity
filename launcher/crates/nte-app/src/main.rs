@@ -107,6 +107,7 @@ struct Bootstrap {
     game_exists: bool,
     sdk_path: String,
     checks: Vec<CheckItem>,
+    runtime_installations: Vec<environment_commands::Installation>,
     settings: Settings,
     app_version: String,
     os: String,
@@ -1103,6 +1104,7 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
         game_exists,
         sdk_path,
         checks,
+        runtime_installations: environment_commands::installations(settings),
         settings: settings.clone(),
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         os: format!(

@@ -1607,9 +1607,10 @@ export function createRuntimeEnvironment(
   name: string,
   protonPath: string,
   sourceId: string | null,
+  distribution: "cn" | "global",
 ) {
   return changeEnvironment(() =>
-    invoke("environment_create", { name, protonPath, sourceId }),
+    invoke("environment_create", { name, protonPath, sourceId, distribution }),
   );
 }
 

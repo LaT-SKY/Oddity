@@ -224,7 +224,12 @@ it("环境操作先保存修改, 处理期间拒绝重入并同步新登记", as
   );
   c.form.theme = "dark";
   c.form.globalInstallRoot = "/new-install";
-  const task = c.createRuntimeEnvironment("测试环境", "/new-proton", null);
+  const task = c.createRuntimeEnvironment(
+    "测试环境",
+    "/new-proton",
+    null,
+    "cn",
+  );
   await flushPromises();
   expect(c.runtimeEnvironmentBusy.value).toBe(true);
   await c.checkUpdate();
@@ -238,15 +243,16 @@ it("环境操作先保存修改, 处理期间拒绝重入并同步新登记", as
   releaseSave();
   await flushPromises();
   expect(backend.invoke).toHaveBeenCalledWith("environment_create", {
+    distribution: "cn",
     name: "测试环境",
     protonPath: "/new-proton",
     sourceId: null,
   });
   expect(c.runtimeEnvironmentBusy.value).toBe(true);
   expect(c.settingsPathsLocked.value).toBe(true);
-  expect(await c.createRuntimeEnvironment("重复", "/new-proton", null)).toBe(
-    false,
-  );
+  expect(
+    await c.createRuntimeEnvironment("重复", "/new-proton", null, "cn"),
+  ).toBe(false);
   const next = bootstrap({
     settings: {
       ...backend.data.settings,

@@ -108,4 +108,31 @@ describe("BaseSelect", () => {
 
     wrapper.unmount();
   });
+  it("置灰选项不可点击或通过原生控件选择, 方向键跳过不可用项", async () => {
+    const update = vi.fn();
+    const wrapper = mount(BaseSelect, {
+      props: {
+        modelValue: "a",
+        options: [options[0], { ...options[1], disabled: true }, options[2]],
+        "onUpdate:modelValue": update,
+      },
+      attachTo: document.body,
+    });
+    const trigger = wrapper.get(".select-trigger");
+    await trigger.trigger("click");
+    const disabled = wrapper.findAll('[role="option"]')[1];
+    expect(disabled.attributes("aria-disabled")).toBe("true");
+    await disabled.trigger("click");
+    expect(update).not.toHaveBeenCalled();
+    await wrapper.get("select").setValue("b");
+    expect(update).not.toHaveBeenCalled();
+    expect(wrapper.findAll("option")[1].attributes("disabled")).toBeDefined();
+    await trigger.trigger("keydown", { key: "ArrowDown" });
+    expect(update).toHaveBeenLastCalledWith("c");
+    await wrapper.setProps({ modelValue: "c" });
+    await trigger.trigger("keydown", { key: "ArrowUp" });
+    await trigger.trigger("keydown", { key: "ArrowUp" });
+    expect(update).toHaveBeenLastCalledWith("a");
+    wrapper.unmount();
+  });
 });

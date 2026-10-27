@@ -20,6 +20,18 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
     exact: true,
   });
   await expect(createDialog).toBeVisible();
+  const region = createDialog.locator(
+    "#runtime-environment-distribution-trigger",
+  );
+  await region.click();
+  const unavailable = createDialog.getByRole("option", {
+    name: "国际服 (未安装)",
+    exact: true,
+  });
+  await expect(unavailable).toBeDisabled();
+  await expect(unavailable).toHaveCSS("opacity", "0.5");
+  await createDialog.getByRole("option", { name: "国服", exact: true }).click();
+
   await page.keyboard.press("Escape");
   await expect(createDialog).toHaveCount(0);
   await expect(
@@ -153,4 +165,56 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
   await expect(select).toHaveText("实验 B · 当前 · 稳定");
   await page.screenshot({ path: "test-results/runtime-environments.png" });
   expect(errors).toEqual([]);
+});
+
+test("创建时可选择任一已安装区服, 创建副本保持当前区服并在切换环境时同步区服", async ({
+  page,
+}) => {
+  await page.goto("/#settings");
+  await page.locator("#set-global-install").fill("/tmp/NTEGlobal");
+  await expect(page.locator("#settings-form")).toHaveAttribute(
+    "data-save-state",
+    "saved",
+  );
+  const section = page
+    .locator("section", { has: page.locator("#runtime-environments-title") })
+    .last();
+  await section
+    .getByRole("button", { name: "创建运行环境", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog", {
+    name: "创建运行环境",
+    exact: true,
+  });
+  await dialog.locator("#runtime-environment-distribution-trigger").click();
+  const global = dialog.getByRole("option", { name: "国际服", exact: true });
+  await expect(global).toBeEnabled();
+  await global.click();
+  await expect(dialog).toContainText("绑定的游戏目录: /tmp/NTEGlobal");
+  await dialog.locator("#runtime-environment-name").fill("国际服环境");
+  await dialog.locator("#runtime-environment-proton").fill("/opt/Proton");
+  await dialog.getByRole("button", { name: "创建环境", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator("#set-distribution")).toHaveValue("global");
+  await expect(section).toContainText(
+    "绑定的游戏目录: /tmp/NTEGlobal (国际服)",
+  );
+  await section
+    .getByRole("button", { name: "创建环境或副本", exact: true })
+    .click();
+  await dialog.locator("#runtime-environment-distribution-trigger").click();
+  await dialog.getByRole("option", { name: "国服", exact: true }).click();
+  await dialog.locator("#runtime-environment-name").fill("国服副本");
+  await dialog.getByRole("button", { name: "创建副本", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator("#set-distribution")).toHaveValue("global");
+  await page.locator("#runtime-environment-trigger").click();
+  await page.getByRole("option", { name: "国服副本", exact: true }).click();
+  await section
+    .getByRole("button", { name: "切换到此环境", exact: true })
+    .click();
+  await expect(page.locator("#set-distribution")).toHaveValue("cn");
+  await expect(section).toContainText(
+    "绑定的游戏目录: ~/Games/Neverness To Everness (国服)",
+  );
 });

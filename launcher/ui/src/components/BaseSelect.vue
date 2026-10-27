@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 interface Option {
   label: string;
   value: string;
+  disabled?: boolean;
 }
 
 const props = withDefaults(
@@ -40,7 +41,11 @@ function toggle() {
 }
 
 function selectOption(val: string) {
-  if (props.disabled) return;
+  if (
+    props.disabled ||
+    props.options.find((opt) => opt.value === val)?.disabled
+  )
+    return;
   isOpen.value = false;
   if (val !== props.modelValue) {
     emit("update:modelValue", val);
@@ -50,15 +55,34 @@ function selectOption(val: string) {
 
 function onNativeChange(event: Event) {
   const target = event.target as HTMLSelectElement;
-  if (target && target.value !== props.modelValue) {
-    emit("update:modelValue", target.value);
-    emit("change", target.value);
+  if (target.value !== props.modelValue) {
+    selectOption(target.value);
+    target.value = props.modelValue;
   }
 }
 
 function onClickOutside(event: MouseEvent) {
   if (rootRef.value && !rootRef.value.contains(event.target as Node)) {
     isOpen.value = false;
+  }
+}
+
+function moveOption(direction: number) {
+  const current = props.options.findIndex(
+    (opt) => opt.value === props.modelValue,
+  );
+  let index =
+    current < 0
+      ? direction > 0
+        ? 0
+        : props.options.length - 1
+      : current + direction;
+  for (; index >= 0 && index < props.options.length; index += direction) {
+    const option = props.options[index];
+    if (!option.disabled) {
+      selectOption(option.value);
+      return;
+    }
   }
 }
 
@@ -76,20 +100,14 @@ function onKeydown(event: KeyboardEvent) {
     if (!isOpen.value) {
       isOpen.value = true;
     } else {
-      const idx = props.options.findIndex((o) => o.value === props.modelValue);
-      if (idx < props.options.length - 1) {
-        selectOption(props.options[idx + 1].value);
-      }
+      moveOption(1);
     }
   } else if (event.key === "ArrowUp") {
     event.preventDefault();
     if (!isOpen.value) {
       isOpen.value = true;
     } else {
-      const idx = props.options.findIndex((o) => o.value === props.modelValue);
-      if (idx > 0) {
-        selectOption(props.options[idx - 1].value);
-      }
+      moveOption(-1);
     }
   }
 }
@@ -138,6 +156,7 @@ onBeforeUnmount(() => {
           :class="{ 'is-selected': opt.value === modelValue }"
           role="option"
           :aria-selected="opt.value === modelValue"
+          :aria-disabled="opt.disabled || undefined"
           @click="selectOption(opt.value)"
         >
           <span class="select-option__text">{{ opt.label }}</span>
@@ -162,7 +181,12 @@ onBeforeUnmount(() => {
       class="select-native-hidden"
       @change="onNativeChange"
     >
-      <option v-for="opt in options" :key="opt.value" :value="opt.value">
+      <option
+        v-for="opt in options"
+        :key="opt.value"
+        :value="opt.value"
+        :disabled="opt.disabled"
+      >
         {{ opt.label }}
       </option>
     </select>

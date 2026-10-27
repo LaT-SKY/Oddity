@@ -80,6 +80,11 @@ export interface RuntimeEnvironment {
   distribution: "cn" | "global";
   createdAt: number;
 }
+export interface RuntimeInstallation {
+  distribution: "cn" | "global";
+  installRoot: string;
+  installed: boolean;
+}
 export interface CheckItem {
   label: string;
   ok: boolean;
@@ -102,6 +107,7 @@ export interface Bootstrap {
   gameExists: boolean;
   sdkPath: string;
   checks: CheckItem[];
+  runtimeInstallations: RuntimeInstallation[];
   settings: Settings;
   appVersion: string;
   os: string;
@@ -246,6 +252,7 @@ export interface CommandArgs {
   fetch_bulletins: { distribution: "cn" | "global" };
   save_settings: { settings: Settings };
   environment_create: {
+    distribution: "cn" | "global";
     name: string;
     protonPath: string;
     sourceId: string | null;

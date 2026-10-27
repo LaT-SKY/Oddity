@@ -21,6 +21,7 @@ const proton = ref("");
 const confirming = ref(false);
 const pendingRemoval = ref<RuntimeEnvironment | null>(null);
 const sourceId = ref("");
+const distribution = ref<"cn" | "global">("cn");
 const settings = computed(() => state.bootstrap?.settings);
 const profiles = computed(() => settings.value?.runtimeEnvironments ?? []);
 const active = computed(() => settings.value?.activeEnvironment ?? "");
@@ -44,6 +45,27 @@ const sourceOptions = computed(() => [
   { value: "", label: "全新环境" },
   ...profiles.value.map((entry) => ({ value: entry.id, label: entry.name })),
 ]);
+const installations = computed(
+  () => state.bootstrap?.runtimeInstallations ?? [],
+);
+const distributionOptions = computed(() =>
+  (["cn", "global"] as const).map((value) => {
+    const installed = installations.value.find(
+      (entry) => entry.distribution === value,
+    )?.installed;
+    return {
+      value,
+      label:
+        (value === "cn" ? "国服" : "国际服") + (installed ? "" : " (未安装)"),
+      disabled: !installed,
+    };
+  }),
+);
+const target = computed(() =>
+  installations.value.find(
+    (entry) => entry.distribution === distribution.value,
+  ),
+);
 const removable = computed(
   () =>
     !!profile.value &&
@@ -66,6 +88,14 @@ watch(sourceId, () => {
 });
 
 function openCreate() {
+  const preferred =
+    profile.value?.distribution ?? settings.value?.distribution ?? "cn";
+  distribution.value =
+    installations.value.find(
+      (entry) => entry.distribution === preferred && entry.installed,
+    )?.distribution ??
+    installations.value.find((entry) => entry.installed)?.distribution ??
+    preferred;
   sourceId.value = profile.value?.id ?? "";
   proton.value = profile.value?.proton.path ?? "";
   name.value = "";
@@ -78,6 +108,7 @@ async function create() {
       name.value,
       proton.value,
       sourceId.value || null,
+      distribution.value,
     )
   )
     creating.value = false;
@@ -178,6 +209,19 @@ async function discard() {
       @update:open="creating = $event"
     >
       <div class="field-grid">
+        <div class="field field--wide">
+          <label for="runtime-environment-distribution">绑定区服</label>
+          <BaseSelect
+            id="runtime-environment-distribution"
+            v-model="distribution"
+            :options="distributionOptions"
+            :disabled="runtimeEnvironmentLocked"
+          />
+          <small class="field__hint" v-if="target?.installed"
+            >绑定的游戏目录: {{ target.installRoot }}</small
+          >
+          <small class="field__hint" v-else>请先安装游戏.</small>
+        </div>
         <div v-if="profiles.length" class="field field--wide">
           <label for="runtime-environment-source">创建来源</label>
           <BaseSelect
@@ -223,7 +267,12 @@ async function discard() {
         <button
           type="button"
           class="btn btn--primary"
-          :disabled="runtimeEnvironmentLocked || !name.trim() || !proton.trim()"
+          :disabled="
+            runtimeEnvironmentLocked ||
+            !target?.installed ||
+            !name.trim() ||
+            !proton.trim()
+          "
           @click="create"
         >
           <svg class="icon" aria-hidden="true">
