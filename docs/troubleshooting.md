@@ -60,11 +60,32 @@ NTE_SOFTWARE_RENDER=1 oddity
 
 将 `oddity` 换成实际可执行文件路径. 若两种方式结果不同, 提交问题时附上显卡型号, 驱动版本和 Wayland/X11 会话类型.
 
-### 主页视频无法播放
+### 主页视频无法播放或窗口启动后冻结
 
-可先在 **设置 → 主页主视觉** 中选择 **静态照片**.
+首页视频需要 GStreamer 的 `autodetect` 插件. 缺少 `gst-plugins-good` 时, WebKit 可能在建立视频管线后退出, 表现为窗口冻结在最后一帧或直接消失, 主进程与托盘仍在.
 
-Nix 包包含 GStreamer 插件, 其他安装方式需要结合系统的 WebKitGTK/GStreamer 环境排查.
+先确认插件可用:
+
+```bash
+gst-inspect-1.0 autoaudiosink
+```
+
+如果提示找不到元素或命令, 按发行版安装:
+
+```bash
+# Arch
+sudo pacman -S --needed gst-plugins-good
+# Debian / Ubuntu
+sudo apt install gstreamer1.0-plugins-good gstreamer1.0-tools
+# Fedora
+sudo dnf install gstreamer1-plugins-good
+# openSUSE
+sudo zypper install gstreamer-plugins-good
+```
+
+如果只是视频无法播放, 界面仍可操作, 也可以在 **设置 → 主页主视觉** 中选择 **静态照片** 临时规避.
+
+Debian, Arch 和 Gentoo 安装包会声明该依赖; AppImage, RPM 和源码构建不保证自带该插件, 需要结合系统环境确认. Nix 包已包含插件.
 
 ### 关闭窗口后 Oddity 没有退出
 

@@ -148,7 +148,8 @@ if (config) {
     }
   }
 
-  for (const dependency of ["libsecret-1-0", "xdg-utils"]) {
+  // 首页视频需要 GStreamer 的 autodetect 插件, 缺少时 WebKitGTK 会直接退出.
+  for (const dependency of ["gstreamer1.0-plugins-good", "libsecret-1-0", "xdg-utils"]) {
     if (!(linux.deb?.depends ?? []).includes(dependency)) {
       fail(`tauri.conf.json: linux.deb.depends 缺少 ${dependency}`);
     }
@@ -204,6 +205,7 @@ const archTemplate = read("packaging/arch/PKGBUILD.in");
 for (const needle of [
   "pkgname=oddity-bin",
   "webkit2gtk-4.1",
+  "gst-plugins-good",
   "libsecret",
   "xdg-utils",
   "source_x86_64",
@@ -228,7 +230,7 @@ for (const [file, needles] of [
   ],
   [
     "packaging/gentoo/oddity-bin.ebuild.in",
-    ["QA_PREBUILT", "net-libs/webkit-gtk:4.1", "games-util/umu-launcher", "@UPSTREAM@", "@URL@"],
+    ["QA_PREBUILT", "net-libs/webkit-gtk:4.1", "media-libs/gst-plugins-good", "games-util/umu-launcher", "@UPSTREAM@", "@URL@"],
   ],
   [
     ".github/workflows/nix.yml",

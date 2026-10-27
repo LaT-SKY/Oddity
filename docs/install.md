@@ -7,12 +7,14 @@ Oddity 负责资源检查, 下载和启动; 游戏本身仍由 Proton 运行. �
 | 项目 | 要求 |
 | --- | --- |
 | 系统 | Linux x86_64, Wayland 或 X11 |
-| 运行库 | GTK 3, WebKitGTK 4.1, `libsecret`, `xdg-utils` |
+| 运行库 | GTK 3, WebKitGTK 4.1, GStreamer (`gst-plugins-good`), `libsecret`, `xdg-utils` |
 | 图形 | 支持 Vulkan 的显卡驱动 |
 | 游戏环境 | `umu-launcher`, Proton, 在设置中创建的运行环境 |
 | 存储 | 可写的游戏安装目录, 首次安装需要完整游戏资源 |
 
 > 安装包会声明 GTK 3, WebKitGTK 4.1 等必需依赖. `umu-launcher` 在 `.deb` 和 `.rpm` 中为推荐依赖, 在 Arch 包中为可选依赖, 需要确认已经安装.
+
+> 首页视频需要 GStreamer 的 `autodetect` 插件. 缺少 `gst-plugins-good` 时, WebKitGTK 可能在启动后直接退出. `.deb`, `.pkg.tar.zst` (含 AUR) 和 Gentoo 包会声明该依赖; RPM, AppImage 与源码构建请按[排障指南](troubleshooting.md#主页视频无法播放或窗口启动后冻结)检查.
 
 ## 安装 Oddity
 
@@ -198,8 +200,10 @@ rm -f "${XDG_DATA_HOME:-$HOME/.local/share}"/icons/hicolor/*/apps/oddity.png
 ```bash
 pkexec apt install build-essential pkg-config libssl-dev libxdo-dev \
   libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-  librsvg2-dev
+  librsvg2-dev gstreamer1.0-plugins-good
 ```
+
+`gst-plugins-good` 是首页视频的运行时依赖, 不参与链接. 其他发行版的包名为 Arch `gst-plugins-good`, Fedora `gstreamer1-plugins-good`, openSUSE `gstreamer-plugins-good`.
 
 在仓库根目录执行:
 

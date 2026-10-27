@@ -8,6 +8,7 @@ url="https://github.com/LaT-SKY/Oddity"
 license=('GPL-3.0-or-later')
 depends=(
   'webkit2gtk-4.1'
+  'gst-plugins-good'
   'gtk3'
   'librsvg'
   'libsecret'
