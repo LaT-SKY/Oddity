@@ -58,6 +58,7 @@ jobs:
           node scripts/check-repo.mjs
           node --test scripts/check-rust-coverage.test.mjs
           node --test scripts/release-version.test.mjs
+          node --test scripts/sync-pr-labels.test.mjs
 
       - name: 检查 Gentoo 发布版本保护
         run: |
