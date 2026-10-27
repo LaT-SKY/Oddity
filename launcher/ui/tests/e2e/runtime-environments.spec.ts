@@ -67,6 +67,32 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
     .click();
   const select = page.locator("#runtime-environment-trigger");
   await expect(select).toHaveText("稳定 A · 当前 · 稳定");
+  const native = page.locator("#runtime-environment");
+  await expect(select).toBeEnabled();
+  await expect(native).toBeHidden();
+  // 拉长预览检查的等待时间, 覆盖启动检查期间控件被禁用的布局.
+  await page.evaluate(() => {
+    const original = window.setTimeout.bind(window);
+    Object.defineProperty(window, "setTimeout", {
+      value: (handler: TimerHandler, timeout?: number, ...args: unknown[]) =>
+        original(handler, timeout === 620 ? 1500 : timeout, ...args),
+    });
+  });
+  await page.locator('[data-page="update"]').click();
+  await page.locator("#update-full").click();
+  await page.locator('[data-page="settings"]').click();
+  await expect(select).toBeDisabled();
+  await expect(native).toBeDisabled();
+  await expect(native).toBeHidden();
+  expect(await native.boundingBox()).toBeNull();
+  const hint = section.locator(".field__hint").first();
+  expect((await hint.boundingBox())!.y).toBeGreaterThanOrEqual(
+    (await select.boundingBox())!.y + (await select.boundingBox())!.height,
+  );
+  await page.screenshot({ path: "test-results/environment-checking.png" });
+  await expect(select).toBeEnabled();
+  await expect(native).toBeHidden();
+
   await expect(
     section
       .locator(".runtime-environments__actions")
