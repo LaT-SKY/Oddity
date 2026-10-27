@@ -226,7 +226,7 @@ const noticeMessage = () =>
   document.querySelector(".notification-message")?.textContent;
 const button = (id: string) => document.getElementById(id) as HTMLButtonElement;
 const primary = () => wrapper!.find("#game-download-primary");
-const primaryText = () => primary().find(".btn__text").text();
+const primaryText = () => primary().text();
 it("环境操作先保存修改, 处理期间拒绝重入并同步新登记", async () => {
   const c = await boot();
   const base = backend.invoke.getMockImplementation()!;

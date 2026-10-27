@@ -1,6 +1,12 @@
 <script setup lang="ts">
-import { motion } from "motion-v";
-import { computed } from "vue";
+import { motion, AnimatePresence, useSpring } from "motion-v";
+import { computed, watch } from "vue";
+import BaseButton from "../components/BaseButton.vue";
+import BaseView from "../components/BaseView.vue";
+import {
+  useControlMotion,
+  controlSpring,
+} from "../composables/useControlMotion";
 import BaseSelect from "../components/BaseSelect.vue";
 import DirectoryField from "../components/DirectoryField.vue";
 import {
@@ -17,6 +23,17 @@ import {
   settingsPathsLocked,
 } from "../core/controller";
 import type { DownloadPhase } from "../types/launcher";
+
+const { surface, reduced } = useControlMotion();
+const progress = useSpring(0, controlSpring);
+watch(
+  () => downloadView.value.progress,
+  (value) => {
+    if (reduced.value) progress.jump(value / 100);
+    else progress.set(value / 100);
+  },
+  { immediate: true },
+);
 
 const distributionOptions = [
   { label: "国服", value: "cn" },
@@ -235,231 +252,234 @@ const transferActive = computed(
       x: state.page === 'update' ? 0 : 22,
       visibility: state.page === 'update' ? 'visible' : 'hidden',
     }"
-    :transition="{
-      type: 'spring',
-      stiffness: 380,
-      damping: 32,
-      opacity: { duration: 0.18 },
-    }"
+    :transition="surface"
     aria-labelledby="update-title"
   >
-    <header class="page-head">
+    <header class="page-head update-head">
       <div class="page-head__copy">
         <h2 id="update-title" tabindex="-1">游戏更新</h2>
       </div>
-    </header>
-
-    <div
-      class="update-card game-download-card"
-      :class="[stateTone, { 'is-checking': displayPhase === 'checking' }]"
-    >
-      <h3 class="update-card__title">安装与更新</h3>
-      <div class="update-state">
-        <span class="update-icon" aria-hidden="true"
-          ><svg class="icon" viewBox="0 0 256 256">
-            <use :href="'#' + stateIcon" /></svg
-        ></span>
-        <div class="update-state__copy">
-          <h3
-            id="game-download-state-title"
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            {{ stateTitle }}
-          </h3>
-          <p>{{ stateDetail }}</p>
-        </div>
-      </div>
-      <div class="download-fields">
-        <div class="field">
-          <span>游戏地区</span>
-          <BaseSelect
-            id="download-distribution"
-            v-model="form.distribution"
-            :options="distributionOptions"
-            :disabled="settingsPathsLocked"
-            @change="queueSettingsSave(0)"
-          />
-        </div>
-        <DirectoryField
-          :key="form.distribution"
-          id="download-install-root"
-          v-model="currentRoot"
-          class="field field--wide"
-          label="安装目录"
+      <div class="update-region">
+        <BaseSelect
+          id="download-distribution"
+          label="游戏地区"
+          v-model="form.distribution"
+          :options="distributionOptions"
           :disabled="settingsPathsLocked"
-          @input="queueSettingsSave()"
           @change="queueSettingsSave(0)"
-          :placeholder="
-            form.distribution === 'cn'
-              ? '~/Games/Neverness To Everness'
-              : '~/Games/Neverness To Everness Global'
-          "
         />
       </div>
-      <p class="download-hint">
-        将从当前地区的官方 CDN 获取启动器文件和游戏资源.
-        启动器文件就绪后会继续检查游戏资源, 未完成的文件可在下次下载时继续.
-      </p>
-      <div class="update-actions">
-        <button
-          class="btn btn--primary"
-          id="game-download-primary"
-          type="button"
-          :disabled="primaryDisabled"
-          :class="{
-            'is-busy': active,
-            'is-spinning': displayPhase === 'checking',
-            'is-passed': displayPhase === 'ready',
-          }"
-          :title="displayPhase === 'ready' ? '再次检查游戏资源' : undefined"
-          @click="runPrimary"
+    </header>
+    <div class="update-content">
+      <section
+        class="update-card game-download-card"
+        :class="[stateTone, { 'is-checking': displayPhase === 'checking' }]"
+        aria-labelledby="game-download-section"
+      >
+        <h3 id="game-download-section" class="update-card__title">游戏资源</h3>
+        <BaseView
+          :view-key="displayPhase"
+          :reduce-motion="form.reduceMotion"
+          class="update-status-view"
         >
-          <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-            <use :href="'#' + primary.icon" />
-          </svg>
-          <span class="btn__text">{{ primary.label }}</span>
-        </button>
-        <button
-          class="btn btn--link"
-          type="button"
-          :disabled="active"
-          @click="startGameDownload('check', true)"
-        >
-          <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-            <use href="#i-shield-check" />
-          </svg>
-          <span class="btn__text">完整校验</span>
-        </button>
-        <button
-          v-if="cancellable"
-          class="btn btn--link"
-          type="button"
-          @click="cancelGameDownload"
-        >
-          <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-            <use href="#i-pause" />
-          </svg>
-          <span class="btn__text">{{
-            state.download?.phase === "checking" ? "取消检查" : "暂停下载"
-          }}</span>
-        </button>
-      </div>
-      <div v-if="showProgress && state.download" class="download-progress">
-        <div v-if="transferActive" class="download-progress__meta">
-          <span
-            >{{ state.download.completedFiles }} /
-            {{ state.download.totalFiles }} 个文件已完成</span
+          <div class="update-state">
+            <span class="update-icon" aria-hidden="true"
+              ><svg class="icon" viewBox="0 0 256 256">
+                <use :href="'#' + stateIcon" /></svg
+            ></span>
+            <div class="update-state__copy">
+              <h3
+                id="game-download-state-title"
+                aria-live="polite"
+                aria-atomic="true"
+              >
+                {{ stateTitle }}
+              </h3>
+              <p>{{ stateDetail }}</p>
+            </div>
+          </div>
+        </BaseView>
+        <AnimatePresence :initial="false">
+          <motion.div
+            v-if="showProgress && state.download"
+            class="download-progress"
+            :initial="{ height: 0, opacity: 0 }"
+            :animate="{ height: 'auto', opacity: 1 }"
+            :exit="{ height: 0, opacity: 0 }"
+            :transition="surface"
           >
-          <span>已下载 {{ downloadView.downloadedText }}</span>
+            <div class="download-progress__summary">
+              <div>
+                <p v-if="downloadView.sizeText" class="download-progress__size">
+                  {{ downloadView.sizeText }}
+                </p>
+                <p v-if="downloadView.splitText">
+                  {{ downloadView.splitText }}
+                </p>
+              </div>
+              <strong v-if="transferActive" class="download-progress__value"
+                >{{ Math.round(downloadView.progress) }}<span>%</span></strong
+              >
+            </div>
+            <div v-if="transferActive" class="download-meter">
+              <progress
+                :value="downloadView.progress"
+                max="100"
+                :aria-label="'资源处理进度 ' + downloadView.progress + '%'"
+              />
+              <div class="download-meter__track" aria-hidden="true">
+                <motion.div
+                  class="download-meter__fill"
+                  :style="{ scaleX: progress }"
+                />
+              </div>
+            </div>
+            <div v-if="transferActive" class="download-progress__meta">
+              <span
+                >{{ state.download.completedFiles }} /
+                {{ state.download.totalFiles }} 个文件已完成</span
+              ><span>已下载 {{ downloadView.downloadedText }}</span>
+            </div>
+            <p
+              v-if="transferActive && downloadView.stageText"
+              class="download-progress__stage"
+              :title="state.download.currentFile"
+            >
+              {{
+                phase === "cancelled"
+                  ? "已暂停"
+                  : "正在" + downloadView.stageText
+              }}<template v-if="state.download.currentFile"
+                >: {{ state.download.currentFile }}</template
+              >
+            </p>
+            <p
+              v-else-if="transferActive && state.download.currentFile"
+              :title="state.download.currentFile"
+            >
+              {{ state.download.currentFile }}
+            </p>
+            <p
+              v-if="
+                state.download.currentFile &&
+                state.download.currentFileBytes > 0
+              "
+              class="download-progress__file-size"
+            >
+              当前文件 {{ formatSize(state.download.currentFileBytes) }}
+            </p>
+            <p v-if="state.download.remoteVersion">
+              目标游戏版本 {{ state.download.remoteVersion }}
+            </p>
+          </motion.div>
+        </AnimatePresence>
+        <div class="update-actions">
+          <BaseButton
+            id="game-download-primary"
+            :variant="displayPhase === 'ready' ? 'secondary' : 'primary'"
+            :icon="primary.icon"
+            :disabled="primaryDisabled"
+            :busy="active"
+            :class="{ 'is-passed': displayPhase === 'ready' }"
+            :title="displayPhase === 'ready' ? '再次检查游戏资源' : undefined"
+            @click="runPrimary"
+            >{{ primary.label }}</BaseButton
+          >
+          <BaseButton
+            variant="ghost"
+            :disabled="active"
+            @click="startGameDownload('check', true)"
+            >完整校验</BaseButton
+          >
+          <BaseButton
+            v-if="cancellable"
+            variant="ghost"
+            @click="cancelGameDownload"
+            >{{
+              state.download?.phase === "checking" ? "取消检查" : "暂停下载"
+            }}</BaseButton
+          >
+        </div>
+        <div class="download-fields">
+          <DirectoryField
+            :key="form.distribution"
+            id="download-install-root"
+            v-model="currentRoot"
+            label="安装目录"
+            :disabled="settingsPathsLocked"
+            @input="queueSettingsSave()"
+            @change="queueSettingsSave(0)"
+            :placeholder="
+              form.distribution === 'cn'
+                ? '~/Games/Neverness To Everness'
+                : '~/Games/Neverness To Everness Global'
+            "
+          />
+          <p class="download-hint">
+            资源来自当前地区的官方 CDN. 未完成的文件可继续下载.
+          </p>
+        </div>
+      </section>
+      <section
+        class="update-card update-launcher"
+        :class="'is-' + updateView.kind"
+        id="update-card"
+        aria-labelledby="launcher-files-title"
+      >
+        <h3 id="launcher-files-title" class="update-card__title">启动器文件</h3>
+        <div class="update-state">
+          <span class="update-icon" aria-hidden="true"
+            ><svg class="icon" viewBox="0 0 256 256">
+              <use :href="'#' + updateView.icon" /></svg
+          ></span>
+          <div class="update-state__copy">
+            <h3 id="update-state-title">{{ updateView.title }}</h3>
+            <p id="update-state-text">{{ updateView.copy }}</p>
+          </div>
+        </div>
+        <div class="update-actions">
+          <BaseButton
+            variant="ghost"
+            id="update-quick"
+            :disabled="state.checking || active"
+            :busy="state.checking"
+            @click="checkUpdate(false)"
+            >检查启动器文件</BaseButton
+          >
+          <BaseButton
+            variant="ghost"
+            id="update-full"
+            :disabled="state.checking || active"
+            @click="checkUpdate(true)"
+            >完整校验启动器</BaseButton
+          >
         </div>
         <div
-          v-if="downloadView.sizeText"
-          class="download-progress__meta download-progress__meta--size"
+          class="update-files"
+          id="update-files"
+          :hidden="!updateView.showFiles"
         >
-          <span>{{ downloadView.sizeText }}</span>
-          <span v-if="downloadView.splitText">{{
-            downloadView.splitText
-          }}</span>
-        </div>
-        <progress
-          v-if="transferActive"
-          :value="downloadView.progress"
-          max="100"
-          :aria-label="'资源处理进度 ' + downloadView.progress + '%'"
-        />
-        <p
-          v-if="transferActive && downloadView.stageText"
-          class="download-progress__stage"
-          :title="state.download.currentFile"
-        >
-          正在{{ downloadView.stageText
-          }}<template v-if="state.download.currentFile"
-            >: {{ state.download.currentFile }}</template
-          >
-        </p>
-        <p
-          v-else-if="transferActive && state.download.currentFile"
-          :title="state.download.currentFile"
-        >
-          {{ state.download.currentFile }}
-        </p>
-        <p
-          v-if="
-            state.download.currentFile && state.download.currentFileBytes > 0
-          "
-          class="download-progress__file-size"
-        >
-          当前文件 {{ formatSize(state.download.currentFileBytes) }}
-        </p>
-        <p v-if="state.download.remoteVersion">
-          目标游戏版本 {{ state.download.remoteVersion }}
-        </p>
-      </div>
-    </div>
-
-    <div class="update-card" :class="'is-' + updateView.kind" id="update-card">
-      <h3 class="update-card__title">启动器文件校验</h3>
-      <div class="update-state">
-        <span class="update-icon" aria-hidden="true"
-          ><svg class="icon" viewBox="0 0 256 256">
-            <use :href="'#' + updateView.icon" /></svg
-        ></span>
-        <div class="update-state__copy">
-          <h3 id="update-state-title">{{ updateView.title }}</h3>
-          <p id="update-state-text">{{ updateView.copy }}</p>
-        </div>
-      </div>
-      <div class="update-actions">
-        <button
-          class="btn btn--link"
-          id="update-quick"
-          :disabled="state.checking || active"
-          :class="{ 'is-busy': state.checking }"
-          @click="checkUpdate(false)"
-        >
-          <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-            <use href="#i-arrows-clockwise" />
-          </svg>
-          <span class="btn__text">检查启动器文件</span>
-        </button>
-        <button
-          class="btn btn--link"
-          id="update-full"
-          :disabled="state.checking || active"
-          @click="checkUpdate(true)"
-        >
-          <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-            <use href="#i-shield-check" />
-          </svg>
-          <span class="btn__text">完整校验启动器</span>
-        </button>
-      </div>
-      <div
-        class="update-files"
-        id="update-files"
-        :hidden="!updateView.showFiles"
-      >
-        <div class="update-files__head">
-          <span>待处理文件</span
-          ><span id="update-count">{{ updateView.pending }}</span>
-        </div>
-        <div class="update-files__body" id="update-file-list">
-          <div
-            v-for="(row, index) in updateView.rows"
-            :key="index"
-            class="update-file"
-          >
-            <span class="update-file__tag">{{ row.tag }}</span
-            ><span class="update-file__path" :title="row.path">{{
-              row.path
-            }}</span>
+          <div class="update-files__head">
+            <span>待处理文件</span
+            ><span id="update-count">{{ updateView.pending }}</span>
           </div>
-          <div v-if="updateView.remaining > 0" class="update-file__more">
-            另有 {{ updateView.remaining }} 个文件未展开
+          <div class="update-files__body" id="update-file-list">
+            <div
+              v-for="(row, index) in updateView.rows"
+              :key="index"
+              class="update-file"
+            >
+              <span class="update-file__tag">{{ row.tag }}</span
+              ><span class="update-file__path" :title="row.path">{{
+                row.path
+              }}</span>
+            </div>
+            <div v-if="updateView.remaining > 0" class="update-file__more">
+              另有 {{ updateView.remaining }} 个文件未展开
+            </div>
           </div>
         </div>
-      </div>
+      </section>
     </div>
   </motion.section>
 </template>
