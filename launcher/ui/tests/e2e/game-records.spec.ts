@@ -168,7 +168,7 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
   expect(errors).toEqual([]);
 });
 
-test("玩家表面形变、弹簧过冲、快速开合与减少动态效果", async ({ page }) => {
+test("玩家圆形收束、展开归位、快速开合与减少动态效果", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/");
   await expect(page.locator("#app")).toHaveClass(/is-intro-done/);
@@ -176,16 +176,21 @@ test("玩家表面形变、弹簧过冲、快速开合与减少动态效果", as
     const probe = {
       widths: [] as number[],
       heights: [] as number[],
+      xs: [] as number[],
+      ys: [] as number[],
       done: false,
     };
     (window as unknown as { recordMotion: typeof probe }).recordMotion = probe;
     const start = performance.now();
     function sample() {
-      const el = document.querySelector(".game-records");
+      const el = document.querySelector(".game-records__surface");
       if (el) {
         const box = el.getBoundingClientRect();
         probe.widths.push(box.width);
         probe.heights.push(box.height);
+        const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+        probe.xs.push(matrix.m41);
+        probe.ys.push(matrix.m42);
       }
       if (performance.now() - start < 1400) requestAnimationFrame(sample);
       else probe.done = true;
@@ -204,19 +209,25 @@ test("玩家表面形变、弹簧过冲、快速开合与减少动态效果", as
     () =>
       (
         window as unknown as {
-          recordMotion: { widths: number[]; heights: number[] };
+          recordMotion: {
+            widths: number[];
+            heights: number[];
+            xs: number[];
+            ys: number[];
+          };
         }
       ).recordMotion,
   );
   expect(frames.widths.length).toBeGreaterThan(10);
-  expect(Math.min(...frames.widths)).toBeLessThan(270);
-  expect(frames.widths.at(-1)).toBeCloseTo(304, 0);
+  expect(Math.min(...frames.widths)).toBeLessThanOrEqual(65);
+  expect(frames.widths.at(-1)).toBeCloseTo(280, 0);
   expect(
     Math.max(...frames.heights) - Math.min(...frames.heights),
-  ).toBeGreaterThan(100);
-  expect(Math.max(...frames.heights)).toBeGreaterThan(
-    frames.heights.at(-1)! + 0.3,
-  );
+  ).toBeGreaterThan(50);
+  expect(Math.min(...frames.xs)).toBeLessThan(-110);
+  expect(Math.max(...frames.ys)).toBeGreaterThan(40);
+  expect(frames.xs.at(-1)).toBeCloseTo(0, 0);
+  expect(frames.ys.at(-1)).toBeCloseTo(0, 0);
   for (let i = 0; i < 7; i++) await capsule.click();
   await expect(capsule).toHaveAttribute("aria-expanded", "false");
   await expect(panel).toHaveCount(0);
@@ -235,4 +246,48 @@ test("玩家表面形变、弹簧过冲、快速开合与减少动态效果", as
       ),
     )
     .toBe(1);
+});
+
+test("玩家组件各阶段中断与窗口缩放后精确归位", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+  await expect(page.locator("#app")).toHaveClass(/is-intro-done/);
+  const capsule = page.locator(".game-records__capsule");
+  const surface = page.locator(".game-records__surface");
+  const root = page.locator(".game-records");
+  await capsule.focus();
+  for (const stage of ["circle", "expand", "return"]) {
+    await capsule.press("Enter");
+    await page.waitForFunction((stage) => {
+      const el = document.querySelector<HTMLElement>(".game-records__surface")!;
+      const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+      return stage === "circle"
+        ? el.offsetWidth < 100
+        : stage === "expand"
+          ? matrix.m42 > 30
+          : el.offsetWidth >= 278 && matrix.m42 > 2 && matrix.m42 < 30;
+    }, stage);
+    await capsule.press("Enter");
+    await expect(root).toHaveAttribute("data-moving", "false");
+    await expect(capsule).toHaveAttribute("aria-expanded", "false");
+    const box = await surface.evaluate((el) => ({
+      width: el.getBoundingClientRect().width,
+      height: el.getBoundingClientRect().height,
+      x: new DOMMatrixReadOnly(getComputedStyle(el).transform).m41,
+      y: new DOMMatrixReadOnly(getComputedStyle(el).transform).m42,
+    }));
+    expect(box.width).toBeCloseTo(204, 0);
+    expect(box.height).toBeCloseTo(44, 0);
+    expect(box.x).toBeCloseTo(0, 1);
+    expect(box.y).toBeCloseTo(0, 1);
+  }
+  await capsule.press("Enter");
+  await page.setViewportSize({ width: 980, height: 640 });
+  await expect(root).toHaveAttribute("data-moving", "false");
+  const bounds = await surface.boundingBox();
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(980);
+  expect(bounds!.y + bounds!.height).toBeLessThan(640);
+  await page.keyboard.press("Escape");
+  await expect(root).toHaveAttribute("data-moving", "false");
+  await expect(capsule).toHaveAttribute("aria-expanded", "false");
 });
