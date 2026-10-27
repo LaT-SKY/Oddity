@@ -1,13 +1,7 @@
-/* Oddity 启动器界面。
-   视觉方向: 夜行档案 / 都市奇幻; 浅色纸面为默认, 墨色为替代, 单一信号绿点缀。
-
-   全局样式按职责拆分, 导入顺序就是级联顺序。新增文件时请放在正确的位置,
-   不要为了就近而调换顺序, 否则会改变选择器的覆盖结果。 */
+/* 全局样式按组件职责组织。 */
 
 @import "./tokens.css";
 @import "./base.css";
-@import "./layout.css";
-@import "./hero.css";
 @import "./buttons.css";
 @import "./page.css";
 @import "./update.css";
@@ -15,7 +9,8 @@
 @import "./settings.css";
 @import "./controls.css";
 @import "./toast.css";
-@import "./motion.css";
+@import "./layout.css";
+@import "./hero.css";
 @import "./responsive.css";
 @import "./account.css";
 @import "./modal.css";

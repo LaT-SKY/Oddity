@@ -439,7 +439,7 @@ describe("启动与设置", () => {
     expect(text("toast")).toBe("disk full");
     expect(c.ui.saveState).toBe("error");
     await vi.advanceTimersByTimeAsync(6000);
-    expect(button("toast").classList.contains("is-visible")).toBe(false);
+    expect(document.querySelector("#toast")).toBeNull();
   });
 
   it("文本输入防抖自动保存, 保存状态随后回到空闲", async () => {
@@ -1000,7 +1000,7 @@ describe("更新检查", () => {
     expect(c.state.download?.phase).toBe("needs-update");
     expect(c.launchView.value.label).toBe("更新游戏");
     expect(primaryText()).toBe("更新游戏");
-    expect(text("toast")?.trim()).toBe("");
+    expect(document.querySelector("#toast")).toBeNull();
   });
 
   it("未安装游戏时启动不执行资源检查", async () => {
@@ -1017,7 +1017,7 @@ describe("更新检查", () => {
     backend.startFail = true;
     const c = await boot();
     expect(c.state.download?.phase ?? "idle").toBe("idle");
-    expect(text("toast")?.trim()).toBe("");
+    expect(document.querySelector("#toast")).toBeNull();
   });
 
   it("完整校验发现损坏后，主按钮继续提交完整校验", async () => {
@@ -1488,7 +1488,7 @@ describe("主视觉和资源", () => {
     await nextTick();
     expect(c.media.looping).toBe(false);
     expect(video.currentTime).toBe(6);
-    expect(canvas.classList.contains("is-visible")).toBe(false);
+    expect(canvas.classList.contains("is-visible")).toBe(true);
     await vi.advanceTimersByTimeAsync(100);
     expect(draw).not.toHaveBeenCalled();
     Object.defineProperty(video, "seeking", { value: true });
@@ -1743,7 +1743,7 @@ it("组件事件和双向绑定将用户操作传给控制器", async () => {
   await wrapper!.find('[data-page="bulletin"]').trigger("click");
   expect(c.state.page).toBe("bulletin");
   await wrapper!.find('[data-page="home"]').trigger("click");
-  await wrapper!.find("#check-btn").trigger("click");
+  await wrapper!.find('[data-page="update"]').trigger("click");
   await flushPromises();
   expect(c.state.page).toBe("update");
   backend.downloadHandler({ ...backend.downloadStatus, phase: "ready" });

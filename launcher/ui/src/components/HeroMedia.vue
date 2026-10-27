@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
-import { media, setHeroVideo, state } from "../core/controller";
+import { useReducedMotion } from "motion-v";
+import { media, setHeroVideo, state, form } from "../core/controller";
 
 const videoA = ref<HTMLVideoElement | null>(null);
 const videoB = ref<HTMLVideoElement | null>(null);
 const canvas = ref<HTMLCanvasElement | null>(null);
 const ready = ref(false);
+const reduced = useReducedMotion();
 const active = ref(0);
 const playing = computed(() => state.page === "home" && media.looping);
 const currentVideo = computed(() =>
@@ -208,7 +210,10 @@ onBeforeUnmount(() => {
     id="hero-canvas"
     ref="canvas"
     class="hero__video"
-    :class="{ 'is-visible': playing && ready }"
+    :class="{
+      'is-visible':
+        state.heroMedia === 'video' && ready && !form.reduceMotion && !reduced,
+    }"
     aria-hidden="true"
   ></canvas>
 </template>

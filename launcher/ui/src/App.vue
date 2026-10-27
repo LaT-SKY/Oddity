@@ -1,77 +1,125 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
-import { init, ui, form, dispose } from "./core/controller";
+import {
+  onBeforeUnmount,
+  onMounted,
+  watch,
+  ref,
+  nextTick,
+  useTemplateRef,
+} from "vue";
+import { AnimatePresence, MotionConfig, motion } from "motion-v";
+import { init, ui, form, state, showPage, dispose } from "./core/controller";
+import { useSceneMotion, playerExpanded } from "./composables/useSceneMotion";
 import TitleBar from "./components/layout/TitleBar.vue";
-import NavigationRail from "./components/layout/NavigationRail.vue";
+import HeroMedia from "./components/HeroMedia.vue";
 import HomePage from "./pages/HomePage.vue";
 import UpdatePage from "./pages/UpdatePage.vue";
 import BulletinPage from "./pages/BulletinPage.vue";
 import SettingsPage from "./pages/SettingsPage.vue";
 import IconSprite from "./components/icons/IconSprite.vue";
-const root = ref<HTMLElement | null>(null);
+const scene = useTemplateRef<HTMLElement>("scene");
+const drawer = useTemplateRef<HTMLElement>("drawer");
+const shade = useTemplateRef<HTMLElement>("shade");
+const { opened } = useSceneMotion(scene, drawer, shade);
+const content = ref<HTMLElement | null>(null);
+watch(
+  () => state.page,
+  async (page, previous) => {
+    playerExpanded.value = false;
+    await nextTick();
+    if (page !== "home") {
+      content.value
+        ?.querySelector<HTMLElement>(".page.is-active h2")
+        ?.focus({ preventScroll: true });
+    } else if (previous !== "home") {
+      document.querySelector<HTMLElement>(`[data-page="${previous}"]`)?.focus();
+    }
+  },
+);
+function escape(event: KeyboardEvent) {
+  if (event.defaultPrevented || document.querySelector(".modal")) return;
+  if (event.key === "Escape" && opened.value) {
+    event.preventDefault();
+    showPage("home");
+  }
+}
 onMounted(() => {
-  // 先提交隐藏的入场布局, 再由状态开启过渡。
-  void root.value?.getBoundingClientRect();
   void init();
+  document.addEventListener("keydown", escape);
 });
-onBeforeUnmount(dispose);
+onBeforeUnmount(() => {
+  document.removeEventListener("keydown", escape);
+  dispose();
+});
 </script>
 
 <template>
   <IconSprite />
-  <div
-    ref="root"
-    class="app"
-    id="app"
-    :data-theme="form.theme"
-    :class="{
-      'is-intro': !ui.introStarted,
-      'is-intro-done': ui.introDone,
-      'is-maximized': ui.maximized,
-      'reduce-motion': form.reduceMotion,
-    }"
-  >
-    <div class="grain" aria-hidden="true"></div>
-    <TitleBar />
-
-    <div class="shell">
-      <NavigationRail />
-
-      <main class="main">
-        <div
-          class="scroll-edge scroll-edge--top"
-          :class="{ 'is-visible': ui.scrollEdge.top }"
-          aria-hidden="true"
-        ></div>
-
-        <HomePage />
-
-        <UpdatePage />
-
-        <BulletinPage />
-
-        <SettingsPage />
-
-        <div
-          class="scroll-edge scroll-edge--bottom"
-          :class="{ 'is-visible': ui.scrollEdge.bottom }"
-          aria-hidden="true"
-        ></div>
-      </main>
+  <MotionConfig :reduced-motion="form.reduceMotion ? 'always' : 'user'">
+    <div
+      class="app"
+      id="app"
+      :data-theme="form.theme"
+      :class="{
+        'is-intro': !ui.introStarted,
+        'is-intro-done': ui.introDone,
+        'is-maximized': ui.maximized,
+        'reduce-motion': form.reduceMotion,
+        'has-drawer': opened,
+      }"
+    >
+      <div ref="scene" class="scene" aria-hidden="true">
+        <HeroMedia />
+        <div class="hero__fade"></div>
+      </div>
+      <HomePage />
+      <div ref="shade" class="scene-shade" aria-hidden="true"></div>
+      <TitleBar />
+      <button
+        v-if="opened"
+        class="drawer-dismiss"
+        aria-label="返回主页"
+        @click="showPage('home')"
+      ></button>
+      <div
+        ref="drawer"
+        class="drawer"
+        :inert="!opened"
+        :aria-hidden="!opened || undefined"
+      >
+        <motion.button
+          class="drawer-close"
+          type="button"
+          aria-label="关闭页面"
+          :while-hover="{ scale: 1.08 }"
+          :while-press="{ scale: 0.9 }"
+          @click="showPage('home')"
+        >
+          <svg class="icon" aria-hidden="true"><use href="#i-x" /></svg>
+        </motion.button>
+        <main ref="content" class="main">
+          <UpdatePage />
+          <BulletinPage />
+          <SettingsPage />
+        </main>
+      </div>
     </div>
-  </div>
-
-  <div
-    class="toast"
-    id="toast"
-    role="status"
-    aria-live="polite"
-    :data-theme="form.theme"
-    :class="{
-      'is-visible': ui.toast.visible,
-      'is-error': ui.toast.kind === 'error',
-    }"
-  >
-    {{ ui.toast.message }}
-  </div>
+    <AnimatePresence>
+      <motion.div
+        v-if="ui.toast.visible"
+        class="toast is-visible"
+        id="toast"
+        role="status"
+        aria-live="polite"
+        :data-theme="form.theme"
+        :class="{ 'is-error': ui.toast.kind === 'error' }"
+        :initial="{ opacity: 0, y: 12, x: '-50%' }"
+        :animate="{ opacity: 1, y: 0, x: '-50%' }"
+        :exit="{ opacity: 0, y: 8, x: '-50%' }"
+        :transition="{ type: 'spring', stiffness: 400, damping: 30 }"
+      >
+        {{ ui.toast.message }}
+      </motion.div>
+    </AnimatePresence>
+  </MotionConfig>
 </template>

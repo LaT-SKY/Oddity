@@ -15,11 +15,6 @@
   letter-spacing: 0.01em;
   white-space: nowrap;
   user-select: none;
-  transition:
-    background var(--duration-base) var(--ease),
-    border-color var(--duration-base) var(--ease),
-    color var(--duration-base) var(--ease),
-    opacity var(--duration-base) var(--ease);
 }
 
 .btn .icon {
@@ -46,10 +41,6 @@
 
 .btn--primary.is-passed:hover:not(:disabled) {
   background: var(--nav-active-bg);
-}
-
-.btn.is-spinning .icon {
-  animation: spin var(--duration-spin) linear infinite;
 }
 
 .btn__icon {
@@ -108,10 +99,6 @@
 .btn.is-busy {
   pointer-events: none;
   opacity: 0.55;
-}
-
-.btn.is-busy .icon {
-  animation: pulse var(--duration-pulse) ease-in-out infinite;
 }
 
 .btn--trailing {

@@ -168,20 +168,25 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
   expect(errors).toEqual([]);
 });
 
-test("Motion 弹簧过冲、快速开合中断与减少动态效果", async ({ page }) => {
+test("玩家表面形变、弹簧过冲、快速开合与减少动态效果", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/");
   await expect(page.locator("#app")).toHaveClass(/is-intro-done/);
   await page.evaluate(() => {
-    const probe = { scales: [] as number[], done: false };
+    const probe = {
+      widths: [] as number[],
+      heights: [] as number[],
+      done: false,
+    };
     (window as unknown as { recordMotion: typeof probe }).recordMotion = probe;
     const start = performance.now();
     function sample() {
-      const el = document.querySelector(".game-records__panel");
-      if (el)
-        probe.scales.push(
-          new DOMMatrixReadOnly(getComputedStyle(el).transform).a,
-        );
+      const el = document.querySelector(".game-records");
+      if (el) {
+        const box = el.getBoundingClientRect();
+        probe.widths.push(box.width);
+        probe.heights.push(box.height);
+      }
       if (performance.now() - start < 1400) requestAnimationFrame(sample);
       else probe.done = true;
     }
@@ -195,15 +200,23 @@ test("Motion 弹簧过冲、快速开合中断与减少动态效果", async ({ p
       (window as unknown as { recordMotion: { done: boolean } }).recordMotion
         .done,
   );
-  const scales = await page.evaluate(
+  const frames = await page.evaluate(
     () =>
-      (window as unknown as { recordMotion: { scales: number[] } }).recordMotion
-        .scales,
+      (
+        window as unknown as {
+          recordMotion: { widths: number[]; heights: number[] };
+        }
+      ).recordMotion,
   );
-  expect(scales.length).toBeGreaterThan(10);
-  expect(Math.min(...scales)).toBeLessThan(0.98);
-  expect(Math.max(...scales)).toBeGreaterThan(1.001);
-  expect(scales.at(-1)).toBeCloseTo(1, 2);
+  expect(frames.widths.length).toBeGreaterThan(10);
+  expect(Math.min(...frames.widths)).toBeLessThan(270);
+  expect(frames.widths.at(-1)).toBeCloseTo(304, 0);
+  expect(
+    Math.max(...frames.heights) - Math.min(...frames.heights),
+  ).toBeGreaterThan(100);
+  expect(Math.max(...frames.heights)).toBeGreaterThan(
+    frames.heights.at(-1)! + 0.3,
+  );
   for (let i = 0; i < 7; i++) await capsule.click();
   await expect(capsule).toHaveAttribute("aria-expanded", "false");
   await expect(panel).toHaveCount(0);

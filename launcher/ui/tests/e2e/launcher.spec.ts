@@ -142,7 +142,7 @@ test("深链接与减少动态效果的首次加载", async ({ page }) => {
     "aria-current",
     "page",
   );
-  await expect(page.locator("#page-home")).toBeHidden();
+  await expect(page.locator("#page-home")).toHaveAttribute("inert", "");
   await expect(page.locator("#hero-canvas")).not.toHaveClass(/is-visible/);
 });
 
@@ -199,7 +199,7 @@ test("视频双缓冲循环无黑帧, 离页暂停并保留进度", async ({ pag
   const before = await clock();
   expect(before).toBeGreaterThan(0);
   await page.locator('[data-page="settings"]').click();
-  await expect(canvas).not.toHaveClass(/is-visible/);
+  await expect(canvas).toHaveClass(/is-visible/);
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -361,6 +361,7 @@ test("Motion 弹窗入场、快速重开与减少动态效果", async ({ page })
   await page.goto("/#settings");
   const action = page.locator("#attendance-action");
   const dialog = page.getByRole("dialog");
+  await action.scrollIntoViewIfNeeded();
   const entry = await recordModal(page, () => action.click(), 1100);
   expectFade(entry, true);
   const scales = entry

@@ -15,12 +15,12 @@ import {
   showPage,
   state,
 } from "../core/controller";
-import { isTauri } from "../core/api";
+import { playerExpanded } from "../composables/useSceneMotion";
 import type { GameRecord } from "../types/launcher";
 
 const panelId = useId();
 const triggerId = useId();
-const open = ref(false);
+const open = playerExpanded;
 const selectedId = ref("");
 const direction = ref(1);
 const prefersReducedMotion = useReducedMotion();
@@ -30,9 +30,9 @@ const spring = computed(() =>
     ? { duration: 0 }
     : {
         type: "spring" as const,
-        stiffness: 440,
-        damping: 26,
-        mass: 0.8,
+        stiffness: 380,
+        damping: 28,
+        mass: 0.9,
         opacity: { duration: 0.12 },
       },
 );
@@ -97,6 +97,7 @@ watch(
 let timer: ReturnType<typeof setInterval>;
 const onFocus = () => refresh();
 onMounted(() => {
+  open.value = false;
   void loadAttendance();
   refresh();
   timer = setInterval(onFocus, 30_000);
@@ -105,6 +106,7 @@ onMounted(() => {
   document.addEventListener("pointerdown", outside);
 });
 onBeforeUnmount(() => {
+  open.value = false;
   clearInterval(timer);
   window.removeEventListener("focus", onFocus);
   document.removeEventListener("visibilitychange", onFocus);
@@ -127,7 +129,14 @@ function percent(data: GameRecord) {
 
 <template>
   <MotionConfig :reduced-motion="form.reduceMotion ? 'always' : 'user'"
-    ><div class="game-records" @keydown.esc.stop.prevent="close">
+    ><motion.div
+      class="game-records"
+      :layout="!reduced"
+      :layout-dependency="open"
+      :style="{ width: open ? '304px' : '252px', borderRadius: '20px' }"
+      :transition="spring"
+      @keydown.esc.stop.prevent="close"
+    >
       <motion.button
         :id="triggerId"
         type="button"
@@ -135,7 +144,10 @@ function percent(data: GameRecord) {
         :aria-expanded="open"
         :aria-controls="panelId"
         :aria-label="open ? '收起游戏状态' : '打开游戏状态'"
-        :while-hover="reduced ? {} : { y: -2 }"
+        :layout="reduced ? false : 'position'"
+        :while-hover="
+          reduced ? {} : { backgroundColor: 'rgba(128, 128, 128, 0.08)' }
+        "
         :while-press="reduced ? {} : { scale: 0.95 }"
         :transition="spring"
         @click="open = !open"
@@ -144,10 +156,20 @@ function percent(data: GameRecord) {
           ><svg class="icon" aria-hidden="true">
             <use href="#i-game-controller" /></svg
         ></span>
-        <span>体力与周本</span>
-        <span v-if="accounts.length" class="game-records__count">{{
-          accounts.length
-        }}</span>
+        <span class="game-records__summary">
+          <span class="game-records__name">{{
+            record?.roleName ||
+            record?.roleId ||
+            (account ? account.maskedPhone : "玩家信息")
+          }}</span>
+          <span class="game-records__stamina">{{
+            record
+              ? `体力 ${meter(record.stamina, record.staminaMax)}`
+              : account
+                ? "查看游戏状态"
+                : "登录塔吉多"
+          }}</span>
+        </span>
         <motion.svg
           class="icon game-records__caret"
           aria-hidden="true"
@@ -168,24 +190,13 @@ function percent(data: GameRecord) {
           :aria-busy="gameRecords.loading"
           :aria-hidden="!open || undefined"
           :inert="!open"
-          :initial="{
-            opacity: 0,
-            scale: reduced ? 1 : 0.86,
-            y: reduced ? 0 : -18,
-          }"
-          :animate="{ opacity: 1, scale: 1, y: 0 }"
-          :exit="{
-            opacity: 0,
-            scale: reduced ? 1 : 0.92,
-            y: reduced ? 0 : -12,
-          }"
+          :initial="{ height: reduced ? 'auto' : 0, opacity: 0 }"
+          :animate="{ height: 'auto', opacity: 1 }"
+          :exit="{ height: 0, opacity: 0 }"
           :transition="spring"
         >
           <header class="game-records__head">
             <div>
-              <p class="game-records__eyebrow">
-                {{ isTauri() ? "塔吉多 · 国服" : "浏览器预览 · 模拟数据" }}
-              </p>
               <h2 :id="panelId + '-title'">游戏状态</h2>
             </div>
             <div class="game-records__actions">
@@ -360,7 +371,7 @@ function percent(data: GameRecord) {
           </footer>
         </motion.aside></AnimatePresence
       >
-    </div></MotionConfig
+    </motion.div></MotionConfig
   >
 </template>
 
@@ -368,34 +379,53 @@ function percent(data: GameRecord) {
 .game-records {
   position: absolute;
   z-index: 5;
-  top: 28px;
-  right: 28px;
-  display: flex;
-  justify-content: flex-end;
-  width: 304px;
+  top: var(--scene-inset);
+  right: var(--scene-inset);
+  overflow: clip;
+  background: var(--surface-solid);
+  border: 1px solid var(--line);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 12%);
   color: var(--bone);
   font-family: var(--font);
+  transform-origin: top right;
 }
 .game-records__capsule {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 44px;
-  padding: 5px 14px 5px 5px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: var(--surface-solid);
-  color: var(--bone);
-  font: 500 12px var(--font);
+  gap: 12px;
+  width: 100%;
+  height: 64px;
+  padding: 10px 16px 10px 12px;
+  color: inherit;
+  text-align: left;
   cursor: pointer;
+}
+.game-records__summary {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.game-records__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 13px;
+  font-weight: 600;
+}
+.game-records__stamina {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 .game-records__badge {
   display: grid;
   place-items: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 12px;
   background: var(--signal-dim);
   color: var(--accent-text);
 }
@@ -403,32 +433,27 @@ function percent(data: GameRecord) {
   width: 18px;
   height: 18px;
 }
-.game-records__count {
-  padding-left: 10px;
-  border-left: 1px solid var(--line);
-  font-variant-numeric: tabular-nums;
-  color: var(--faint);
-}
 .game-records__caret {
   width: 12px;
   height: 12px;
 }
 .game-records__panel {
-  position: absolute;
-  top: 56px;
-  right: 0;
-  width: 304px;
-  padding: 18px;
-  display: grid;
-  grid-template-rows: 38px;
-  grid-auto-rows: auto;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
-  border: 1px solid var(--line-strong);
-  border-radius: 24px;
-  background: var(--surface-solid);
-  transform-origin: top right;
   overflow: clip;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.08);
+}
+.game-records__panel > * {
+  margin-left: 18px;
+  margin-right: 18px;
+  flex-shrink: 0;
+}
+.game-records__panel > :first-child {
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.game-records__panel > :last-child {
+  margin-bottom: 16px;
 }
 .game-records__head,
 .game-records__actions,
@@ -642,11 +667,5 @@ dd {
   background: transparent;
   font: 500 11px var(--font);
   cursor: pointer;
-}
-@media (max-width: 1060px) {
-  .game-records {
-    top: 20px;
-    right: 20px;
-  }
 }
 </style>

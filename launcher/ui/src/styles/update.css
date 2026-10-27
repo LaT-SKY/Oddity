@@ -149,10 +149,6 @@
   color: var(--danger);
 }
 
-.update-card.is-checking .update-icon .icon {
-  animation: spin var(--duration-spin) linear infinite;
-}
-
 .update-files {
   margin-top: var(--space-28);
   padding-top: var(--space-4);

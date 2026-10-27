@@ -25,10 +25,6 @@
   outline: none;
   text-align: left;
   user-select: none;
-  transition:
-    border-color var(--duration-base) var(--ease),
-    background-color var(--duration-base) var(--ease),
-    box-shadow var(--duration-base) var(--ease);
 }
 
 .select-trigger:hover:not(:disabled) {
@@ -62,11 +58,6 @@
   height: 14px;
   flex: none;
   color: var(--accent-text);
-  transition: transform var(--duration-slow) var(--ease);
-}
-
-.custom-select.is-open .select-trigger__arrow {
-  transform: rotate(180deg);
 }
 
 .select-dropdown {
@@ -107,9 +98,6 @@
   color: var(--bone);
   cursor: pointer;
   user-select: none;
-  transition:
-    background-color var(--duration-fast) var(--ease),
-    color var(--duration-fast) var(--ease);
 }
 
 .select-option:hover:not([aria-disabled="true"]) {
@@ -141,19 +129,6 @@
   height: 14px;
   flex: none;
   color: var(--dot-signal);
-}
-
-.select-popover-enter-active,
-.select-popover-leave-active {
-  transition:
-    opacity var(--duration-quick) var(--ease),
-    transform var(--duration-quick) var(--ease);
-}
-
-.select-popover-enter-from,
-.select-popover-leave-to {
-  opacity: 0;
-  transform: translateY(-4px) scale(0.98);
 }
 
 .switch-row {
@@ -204,9 +179,6 @@
   border: 0;
   border-radius: var(--pill);
   background: var(--switch-bg);
-  transition:
-    background var(--duration-slow) var(--ease),
-    border-color var(--duration-slow) var(--ease);
 }
 
 .switch::after {
@@ -219,9 +191,6 @@
   border-radius: 50%;
   background: var(--switch-knob);
   box-shadow: var(--switch-knob-shadow);
-  transition:
-    transform var(--duration-slow) var(--ease),
-    background var(--duration-slow) var(--ease);
 }
 
 .switch-row input:checked + .switch {

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { motion } from "motion-v";
 import { computed } from "vue";
 import {
   state,
@@ -57,15 +58,29 @@ const launchModeHint = computed(
 </script>
 
 <template>
-  <section
+  <motion.section
     class="page"
     id="page-settings"
+    :inert="state.page !== 'settings'"
+    :aria-hidden="state.page !== 'settings' || undefined"
+    :initial="false"
+    :animate="{
+      opacity: state.page === 'settings' ? 1 : 0,
+      x: state.page === 'settings' ? 0 : 22,
+      visibility: state.page === 'settings' ? 'visible' : 'hidden',
+    }"
+    :transition="{
+      type: 'spring',
+      stiffness: 380,
+      damping: 32,
+      opacity: { duration: 0.18 },
+    }"
     :class="{ 'is-active': state.page === 'settings' }"
     aria-labelledby="settings-title"
   >
     <header class="page-head">
       <div class="page-head__copy">
-        <h2 id="settings-title">设置</h2>
+        <h2 id="settings-title" tabindex="-1">设置</h2>
       </div>
       <div class="page-head__actions">
         <button
@@ -243,5 +258,5 @@ const launchModeHint = computed(
         </div>
       </div>
     </section>
-  </section>
+  </motion.section>
 </template>

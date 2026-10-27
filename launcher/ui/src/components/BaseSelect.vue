@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { AnimatePresence, motion } from "motion-v";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 interface Option {
@@ -90,6 +91,7 @@ function onKeydown(event: KeyboardEvent) {
   if (props.disabled) return;
   if (event.key === "Escape") {
     isOpen.value = false;
+    event.stopPropagation();
   } else if (event.key === "Enter" || event.key === " ") {
     if (!isOpen.value) {
       event.preventDefault();
@@ -138,17 +140,32 @@ onBeforeUnmount(() => {
       @keydown="onKeydown"
     >
       <span class="select-trigger__text">{{ currentLabel }}</span>
-      <svg
+      <motion.svg
+        :animate="{ rotate: isOpen ? 180 : 0 }"
+        :transition="{ type: 'spring', stiffness: 450, damping: 28 }"
         class="icon select-trigger__arrow"
         viewBox="0 0 256 256"
         aria-hidden="true"
       >
         <use href="#i-caret-down"></use>
-      </svg>
+      </motion.svg>
     </button>
 
-    <Transition name="select-popover">
-      <div v-if="isOpen" class="select-dropdown" role="listbox">
+    <AnimatePresence>
+      <motion.div
+        v-if="isOpen"
+        class="select-dropdown"
+        role="listbox"
+        :initial="{ opacity: 0, y: -6, scale: 0.97 }"
+        :animate="{ opacity: 1, y: 0, scale: 1 }"
+        :exit="{ opacity: 0, y: -4, scale: 0.98 }"
+        :transition="{
+          type: 'spring',
+          stiffness: 440,
+          damping: 30,
+          opacity: { duration: 0.12 },
+        }"
+      >
         <div
           v-for="opt in options"
           :key="opt.value"
@@ -169,8 +186,8 @@ onBeforeUnmount(() => {
             <use href="#i-check-circle"></use>
           </svg>
         </div>
-      </div>
-    </Transition>
+      </motion.div>
+    </AnimatePresence>
 
     <select
       :id="id"

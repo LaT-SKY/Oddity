@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { motion } from "motion-v";
+import NavigationRail from "./NavigationRail.vue";
 import { ui, showPage, windowAction, dragWindow } from "../../core/controller";
 </script>
 
@@ -13,8 +15,10 @@ import { ui, showPage, windowAction, dragWindow } from "../../core/controller";
       />
       <span class="brand-word">ODDITY</span>
     </div>
+    <NavigationRail />
     <div class="titlebar__right">
-      <button
+      <motion.button
+        :while-press="{ scale: 0.88 }"
         class="setup-chip"
         id="setup-chip"
         @click="showPage('settings')"
@@ -25,9 +29,10 @@ import { ui, showPage, windowAction, dragWindow } from "../../core/controller";
       >
         <i class="status-dot status-dot--warn"></i>
         <span>需要配置</span>
-      </button>
+      </motion.button>
       <div class="win-controls">
-        <button
+        <motion.button
+          :while-press="{ scale: 0.88 }"
           class="win-btn"
           data-win="minimize"
           @click="windowAction('minimize')"
@@ -37,8 +42,9 @@ import { ui, showPage, windowAction, dragWindow } from "../../core/controller";
           <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
             <use href="#i-minus"></use>
           </svg>
-        </button>
-        <button
+        </motion.button>
+        <motion.button
+          :while-press="{ scale: 0.88 }"
           class="win-btn"
           data-win="maximize"
           @click="windowAction('maximize')"
@@ -48,8 +54,9 @@ import { ui, showPage, windowAction, dragWindow } from "../../core/controller";
           <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
             <use href="#i-square"></use>
           </svg>
-        </button>
-        <button
+        </motion.button>
+        <motion.button
+          :while-press="{ scale: 0.88 }"
           class="win-btn win-btn--close"
           data-win="close"
           @click="windowAction('close')"
@@ -59,7 +66,7 @@ import { ui, showPage, windowAction, dragWindow } from "../../core/controller";
           <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
             <use href="#i-x"></use>
           </svg>
-        </button>
+        </motion.button>
       </div>
     </div>
   </header>

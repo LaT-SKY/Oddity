@@ -67,9 +67,6 @@
   font-family: var(--font);
   font-size: var(--text-sm);
   cursor: pointer;
-  transition:
-    background var(--duration-quick) var(--ease),
-    color var(--duration-quick) var(--ease);
 }
 .login-tabs__tab:hover:not(:disabled) {
   background: var(--hover);

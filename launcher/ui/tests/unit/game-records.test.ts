@@ -86,7 +86,8 @@ it("切换查看全部账号、保留零值和未知字段, 手动刷新不执�
   expect(wrapper.text()).toContain("0 / 240");
   expect(wrapper.text()).toContain("-- / 700");
   expect(wrapper.text()).toContain("周本剩余0 次");
-  expect(wrapper.text()).toContain("模拟数据");
+  expect(wrapper.get(".game-records__name").text()).toBe("调查员乙");
+  expect(wrapper.get(".game-records__stamina").text()).toBe("体力 0 / 240");
   expect(requests()).toBe(1);
   await wrapper.get('[aria-label="刷新游戏状态"]').trigger("click");
   await flushPromises();

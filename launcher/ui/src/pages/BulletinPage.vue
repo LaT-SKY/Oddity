@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { motion } from "motion-v";
 import { computed } from "vue";
 import { fetchBulletins, openUrl, state } from "../core/controller";
 import { distributions } from "../core/distribution";
@@ -29,15 +30,29 @@ function label(item: BulletinItem) {
 </script>
 
 <template>
-  <section
+  <motion.section
     class="page bulletin-page"
     id="page-bulletin"
+    :inert="state.page !== 'bulletin'"
+    :aria-hidden="state.page !== 'bulletin' || undefined"
+    :initial="false"
+    :animate="{
+      opacity: state.page === 'bulletin' ? 1 : 0,
+      x: state.page === 'bulletin' ? 0 : 22,
+      visibility: state.page === 'bulletin' ? 'visible' : 'hidden',
+    }"
+    :transition="{
+      type: 'spring',
+      stiffness: 380,
+      damping: 32,
+      opacity: { duration: 0.18 },
+    }"
     :class="{ 'is-active': state.page === 'bulletin' }"
     aria-labelledby="bulletin-title"
   >
     <header class="page-head">
       <div class="page-head__copy">
-        <h2 id="bulletin-title">公告</h2>
+        <h2 id="bulletin-title" tabindex="-1">公告</h2>
       </div>
       <div class="page-head__actions">
         <button
@@ -232,5 +247,5 @@ function label(item: BulletinItem) {
         </svg>
       </button>
     </div>
-  </section>
+  </motion.section>
 </template>

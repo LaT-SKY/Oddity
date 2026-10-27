@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { motion } from "motion-v";
 import { computed } from "vue";
 import BaseSelect from "../components/BaseSelect.vue";
 import DirectoryField from "../components/DirectoryField.vue";
@@ -222,15 +223,29 @@ const transferActive = computed(
 </script>
 
 <template>
-  <section
+  <motion.section
     class="page page--update"
     :class="{ 'is-active': state.page === 'update' }"
     id="page-update"
+    :inert="state.page !== 'update'"
+    :aria-hidden="state.page !== 'update' || undefined"
+    :initial="false"
+    :animate="{
+      opacity: state.page === 'update' ? 1 : 0,
+      x: state.page === 'update' ? 0 : 22,
+      visibility: state.page === 'update' ? 'visible' : 'hidden',
+    }"
+    :transition="{
+      type: 'spring',
+      stiffness: 380,
+      damping: 32,
+      opacity: { duration: 0.18 },
+    }"
     aria-labelledby="update-title"
   >
     <header class="page-head">
       <div class="page-head__copy">
-        <h2 id="update-title">游戏更新</h2>
+        <h2 id="update-title" tabindex="-1">游戏更新</h2>
       </div>
     </header>
 
@@ -446,5 +461,5 @@ const transferActive = computed(
         </div>
       </div>
     </div>
-  </section>
+  </motion.section>
 </template>
