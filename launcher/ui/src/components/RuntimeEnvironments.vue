@@ -116,9 +116,12 @@ async function discard() {
           :disabled="runtimeEnvironmentLocked"
           placeholder="请选择运行环境"
         />
-        <small v-if="profile" class="field__hint"
-          >Proton: {{ profile.proton.path }}</small
-        >
+        <small v-if="profile" class="field__hint">
+          Proton: {{ profile.proton.path }}<br />
+          绑定的游戏目录: {{ profile.installRoot }} ({{
+            profile.distribution === "cn" ? "国服" : "国际服"
+          }})
+        </small>
       </div>
     </div>
     <p v-else class="field__hint">请先创建 Proton 运行环境, 再启动游戏.</p>

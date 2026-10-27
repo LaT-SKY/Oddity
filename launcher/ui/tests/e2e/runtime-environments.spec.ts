@@ -62,7 +62,9 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
       .getByRole("button")
       .first(),
   ).toHaveText("创建环境或副本");
-  await expect(section.getByText(/^Proton:/)).not.toContainText("游戏安装:");
+  await expect(section.locator(".field__hint").first()).toContainText(
+    "绑定的游戏目录: ~/Games/Neverness To Everness",
+  );
   await expect(
     section.getByRole("button", { name: "删除环境", exact: true }),
   ).toBeDisabled();
