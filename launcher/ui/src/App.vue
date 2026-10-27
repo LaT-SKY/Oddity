@@ -7,9 +7,10 @@ import {
   nextTick,
   useTemplateRef,
 } from "vue";
-import { AnimatePresence, MotionConfig, motion } from "motion-v";
+import { MotionConfig, motion } from "motion-v";
 import { init, ui, form, state, showPage, dispose } from "./core/controller";
 import { useSceneMotion, playerExpanded } from "./composables/useSceneMotion";
+import NotificationCenter from "./components/NotificationCenter.vue";
 import TitleBar from "./components/layout/TitleBar.vue";
 import HeroMedia from "./components/HeroMedia.vue";
 import HomePage from "./pages/HomePage.vue";
@@ -103,23 +104,7 @@ onBeforeUnmount(() => {
           <SettingsPage />
         </main>
       </div>
+      <NotificationCenter />
     </div>
-    <AnimatePresence>
-      <motion.div
-        v-if="ui.toast.visible"
-        class="toast is-visible"
-        id="toast"
-        role="status"
-        aria-live="polite"
-        :data-theme="form.theme"
-        :class="{ 'is-error': ui.toast.kind === 'error' }"
-        :initial="{ opacity: 0, y: 12, x: '-50%' }"
-        :animate="{ opacity: 1, y: 0, x: '-50%' }"
-        :exit="{ opacity: 0, y: 8, x: '-50%' }"
-        :transition="{ type: 'spring', stiffness: 400, damping: 30 }"
-      >
-        {{ ui.toast.message }}
-      </motion.div>
-    </AnimatePresence>
   </MotionConfig>
 </template>

@@ -76,10 +76,6 @@
   --switch-on-knob: #c8f04b;
   --selection-bg: #171b17;
   --selection-fg: #e9f6c3;
-  --toast-bg: #171b17;
-  --toast-fg: #f6f2e8;
-  --toast-border: rgba(246, 242, 232, 0.2);
-  --toast-error: #ffc0b7;
   --modal-shadow: 0 20px 60px rgba(20, 24, 20, 0.16);
   --modal-backdrop: rgba(20, 24, 20, 0.42);
   --meter-track: rgba(20, 24, 20, 0.12);
@@ -176,7 +172,7 @@
   --z-scroll-edge: 20;
   --z-select: 70;
   --z-grain: 80;
-  --z-toast: 120;
+  --z-notification: 120;
   --z-modal: 1000;
   --z-tooltip: 1010;
 }
@@ -187,7 +183,6 @@
 }
 
 .app[data-theme="dark"],
-.toast[data-theme="dark"],
 .modal[data-theme="dark"] {
   color-scheme: dark;
 
@@ -247,10 +242,6 @@
   --switch-on-knob: #0a0c08;
   --selection-bg: #c8f04b;
   --selection-fg: #0a0c08;
-  --toast-bg: #121512;
-  --toast-fg: #ede8dc;
-  --toast-border: rgba(237, 232, 220, 0.28);
-  --toast-error: #ffc0b7;
   --modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   --modal-backdrop: rgba(0, 0, 0, 0.62);
   --meter-track: rgba(237, 232, 220, 0.1);

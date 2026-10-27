@@ -2,7 +2,7 @@
 import { ref } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke, isTauri } from "../core/api";
-import { toast } from "../core/controller";
+import { notify } from "../core/notifications";
 
 const exporting = ref(false);
 const savedPath = ref("");
@@ -21,18 +21,18 @@ async function exportLogs() {
       multiple: false,
     });
     if (destination === null) return;
-    toast("正在导出日志...", "ok", 0);
+    notify("正在导出日志...", "info", 0, { key: "log-export" });
     savedPath.value = await invoke("export_logs", { destination });
-    toast("日志导出成功, 正在打开文件夹.");
+    notify("日志导出成功, 正在打开文件夹.", "ok", 3400, { key: "log-export" });
     try {
       await invoke("open_directory", { path: destination });
     } catch (cause) {
       error.value = `日志已导出, 但无法打开文件夹: ${String(cause)}`;
-      toast(error.value, "error", 6500);
+      notify(error.value, "error", 6500, { key: "log-export" });
     }
   } catch (cause) {
     error.value = `导出日志失败: ${String(cause)}`;
-    toast(error.value, "error", 6500);
+    notify(error.value, "error", 6500, { key: "log-export" });
   } finally {
     exporting.value = false;
   }

@@ -13,6 +13,8 @@ import type {
   Settings,
 } from "../types/launcher";
 import { invoke, isTauri, listenGameState, listenDownloadState } from "./api";
+import { notify, resetNotifications } from "./notifications";
+export { notify, notifications } from "./notifications";
 import { APP_VERSION } from "./version";
 
 let generation = 0;
@@ -355,7 +357,6 @@ export const ui = reactive({
   maximized: false,
   introStarted: false,
   introDone: false,
-  toast: { message: "", kind: "ok", visible: false },
   scrollEdge: { top: false, bottom: false },
 });
 const BUNDLED_CROP_X = 0.54;
@@ -375,7 +376,6 @@ export const media = reactive({
   loopCut: 1,
   initialized: !isTauri(),
 });
-let toastTimer = 0;
 let videoElement: HTMLVideoElement | null = null;
 export function setHeroVideo(video: HTMLVideoElement | null) {
   videoElement = video;
@@ -977,16 +977,6 @@ export function applyHeroMedia(input: string) {
   return value;
 }
 
-export function toast(message: string, kind = "ok", duration = 3400) {
-  window.clearTimeout(toastTimer);
-  Object.assign(ui.toast, { message, kind, visible: true });
-  if (duration > 0) {
-    toastTimer = schedule(() => {
-      ui.toast.visible = false;
-    }, duration);
-  }
-}
-
 function applyBootstrap(
   data: Bootstrap,
   announceError = true,
@@ -1018,7 +1008,14 @@ function applyBootstrap(
   const ready = isReady(data);
   ui.setupNeeded = !ready;
   if (data.error && announceError) {
-    toast(data.error, "error", 6000);
+    notify(data.error, "error", 6000, {
+      key: "bootstrap",
+      primary: {
+        label: "打开设置",
+        icon: "i-gear-six",
+        run: () => showPage("settings"),
+      },
+    });
   }
   if (!syncForm) return;
   applyTheme(settings.theme || "light");
@@ -1064,7 +1061,15 @@ export async function checkUpdate(full = false, silent = false) {
     if (epoch !== generation) return;
     const message = error instanceof Error ? error.message : String(error);
     ui.updateError = true;
-    if (!silent) toast(message, "error", 6500);
+    if (!silent)
+      notify(message, "error", 6500, {
+        key: "update-check",
+        primary: {
+          label: "重试",
+          icon: "i-arrows-clockwise",
+          run: () => checkUpdate(full, false),
+        },
+      });
   } finally {
     if (epoch === generation) {
       state.checking = false;
@@ -1133,10 +1138,18 @@ export async function startGameDownload(
     pollDownloadStatus();
   } catch (error) {
     if (epoch === generation && !silent)
-      toast(
+      notify(
         error instanceof Error ? error.message : String(error),
         "error",
         6500,
+        {
+          key: "game-download",
+          primary: {
+            label: "重试",
+            icon: "i-arrows-clockwise",
+            run: () => startGameDownload(mode, full, false),
+          },
+        },
       );
   } finally {
     if (epoch === generation) downloadStarting.value = null;
@@ -1177,7 +1190,7 @@ export async function cancelGameDownload() {
     if (epoch === generation && revision === downloadRevision)
       applyDownloadStatus(status);
   } catch (error) {
-    toast(String(error), "error", 6500);
+    notify(String(error), "error", 6500);
   }
 }
 
@@ -1226,7 +1239,15 @@ export async function fetchBulletins(silent = true, force = false) {
     state.bulletins = feed;
     writeBulletinCache(feed, distribution);
     if (!silent && feed.errors.length > 0 && feed.items.length === 0) {
-      toast("公告暂时无法更新，请稍后重试。", "error", 6000);
+      notify("公告暂时无法更新，请稍后重试。", "error", 6000, {
+        key: "bulletins",
+        primary: {
+          label: "重试",
+          icon: "i-arrows-clockwise",
+          run: () => fetchBulletins(false, true),
+        },
+        secondary: { label: "查看公告", run: () => showPage("bulletin") },
+      });
     }
   } catch (error) {
     if (epoch !== generation || request !== bulletinRequest) return;
@@ -1237,10 +1258,19 @@ export async function fetchBulletins(silent = true, force = false) {
       };
     }
     if (!silent) {
-      toast(
+      notify(
         error instanceof Error ? error.message : String(error),
         "error",
         6000,
+        {
+          key: "bulletins",
+          primary: {
+            label: "重试",
+            icon: "i-arrows-clockwise",
+            run: () => fetchBulletins(false, true),
+          },
+          secondary: { label: "查看公告", run: () => showPage("bulletin") },
+        },
       );
     }
   } finally {
@@ -1261,7 +1291,7 @@ function applyGameStatus(
   // 启动和关闭期间由命令维护按钮状态, 避免事件覆盖中间反馈。
   const previous = state.game;
   if (!force && (previous === "launching" || previous === "closing")) return;
-  if (announce && status.error) toast(status.error, "error", 7500);
+  if (announce && status.error) notify(status.error, "error", 7500);
   if (status.running) {
     state.session = status;
     setLaunchState(status.closing ? "closing" : "running");
@@ -1270,7 +1300,7 @@ function applyGameStatus(
   state.session = null;
   setLaunchState("idle");
   if (announce && !status.error && previous === "running")
-    toast("游戏已退出。");
+    notify("游戏已退出。");
 }
 
 async function syncGameStatus() {
@@ -1287,10 +1317,17 @@ async function launchGame() {
   if (state.game !== "idle" || runtimeEnvironmentBusy.value) return;
   if (!state.bootstrap?.prefixExists) {
     showPage("settings");
-    toast("请先在设置中创建并选择 Proton 运行环境.", "error", 6500);
+    notify("请先在设置中创建并选择 Proton 运行环境.", "error", 6500, {
+      key: "runtime-required",
+      primary: {
+        label: "打开设置",
+        icon: "i-gear-six",
+        run: () => showPage("settings"),
+      },
+    });
     return;
   }
-  if (!isTauri()) toast("浏览器预览：模拟启动流程。", "ok", 2600);
+  if (!isTauri()) notify("浏览器预览：模拟启动流程。", "ok", 2600);
   setLaunchState("launching");
   const startedAt = performance.now();
   try {
@@ -1306,7 +1343,7 @@ async function launchGame() {
     if (epoch !== generation) return;
     if (status && !status.running) {
       setLaunchState("idle");
-      toast(status.error || "游戏进程已退出，启动未完成。", "error", 7000);
+      notify(status.error || "游戏进程已退出，启动未完成。", "error", 7000);
       return;
     }
 
@@ -1325,7 +1362,7 @@ async function launchGame() {
     if (epoch !== generation) return;
     if (status && status.running) applyGameStatus(status, { force: true });
     else setLaunchState("idle");
-    toast(
+    notify(
       error instanceof Error ? error.message : String(error),
       "error",
       7500,
@@ -1341,7 +1378,7 @@ async function closeGame() {
     const status = await invoke("close_game");
     if (epoch !== generation) return;
     applyGameStatus(status, { force: true });
-    toast("游戏已关闭。");
+    notify("游戏已关闭。");
   } catch (error) {
     if (epoch !== generation) return;
     let status = null;
@@ -1351,7 +1388,7 @@ async function closeGame() {
     if (epoch !== generation) return;
     if (status) applyGameStatus(status, { force: true });
     else setLaunchState("running");
-    toast(
+    notify(
       error instanceof Error ? error.message : String(error),
       "error",
       7500,
@@ -1540,7 +1577,11 @@ async function persistCurrentSettings(
       } catch (cause) {
         if (epoch !== generation) return false;
         if (!silent)
-          toast("签到设置保存失败: " + attendanceMessage(cause), "error", 6000);
+          notify(
+            "签到设置保存失败: " + attendanceMessage(cause),
+            "error",
+            6000,
+          );
         ui.saveState = "error";
         return false;
       }
@@ -1550,7 +1591,7 @@ async function persistCurrentSettings(
   } catch (error) {
     if (epoch !== generation) return false;
     if (!silent)
-      toast(
+      notify(
         error instanceof Error ? error.message : String(error),
         "error",
         6000,
@@ -1584,12 +1625,12 @@ async function changeEnvironment(
     const data = await operation();
     if (epoch !== generation) return false;
     applyBootstrap(data);
-    toast("运行环境已更新.");
+    notify("运行环境已更新.");
     return true;
   } catch (cause) {
     if (epoch === generation) {
       runtimeEnvironmentError.value = String(cause);
-      toast(runtimeEnvironmentError.value, "error", 6500);
+      notify(runtimeEnvironmentError.value, "error", 6500);
     }
     return false;
   } finally {
@@ -1632,10 +1673,10 @@ export async function redetect() {
     const data = await invoke("bootstrap");
     if (epoch !== generation) return;
     applyBootstrap(data);
-    toast("已重新检测环境。");
+    notify("已重新检测环境。");
   } catch (error) {
     if (epoch !== generation) return;
-    toast(
+    notify(
       error instanceof Error ? error.message : String(error),
       "error",
       6000,
@@ -1649,16 +1690,16 @@ export async function openUrl(url: string) {
   const epoch = generation;
   if (!isTauri()) {
     window.open(url, "_blank", "noopener,noreferrer");
-    toast("预览模式：已在新标签页打开。");
+    notify("预览模式：已在新标签页打开。");
     return;
   }
   try {
     await invoke("open_url", { url });
     if (epoch !== generation) return;
-    toast("已在浏览器打开。");
+    notify("已在浏览器打开。");
   } catch (error) {
     if (epoch !== generation) return;
-    toast(
+    notify(
       error instanceof Error ? error.message : String(error),
       "error",
       6000,
@@ -1719,7 +1760,7 @@ export async function windowAction(action: "minimize" | "maximize" | "close") {
     await invoke(command);
   } catch (error) {
     if (epoch !== generation) return;
-    toast(error instanceof Error ? error.message : String(error), "error");
+    notify(error instanceof Error ? error.message : String(error), "error");
   }
 }
 
@@ -1857,7 +1898,7 @@ export async function init() {
   } catch (error) {
     if (epoch !== generation) return;
     ui.setupNeeded = true;
-    toast(
+    notify(
       error instanceof Error ? error.message : String(error),
       "error",
       6500,
@@ -1914,7 +1955,7 @@ export function dispose() {
   introWaiters.length = 0;
   ui.introStarted = false;
   ui.introDone = false;
-  ui.toast.visible = false;
+  resetNotifications();
   Object.assign(state, {
     bootstrap: null,
     check: null,
