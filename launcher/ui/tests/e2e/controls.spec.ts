@@ -1,3 +1,4 @@
+import { settingsCategory } from "./settings-helpers";
 import { test, expect } from "@playwright/test";
 
 test("选择器方向键预览、Escape 取消、Enter 确认与暗色浮层", async ({
@@ -22,6 +23,7 @@ test("选择器方向键预览、Escape 取消、Enter 确认与暗色浮层", a
   await trigger.click();
   await expect(page.getByRole("listbox")).toHaveAttribute("data-theme", "dark");
   await page.keyboard.press("Escape");
+  await settingsCategory(page, "runtime");
   await page.getByRole("button", { name: "创建运行环境", exact: true }).click();
   const dialog = page.getByRole("dialog", {
     name: "创建运行环境",
@@ -42,6 +44,7 @@ test("选择器方向键预览、Escape 取消、Enter 确认与暗色浮层", a
 
 test("分段控件保持键盘焦点, 登录表单跟随选择切换", async ({ page }) => {
   await page.goto("/#settings");
+  await settingsCategory(page, "account");
   await page.locator("#attendance-action").click();
   const dialog = page.getByRole("dialog");
   const password = dialog.getByRole("tab", { name: "密码登录" });

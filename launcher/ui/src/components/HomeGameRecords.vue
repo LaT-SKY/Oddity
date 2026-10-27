@@ -20,7 +20,7 @@ import {
   gameRecords,
   loadAttendance,
   refreshGameRecords,
-  showPage,
+  openSettings,
   state,
 } from "../core/controller";
 import { usePlayerMotion } from "../composables/usePlayerMotion";
@@ -93,7 +93,7 @@ function close() {
 }
 function settings() {
   close();
-  showPage("settings");
+  openSettings("account");
 }
 function outside(event: PointerEvent) {
   const root = document.getElementById(triggerId)?.parentElement;

@@ -1,3 +1,4 @@
+import { settingsCategory } from "./settings-helpers";
 import { test, expect } from "@playwright/test";
 
 test("应用名称下方生长、通知堆叠、展开与单主要动作", async ({ page }) => {
@@ -319,6 +320,7 @@ test("最后一条通知沿弧线缩回图标, 动画结束后再移除", async 
 test("连续启动和关闭时, 旧通知只下移一层且不跳到下一行", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.goto("/#settings");
+  await settingsCategory(page, "runtime");
   await page.getByRole("button", { name: "创建运行环境", exact: true }).click();
   await page.locator("#runtime-environment-name").fill("通知动画验证");
   await page.locator("#runtime-environment-proton").fill("/opt/Proton");

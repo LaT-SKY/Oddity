@@ -1,10 +1,13 @@
+import { settingsCategory } from "./settings-helpers";
 import { test, expect, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 async function addAccount(page: Page, phone: string, first = false) {
+  await settingsCategory(page, "account");
   if (first) await page.locator("#attendance-action").click();
   else {
+    await settingsCategory(page, "account");
     await page.locator("#attendance-manage").click();
     await page.getByRole("button", { name: "添加账号", exact: true }).click();
   }
@@ -65,6 +68,7 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
   await screenshot(page, "home-empty-light.png");
   await page.getByRole("button", { name: /前往设置登录/ }).click();
   await expect(page.locator("#attendance-action")).toHaveText("立即登录");
+  await settingsCategory(page, "appearance");
   await page.locator("#set-hero-media-trigger").click();
   await page.getByRole("option", { name: "静态照片", exact: true }).click();
   await addAccount(page, "13800138000", true);
@@ -89,6 +93,7 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
   await page.getByRole("button", { name: "刷新游戏状态" }).click();
   await expect(panel).toHaveAttribute("aria-busy", "false");
   await page.locator('[data-page="settings"]').click();
+  await settingsCategory(page, "appearance");
   await page.locator("#set-theme-trigger").click();
   await page.getByRole("option", { name: "暗色", exact: true }).click();
   await page.locator('[data-page="home"]').click();
@@ -156,6 +161,7 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
   await page.locator("#home-title").click();
   await expect(panel).toHaveCount(0);
   await page.locator('[data-page="settings"]').click();
+  await settingsCategory(page, "account");
   await page.locator("#attendance-manage").click();
   await page.getByRole("button", { name: "移除", exact: true }).first().click();
   await page.getByRole("button", { name: "确认移除", exact: true }).click();

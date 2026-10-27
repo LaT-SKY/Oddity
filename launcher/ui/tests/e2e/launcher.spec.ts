@@ -1,3 +1,4 @@
+import { settingsCategory } from "./settings-helpers";
 import { test, expect, type Page } from "@playwright/test";
 
 interface ModalFrame {
@@ -84,10 +85,11 @@ test("导航、更新、设置、快捷键与启动关闭流程", async ({ page 
   await expect(page.locator("#app")).toHaveAttribute("data-theme", "dark");
   await page.locator("#set-hero-media-trigger").click();
   await page.getByRole("option", { name: "静态照片", exact: true }).click();
-  await page.locator(".switch-row").first().click();
+  await page.getByRole("checkbox", { name: "减少动效", exact: true }).check();
   await expect(page.locator("#set-motion")).toBeChecked();
   await expect(page.locator("#set-minimize-to-tray")).toBeChecked();
   await expect(page.locator("#app")).toHaveClass(/reduce-motion/);
+  await settingsCategory(page, "game");
   await page.locator("#set-install").fill("/tmp/oddity-game");
   await page.locator("#set-install").press("Tab");
   await expect(page.locator("#settings-form")).toHaveAttribute(
@@ -96,6 +98,7 @@ test("导航、更新、设置、快捷键与启动关闭流程", async ({ page 
   );
   await page.locator("#settings-redetect").click();
   await expect(page.locator("#set-install")).toHaveValue("/tmp/oddity-game");
+  await settingsCategory(page, "runtime");
   await page.getByRole("button", { name: "创建运行环境", exact: true }).click();
   await page.locator("#runtime-environment-name").fill("默认环境");
   await page.locator("#runtime-environment-proton").fill("/opt/Proton");
@@ -243,6 +246,7 @@ test("视频双缓冲循环无黑帧, 离页暂停并保留进度", async ({ pag
 test("多账号签到、自动保存和账号管理", async ({ page }) => {
   await page.goto("/#settings");
   const panel = page.locator(".attendance");
+  await settingsCategory(page, "account");
   const action = page.locator("#attendance-action");
   await expect(action).toHaveText("立即登录");
   await expect(page.locator("#attendance-enabled")).toBeDisabled();
@@ -361,6 +365,7 @@ test("多账号签到、自动保存和账号管理", async ({ page }) => {
 test("Motion 弹窗入场、快速重开与减少动态效果", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/#settings");
+  await settingsCategory(page, "account");
   const action = page.locator("#attendance-action");
   const dialog = page.getByRole("dialog");
   await action.scrollIntoViewIfNeeded();
@@ -410,7 +415,9 @@ test("Motion 弹窗入场、快速重开与减少动态效果", async ({ page })
   expect(removed).toBeGreaterThan(0);
   expect(exit.slice(removed).every((frame) => !frame.present)).toBe(true);
   await expect(page.locator(".modal")).toHaveCount(0);
+  await settingsCategory(page, "appearance");
   await page.locator("#set-motion").check({ force: true });
+  await settingsCategory(page, "account");
   await action.click();
   expect(
     await dialog.evaluate((element) => element.getAnimations().length),
@@ -421,7 +428,9 @@ test("Motion 弹窗入场、快速重开与减少动态效果", async ({ page })
       .evaluate((element) => getComputedStyle(element).clipPath),
   ).toBe("none");
   await dialog.press("Escape");
+  await settingsCategory(page, "appearance");
   await page.locator("#set-motion").uncheck({ force: true });
+  await settingsCategory(page, "account");
   await page.emulateMedia({ reducedMotion: "reduce" });
   await action.click();
   expect(
@@ -436,6 +445,7 @@ test("Motion 弹窗入场、快速重开与减少动态效果", async ({ page })
 
 test("国际服切换同步启动方式、公告来源和专属功能", async ({ page }) => {
   await page.goto("/#settings");
+  await settingsCategory(page, "game");
   await page.locator("#set-distribution-trigger").click();
   await page.getByRole("option", { name: "国际服", exact: true }).click();
   await expect(page.locator("#settings-form")).toHaveAttribute(

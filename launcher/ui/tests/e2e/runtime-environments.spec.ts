@@ -1,3 +1,4 @@
+import { settingsCategory } from "./settings-helpers";
 import { test, expect } from "@playwright/test";
 
 test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async ({ page }) => {
@@ -8,6 +9,7 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
   await expect(page.locator("#page-settings")).toBeVisible();
   await expect(page.locator("#set-proton")).toHaveCount(0);
   await expect(page.locator("#set-prefix")).toHaveCount(0);
+  await settingsCategory(page, "runtime");
   const section = page
     .locator("section", { has: page.locator("#runtime-environments-title") })
     .last();
@@ -202,11 +204,13 @@ test("创建时可选择任一已安装区服, 创建副本保持当前区服并
   page,
 }) => {
   await page.goto("/#settings");
+  await settingsCategory(page, "game");
   await page.locator("#set-global-install").fill("/tmp/NTEGlobal");
   await expect(page.locator("#settings-form")).toHaveAttribute(
     "data-save-state",
     "saved",
   );
+  await settingsCategory(page, "runtime");
   const section = page
     .locator("section", { has: page.locator("#runtime-environments-title") })
     .last();

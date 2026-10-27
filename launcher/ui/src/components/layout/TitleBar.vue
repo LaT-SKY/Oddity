@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { motion } from "motion-v";
 import NavigationRail from "./NavigationRail.vue";
-import { ui, showPage, windowAction, dragWindow } from "../../core/controller";
+import {
+  ui,
+  state,
+  openSettings,
+  windowAction,
+  dragWindow,
+} from "../../core/controller";
 </script>
 
 <template>
@@ -21,7 +27,11 @@ import { ui, showPage, windowAction, dragWindow } from "../../core/controller";
         :while-press="{ scale: 0.88 }"
         class="setup-chip"
         id="setup-chip"
-        @click="showPage('settings')"
+        @click="
+          openSettings(
+            state.bootstrap?.prefixExists ? 'maintenance' : 'runtime',
+          )
+        "
         type="button"
         :hidden="!ui.setupNeeded"
         :data-state="ui.setupNeeded ? 'warn' : 'ok'"

@@ -15,6 +15,7 @@ import type {
 import { invoke, isTauri, listenGameState, listenDownloadState } from "./api";
 import { notify, resetNotifications } from "./notifications";
 export { notify, notifications } from "./notifications";
+import { settingsNavigation, type SettingsCategory } from "./settingsCatalog";
 import { APP_VERSION } from "./version";
 
 let generation = 0;
@@ -1013,7 +1014,7 @@ function applyBootstrap(
       primary: {
         label: "打开设置",
         icon: "i-gear-six",
-        run: () => showPage("settings"),
+        run: () => openSettings(data.prefixExists ? "maintenance" : "runtime"),
       },
     });
   }
@@ -1316,13 +1317,13 @@ async function launchGame() {
   const epoch = generation;
   if (state.game !== "idle" || runtimeEnvironmentBusy.value) return;
   if (!state.bootstrap?.prefixExists) {
-    showPage("settings");
+    openSettings("runtime");
     notify("请先在设置中创建并选择 Proton 运行环境.", "error", 6500, {
       key: "runtime-required",
       primary: {
         label: "打开设置",
         icon: "i-gear-six",
-        run: () => showPage("settings"),
+        run: () => openSettings("runtime"),
       },
     });
     return;
@@ -1730,6 +1731,12 @@ export function syncScrollEdges() {
   }
   ui.scrollEdge.top = scrollTop > 4;
   ui.scrollEdge.bottom = scrollTop < maxScroll - 4;
+}
+
+export function openSettings(category: SettingsCategory) {
+  settingsNavigation.category = category;
+  settingsNavigation.query = "";
+  showPage("settings");
 }
 
 export function showPage(name: string | undefined, syncHash = true) {
