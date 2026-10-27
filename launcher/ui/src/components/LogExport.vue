@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import SettingGroup from "./settings/SettingGroup.vue";
+import SettingRow from "./settings/SettingRow.vue";
+import BaseButton from "./BaseButton.vue";
 import { ref } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke, isTauri } from "../core/api";
@@ -40,36 +43,34 @@ async function exportLogs() {
 </script>
 
 <template>
-  <section class="settings-section">
-    <h3>日志</h3>
-    <div class="field">
-      <small class="field__hint">
-        将 Oddity 启动及后台会话日志打包为 ZIP, 保存到所选文件夹.
-      </small>
-      <div>
-        <button
-          id="settings-export-logs"
-          type="button"
-          class="btn btn--ghost"
-          :disabled="exporting"
-          :aria-busy="exporting"
-          @click="exportLogs"
-        >
-          {{ exporting ? "正在导出..." : "导出日志" }}
-        </button>
-      </div>
-      <small
-        v-if="savedPath"
-        class="field__hint log-export__result"
-        role="status"
+  <SettingGroup title="日志">
+    <SettingRow
+      label="启动与后台会话"
+      description="将 Oddity 启动及后台会话日志打包为 ZIP, 保存到所选文件夹."
+    >
+      <BaseButton
+        id="settings-export-logs"
+        icon="i-download-simple"
+        :busy="exporting"
+        @click="exportLogs"
+        >{{ exporting ? "正在导出..." : "导出日志" }}</BaseButton
       >
-        日志已导出至: {{ savedPath }}
-      </small>
-      <small v-if="error" class="field__hint log-export__result" role="alert">{{
-        error
-      }}</small>
-    </div>
-  </section>
+      <template v-if="savedPath || error" #detail>
+        <small
+          v-if="savedPath"
+          class="field__hint log-export__result"
+          role="status"
+          >日志已导出至: {{ savedPath }}</small
+        >
+        <small
+          v-if="error"
+          class="field__hint log-export__result"
+          role="alert"
+          >{{ error }}</small
+        >
+      </template>
+    </SettingRow>
+  </SettingGroup>
 </template>
 
 <style scoped>

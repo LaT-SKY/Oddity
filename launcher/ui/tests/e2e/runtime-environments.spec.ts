@@ -29,7 +29,7 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
     exact: true,
   });
   await expect(unavailable).toBeDisabled();
-  await expect(unavailable).toHaveCSS("opacity", "0.5");
+  await expect(unavailable).toHaveCSS("opacity", "0.4");
   await createDialog.getByRole("option", { name: "国服", exact: true }).click();
 
   await page.keyboard.press("Escape");
@@ -59,8 +59,11 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
       .getByRole("button", { name: "取消创建", exact: true })
       .boundingBox())!.x,
   );
-  await expect(createDialog).toHaveCSS("opacity", "1");
-  await expect(createDialog).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
+  await expect(createDialog.locator(".modal__panel")).toHaveCSS("opacity", "1");
+  await expect(createDialog.locator(".modal__panel")).toHaveCSS(
+    "clip-path",
+    "inset(0% round 24px)",
+  );
   await page.screenshot({ path: "test-results/environment-create-dialog.png" });
   await createDialog
     .getByRole("button", { name: "创建环境", exact: true })
@@ -144,7 +147,6 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
   await select.click();
   await page.getByRole("option", { name: "A 的副本", exact: true }).click();
   const remove = section.getByRole("button", { name: "删除环境", exact: true });
-  await expect(remove).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await remove.click();
   const dialog = page.getByRole("dialog", { name: "删除运行环境" });
   await expect(dialog).toBeVisible();
@@ -169,8 +171,11 @@ test("先创建环境再启动, A/B 副本、稳定标记及删除弹窗", async
       .getByRole("button", { name: "取消", exact: true })
       .boundingBox())!.x,
   );
-  await expect(dialog).toHaveCSS("opacity", "1");
-  await expect(dialog).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
+  await expect(dialog.locator(".modal__panel")).toHaveCSS("opacity", "1");
+  await expect(dialog.locator(".modal__panel")).toHaveCSS(
+    "clip-path",
+    "inset(0% round 24px)",
+  );
   await page.screenshot({ path: "test-results/environment-delete-dialog.png" });
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);

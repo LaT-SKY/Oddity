@@ -20,35 +20,35 @@
   color-scheme: light;
 
   /* 颜色 */
-  --bg: #f2efe6;
-  --bg-2: #e9e4d8;
-  --surface: rgba(255, 253, 247, 0.72);
-  --surface-2: rgba(255, 253, 247, 0.5);
-  --surface-solid: #faf7ee;
-  --input-bg: #fffdf7;
-  --hero-bg: #e5dfd0;
+  --bg: #eef1f4;
+  --bg-2: #e5e9ee;
+  --surface: rgb(250 252 255 / 82%);
+  --surface-2: rgb(255 255 255 / 46%);
+  --surface-solid: #f5f7fa;
+  --input-bg: #ffffff;
+  --hero-bg: #131d27;
 
-  --bone: #141814;
-  --text-soft: #252a25;
-  --muted: #343934;
-  --faint: #414641;
-  --ink: #101410;
-  --line: rgba(20, 24, 20, 0.14);
-  --line-strong: rgba(20, 24, 20, 0.28);
-  --control-border: rgba(20, 24, 20, 0.42);
-  --field-border: rgba(20, 24, 20, 0.18);
-  --hover: rgba(20, 24, 20, 0.035);
-  --pressed: rgba(20, 24, 20, 0.06);
+  --bone: #202832;
+  --text-soft: #34404d;
+  --muted: #566270;
+  --faint: #637181;
+  --ink: #161e27;
+  --line: rgba(32, 40, 50, 0.14);
+  --line-strong: rgba(32, 40, 50, 0.28);
+  --control-border: rgba(32, 40, 50, 0.42);
+  --field-border: rgba(32, 40, 50, 0.18);
+  --hover: rgba(32, 40, 50, 0.035);
+  --pressed: rgba(32, 40, 50, 0.06);
 
-  --signal: #c8f04b;
-  --signal-strong: #3f5600;
-  --signal-ink: #101505;
-  --signal-dim: rgba(79, 103, 0, 0.12);
-  --accent-text: #3f5600;
-  --nav-active-color: #2f3d08;
-  --nav-active-bg: rgba(108, 138, 12, 0.16);
-  --nav-active-bar: #3f5600;
-  --dot-signal: #3f5600;
+  --signal: #d5e0ec;
+  --signal-strong: #354c65;
+  --signal-ink: #202e3d;
+  --signal-dim: rgba(53, 76, 101, 0.12);
+  --accent-text: #354c65;
+  --nav-active-color: #293e54;
+  --nav-active-bg: rgba(53, 76, 101, 0.16);
+  --nav-active-bar: #354c65;
+  --dot-signal: #354c65;
   --danger: #8a1c11;
   --warn: #6b4700;
   --dot-warn: #6b4700;
@@ -60,33 +60,40 @@
   --win-close: #8a1c11;
   --win-close-bg: rgba(138, 28, 17, 0.08);
 
-  --primary-bg: #c8f04b;
-  --primary-fg: #101505;
-  --primary-hover: #d3f76a;
-  --primary-shadow: 0 12px 32px rgba(84, 103, 16, 0.18);
-  --primary-icon-bg: rgba(16, 21, 5, 0.14);
-  --primary-border: rgba(20, 24, 20, 0.28);
-  --ghost-bg: rgba(20, 24, 20, 0.055);
-  --ghost-hover: rgba(20, 24, 20, 0.09);
-  --focus: #3f5600;
-  --scroll-thumb: rgba(20, 24, 20, 0.2);
-  --switch-bg: #918d83;
-  --switch-knob: #fffdf7;
-  --switch-on-bg: #3f5600;
-  --switch-on-knob: #c8f04b;
-  --selection-bg: #171b17;
-  --selection-fg: #e9f6c3;
-  --modal-shadow: 0 20px 60px rgba(20, 24, 20, 0.16);
-  --modal-backdrop: rgba(20, 24, 20, 0.42);
-  --meter-track: rgba(20, 24, 20, 0.12);
-  --tag-border: rgba(20, 24, 20, 0.18);
-  --input-focus-border: rgba(63, 86, 0, 0.52);
-  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 256 256'%3E%3Cpath fill='%233f5600' d='M213.66 101.66l-80 80a8 8 0 0 1-11.32 0l-80-80a8 8 0 0 1 11.32-11.32L128 164.69l74.34-74.35a8 8 0 0 1 11.32 11.32Z'/%3E%3C/svg%3E");
-  --window-border: rgba(20, 24, 20, 0.12);
+  --primary-bg: #d5e0ec;
+  --primary-fg: #202e3d;
+  --primary-hover: #e1e9f2;
+  --primary-shadow: none;
+  --primary-icon-bg: rgba(32, 46, 61, 0.14);
+  --primary-border: rgba(32, 40, 50, 0.28);
+  --ghost-bg: rgba(32, 40, 50, 0.055);
+  --ghost-hover: rgba(32, 40, 50, 0.09);
+  --focus: #354c65;
+  --scroll-thumb: rgba(32, 40, 50, 0.2);
+  --switch-bg: #a0aab6;
+  --switch-knob: #ffffff;
+  --switch-on-bg: #354c65;
+  --switch-on-knob: #d5e0ec;
+  --selection-bg: #293e54;
+  --selection-fg: #eef3f9;
+  --modal-shadow: 0 20px 60px rgba(32, 40, 50, 0.16);
+  --modal-backdrop: rgba(32, 40, 50, 0.42);
+  --meter-track: rgba(32, 40, 50, 0.12);
+  --tag-border: rgba(32, 40, 50, 0.18);
+  --input-focus-border: rgba(53, 76, 101, 0.52);
+  --window-border: rgba(32, 40, 50, 0.12);
+
+  --control-height: 40px;
+  --control-height-sm: 32px;
+  --control-icon-size: 17px;
+  --control-inset: 13px;
+  --control-ring: 0 0 0 3px color-mix(in srgb, var(--focus) 13%, transparent);
+  --surface-elevation:
+    0 10px 36px rgb(7 17 29 / 12%), 0 1px 3px rgb(7 17 29 / 6%);
 
   /* 组件阴影 */
   --hero-inset-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
-  --switch-knob-shadow: 0 1px 2px rgba(20, 24, 20, 0.18);
+  --switch-knob-shadow: 0 1px 2px rgba(32, 40, 50, 0.18);
 
   /* 间距。编号即像素值, 只收录用到的档位; 奇数档用于光学微调。 */
   --space-2: 2px;
@@ -141,26 +148,13 @@
 
   /* 圆角 */
   --r-icon: 7px;
-  --r-control: 8px;
-  --r-sm: 10px;
-  --r-md: 14px;
+  --r-control: 11px;
+  --r-sm: 12px;
+  --r-md: 16px;
   --r-lg: 24px;
   --r-xl: 30px;
   --window-radius: 24px;
   --pill: 999px;
-
-  /* 动效 */
-  --ease: cubic-bezier(0.32, 0.72, 0, 1);
-  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --duration-fade: 120ms;
-  --duration-fast: 140ms;
-  --duration-quick: 160ms;
-  --duration-base: 180ms;
-  --duration-slow: 200ms;
-  --duration-intro: 320ms;
-  --duration-instant: 0.001ms;
-  --duration-spin: 1s;
-  --duration-pulse: 1.1s;
 
   /* 层级 */
   --z-hero-art: 1;
@@ -170,7 +164,7 @@
   --z-rail: 4;
   --z-titlebar: 10;
   --z-scroll-edge: 20;
-  --z-select: 70;
+  --z-select: 1005;
   --z-grain: 80;
   --z-notification: 120;
   --z-modal: 1000;
@@ -183,38 +177,39 @@
 }
 
 .app[data-theme="dark"],
-.modal[data-theme="dark"] {
+.modal[data-theme="dark"],
+.control-popover[data-theme="dark"] {
   color-scheme: dark;
 
-  --bg: #070807;
-  --bg-2: #0c0e0c;
-  --surface: rgba(18, 21, 18, 0.55);
-  --surface-2: rgba(12, 14, 12, 0.42);
-  --surface-solid: #121512;
-  --input-bg: rgba(7, 8, 7, 0.6);
-  --hero-bg: #0c0e0c;
+  --bg: #10151c;
+  --bg-2: #151b24;
+  --surface: rgba(25, 32, 42, 0.55);
+  --surface-2: rgba(19, 26, 35, 0.42);
+  --surface-solid: #19212c;
+  --input-bg: rgba(12, 18, 26, 0.6);
+  --hero-bg: #151b24;
 
-  --bone: #ede8dc;
-  --text-soft: #d8d4c9;
-  --muted: #b8beb2;
-  --faint: #a8aea3;
-  --ink: #0a0c08;
-  --line: rgba(237, 232, 220, 0.14);
-  --line-strong: rgba(237, 232, 220, 0.28);
-  --control-border: rgba(237, 232, 220, 0.3);
-  --field-border: rgba(237, 232, 220, 0.18);
-  --hover: rgba(237, 232, 220, 0.06);
-  --pressed: rgba(237, 232, 220, 0.1);
+  --bone: #edf2f8;
+  --text-soft: #d0dae6;
+  --muted: #aebccc;
+  --faint: #9cabbc;
+  --ink: #172434;
+  --line: rgba(227, 236, 248, 0.14);
+  --line-strong: rgba(227, 236, 248, 0.28);
+  --control-border: rgba(227, 236, 248, 0.3);
+  --field-border: rgba(227, 236, 248, 0.18);
+  --hover: rgba(227, 236, 248, 0.06);
+  --pressed: rgba(227, 236, 248, 0.1);
 
-  --signal: #c8f04b;
-  --signal-strong: #c8f04b;
-  --signal-ink: #0a0c08;
-  --signal-dim: rgba(200, 240, 75, 0.16);
-  --accent-text: #c8f04b;
-  --nav-active-color: #c8f04b;
-  --nav-active-bg: rgba(200, 240, 75, 0.07);
-  --nav-active-bar: #c8f04b;
-  --dot-signal: #c8f04b;
+  --signal: #d5e0ec;
+  --signal-strong: #d5e0ec;
+  --signal-ink: #172434;
+  --signal-dim: rgba(176, 200, 225, 0.16);
+  --accent-text: #d5e0ec;
+  --nav-active-color: #d5e0ec;
+  --nav-active-bg: rgba(176, 200, 225, 0.07);
+  --nav-active-bar: #d5e0ec;
+  --dot-signal: #d5e0ec;
   --danger: #ffb4a8;
   --warn: #f0c86a;
   --dot-warn: #f0c86a;
@@ -226,27 +221,26 @@
   --win-close: #ffb2a7;
   --win-close-bg: rgba(226, 104, 90, 0.16);
 
-  --primary-bg: #c8f04b;
-  --primary-fg: #0a0c08;
-  --primary-hover: #d3f76a;
-  --primary-shadow: 0 12px 32px rgba(200, 240, 75, 0.12);
-  --primary-icon-bg: rgba(7, 8, 7, 0.14);
+  --primary-bg: #d5e0ec;
+  --primary-fg: #172434;
+  --primary-hover: #e1e9f2;
+  --primary-shadow: none;
+  --primary-icon-bg: rgba(12, 18, 26, 0.14);
   --primary-border: transparent;
-  --ghost-bg: rgba(237, 232, 220, 0.06);
-  --ghost-hover: rgba(237, 232, 220, 0.1);
-  --focus: #c8f04b;
-  --scroll-thumb: rgba(237, 232, 220, 0.16);
-  --switch-bg: #5a5e56;
-  --switch-knob: #ede8dc;
-  --switch-on-bg: #c8f04b;
-  --switch-on-knob: #0a0c08;
-  --selection-bg: #c8f04b;
-  --selection-fg: #0a0c08;
+  --ghost-bg: rgba(227, 236, 248, 0.06);
+  --ghost-hover: rgba(227, 236, 248, 0.1);
+  --focus: #d5e0ec;
+  --scroll-thumb: rgba(227, 236, 248, 0.16);
+  --switch-bg: #536172;
+  --switch-knob: #edf2f8;
+  --switch-on-bg: #d5e0ec;
+  --switch-on-knob: #172434;
+  --selection-bg: #d5e0ec;
+  --selection-fg: #172434;
   --modal-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   --modal-backdrop: rgba(0, 0, 0, 0.62);
-  --meter-track: rgba(237, 232, 220, 0.1);
-  --tag-border: rgba(237, 232, 220, 0.14);
-  --input-focus-border: rgba(200, 240, 75, 0.52);
-  --select-arrow: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 256 256'%3E%3Cpath fill='%23a8aea3' d='M213.66 101.66l-80 80a8 8 0 0 1-11.32 0l-80-80a8 8 0 0 1 11.32-11.32L128 164.69l74.34-74.35a8 8 0 0 1 11.32 11.32Z'/%3E%3C/svg%3E");
-  --window-border: rgba(237, 232, 220, 0.1);
+  --meter-track: rgba(227, 236, 248, 0.1);
+  --tag-border: rgba(227, 236, 248, 0.14);
+  --input-focus-border: rgba(176, 200, 225, 0.52);
+  --window-border: rgba(227, 236, 248, 0.1);
 }

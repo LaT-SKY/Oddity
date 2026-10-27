@@ -4,7 +4,7 @@ interface ModalFrame {
   present: boolean;
   backdrop: number;
   opacity: number;
-  scale: number;
+  reveal: number;
 }
 async function recordModal(
   page: Page,
@@ -24,10 +24,12 @@ async function recordModal(
               present: true,
               backdrop: Number(getComputedStyle(backdrop).opacity),
               opacity: Number(getComputedStyle(surface).opacity),
-              scale: new DOMMatrixReadOnly(getComputedStyle(surface).transform)
-                .a,
+              reveal:
+                Number.parseFloat(
+                  getComputedStyle(surface).clipPath.replace("inset(", ""),
+                ) || 0,
             }
-          : { present: false, backdrop: 0, opacity: 0, scale: 0 },
+          : { present: false, backdrop: 0, opacity: 0, reveal: 0 },
       );
       if (performance.now() - start < duration) requestAnimationFrame(sample);
       else state.done = true;
@@ -364,12 +366,11 @@ test("Motion 弹窗入场、快速重开与减少动态效果", async ({ page })
   await action.scrollIntoViewIfNeeded();
   const entry = await recordModal(page, () => action.click(), 1100);
   expectFade(entry, true);
-  const scales = entry
+  const reveals = entry
     .filter((frame) => frame.present)
-    .map((frame) => frame.scale);
-  expect(Math.min(...scales)).toBeLessThan(0.999);
-  expect(Math.max(...scales)).toBeLessThan(1.01);
-  expect(scales.at(-1)).toBeCloseTo(1, 4);
+    .map((frame) => frame.reveal);
+  expect(Math.max(...reveals)).toBeGreaterThan(1);
+  expect(reveals.at(-1)).toBeCloseTo(0, 4);
   expect(
     entry
       .slice(-10)
@@ -377,9 +378,11 @@ test("Motion 弹窗入场、快速重开与减少动态效果", async ({ page })
   ).toBe(true);
   await expect
     .poll(() =>
-      dialog.evaluate((element) => getComputedStyle(element).transform),
+      dialog
+        .locator(".modal__panel")
+        .evaluate((element) => getComputedStyle(element).clipPath),
     )
-    .toBe("matrix(1, 0, 0, 1, 0, 0)");
+    .toBe("inset(0% round 24px)");
   await expect(dialog.getByRole("button", { name: "关闭弹窗" })).toBeFocused();
   await dialog.press("Escape");
   await expect(action).toBeFocused();
@@ -388,9 +391,11 @@ test("Motion 弹窗入场、快速重开与减少动态效果", async ({ page })
   await expect(dialog.getByRole("button", { name: "关闭弹窗" })).toBeFocused();
   await expect
     .poll(() =>
-      dialog.evaluate((element) => getComputedStyle(element).transform),
+      dialog
+        .locator(".modal__panel")
+        .evaluate((element) => getComputedStyle(element).clipPath),
     )
-    .toBe("matrix(1, 0, 0, 1, 0, 0)");
+    .toBe("inset(0% round 24px)");
   const exit = await recordModal(
     page,
     () => dialog.getByRole("button", { name: "关闭弹窗" }).click(),
@@ -411,7 +416,9 @@ test("Motion 弹窗入场、快速重开与减少动态效果", async ({ page })
     await dialog.evaluate((element) => element.getAnimations().length),
   ).toBe(0);
   expect(
-    await dialog.evaluate((element) => getComputedStyle(element).transform),
+    await dialog
+      .locator(".modal__panel")
+      .evaluate((element) => getComputedStyle(element).clipPath),
   ).toBe("none");
   await dialog.press("Escape");
   await page.locator("#set-motion").uncheck({ force: true });
@@ -421,7 +428,9 @@ test("Motion 弹窗入场、快速重开与减少动态效果", async ({ page })
     await dialog.evaluate((element) => element.getAnimations().length),
   ).toBe(0);
   expect(
-    await dialog.evaluate((element) => getComputedStyle(element).transform),
+    await dialog
+      .locator(".modal__panel")
+      .evaluate((element) => getComputedStyle(element).clipPath),
   ).toBe("none");
 });
 

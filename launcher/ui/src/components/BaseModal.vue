@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, onUpdated, ref, useId, watch } from "vue";
-import { animateSingleValue } from "motion-dom";
+import { useAnimate } from "motion-v";
+import {
+  useControlMotion,
+  surfaceSpring,
+} from "../composables/useControlMotion";
+import BaseButton from "./BaseButton.vue";
+const [, animate] = useAnimate();
+const { reduced } = useControlMotion();
+let reveal = 0;
 const props = defineProps<{
   open: boolean;
   title: string;
@@ -10,7 +18,7 @@ const props = defineProps<{
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
 const titleId = useId();
 const panel = ref<HTMLElement | null>(null);
-let animations: ReturnType<typeof animateSingleValue>[] = [];
+let animations: ReturnType<typeof animate>[] = [];
 let animationRun = 0;
 function stopMotion() {
   animationRun++;
@@ -18,69 +26,68 @@ function stopMotion() {
   animations = [];
 }
 function reducedMotion() {
-  return (
-    props.reduceMotion ||
-    window.matchMedia("(prefers-reduced-motion: reduce)").matches
-  );
+  return props.reduceMotion || reduced.value;
 }
 function beforeEnter(element: Element) {
   if (reducedMotion()) return;
   element.querySelector<HTMLElement>(".modal__backdrop")!.style.opacity = "0";
   const surface = element.querySelector<HTMLElement>(".modal__panel")!;
   surface.style.opacity = "0";
-  surface.style.transform = "translateY(18px) scale(0.97)";
+  reveal = 0;
+  surface.style.clipPath = "inset(42% 12% round 24px)";
 }
 function transition(element: Element, done: () => void, entering: boolean) {
   stopMotion();
   const surface = element.querySelector<HTMLElement>(".modal__panel")!;
   const backdrop = element.querySelector<HTMLElement>(".modal__backdrop")!;
+  const heading = surface.querySelector<HTMLElement>(".modal__head")!;
+  const body = surface.querySelector<HTMLElement>(".modal__body")!;
   if (reducedMotion()) {
+    reveal = entering ? 1 : 0;
     surface.style.opacity = "";
-    surface.style.transform = "";
+    surface.style.clipPath = "";
+    heading.style.opacity = body.style.opacity = "";
+    heading.style.transform = body.style.transform = "";
     backdrop.style.opacity = "";
     done();
     return;
   }
   const run = animationRun;
-  const start = new DOMMatrixReadOnly(getComputedStyle(surface).transform);
-  const targetY = entering ? 0 : 8;
-  const targetScale = entering ? 1 : 0.985;
-  // 逐帧写入最终样式, 避免 WebKit 在原生动画取消交接时闪回旧遮罩。
+  const start = reveal;
   animations = [
-    animateSingleValue(
-      Number(getComputedStyle(backdrop).opacity),
-      entering ? 1 : 0,
-      {
-        duration: entering ? 0.2 : 0.16,
-        ease: "easeOut",
-        onUpdate: (value) => {
-          backdrop.style.opacity = String(value);
-        },
-      },
-    ),
-    animateSingleValue(
-      Number(getComputedStyle(surface).opacity),
-      entering ? 1 : 0,
-      {
-        duration: entering ? 0.16 : 0.12,
-        ease: "easeOut",
-        onUpdate: (value) => {
-          surface.style.opacity = String(value);
-        },
-      },
-    ),
-    animateSingleValue(0, 1, {
-      ...(entering
-        ? { type: "spring" as const, stiffness: 430, damping: 32, mass: 0.95 }
-        : { duration: 0.16, ease: [0.4, 0, 1, 1] as const }),
+    animate(Number(getComputedStyle(backdrop).opacity), entering ? 1 : 0, {
+      duration: entering ? 0.2 : 0.16,
       onUpdate: (value) => {
-        const y = start.m42 + (targetY - start.m42) * value;
-        const scale = start.a + (targetScale - start.a) * value;
-        surface.style.transform = `translateY(${y}px) scale(${scale})`;
+        backdrop.style.opacity = String(value);
+      },
+    }),
+    animate(Number(getComputedStyle(surface).opacity), entering ? 1 : 0, {
+      duration: entering ? 0.12 : 0.16,
+      onUpdate: (value) => {
+        surface.style.opacity = String(value);
+      },
+    }),
+    animate(start, entering ? 1 : 0, {
+      ...(entering
+        ? surfaceSpring
+        : { duration: 0.18, ease: [0.4, 0, 1, 1] as const }),
+      onUpdate: (value) => {
+        reveal = value;
+        const progress = Math.max(0, Math.min(1, value));
+        surface.style.clipPath = `inset(${(1 - progress) * 42}% ${(1 - progress) * 12}% round 24px)`;
+        const titleProgress = Math.max(
+          0,
+          Math.min(1, (progress - 0.15) / 0.65),
+        );
+        const bodyProgress = Math.max(0, Math.min(1, (progress - 0.3) / 0.7));
+        heading.style.opacity = String(titleProgress);
+        body.style.opacity = String(bodyProgress);
+        heading.style.transform = `translateX(${(1 - titleProgress) * 8}px)`;
+        body.style.transform = `translateX(${(1 - bodyProgress) * 12}px)`;
       },
     }),
   ];
-  Promise.all(animations.map((animation) => animation.finished)).then(() => {
+  Promise.all(animations).then(() => {
     if (run === animationRun) {
       animations = [];
       done();
@@ -146,7 +153,10 @@ function keydown(event: KeyboardEvent) {
     panel.value?.querySelectorAll<HTMLElement>(
       'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex="0"]',
     ) ?? [],
-  ).filter((item) => !item.closest('[hidden], [aria-hidden="true"]'));
+  ).filter(
+    (item) =>
+      item.tabIndex >= 0 && !item.closest('[hidden], [aria-hidden="true"]'),
+  );
   const first = items[0],
     last = items.at(-1);
   if (!first) {
@@ -178,30 +188,26 @@ function keydown(event: KeyboardEvent) {
       <div
         v-if="open"
         class="modal"
+        role="dialog"
+        aria-modal="true"
+        :aria-labelledby="titleId"
+        @keydown="keydown"
         :data-theme="theme"
         :inert="!open"
         :aria-hidden="!open || undefined"
       >
         <div class="modal__backdrop" @click="close"></div>
-        <section
-          ref="panel"
-          class="modal__panel"
-          role="dialog"
-          aria-modal="true"
-          :aria-labelledby="titleId"
-          tabindex="-1"
-          @keydown="keydown"
-        >
+        <section ref="panel" class="modal__panel" tabindex="-1">
           <header class="modal__head">
             <h2 :id="titleId">{{ title }}</h2>
-            <button
-              type="button"
-              class="btn btn--link"
+            <BaseButton
+              variant="ghost"
+              size="sm"
+              icon="i-x"
+              icon-only
               aria-label="关闭弹窗"
               @click="close"
-            >
-              <svg class="icon" aria-hidden="true"><use href="#i-x" /></svg>
-            </button>
+            />
           </header>
           <div class="modal__body"><slot /></div>
         </section>
