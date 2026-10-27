@@ -175,8 +175,11 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
 });
 
 test("玩家圆形收束、展开归位、快速开合与减少动态效果", async ({ page }) => {
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/");
+  await page.clock.runFor(1500);
   await expect(page.locator("#app")).toHaveClass(/is-intro-done/);
   await page.evaluate(() => {
     const probe = {
@@ -206,6 +209,7 @@ test("玩家圆形收束、展开归位、快速开合与减少动态效果", as
   const capsule = page.locator(".game-records__capsule");
   const panel = page.locator(".game-records__panel");
   await capsule.click();
+  await page.clock.runFor(1500);
   await page.waitForFunction(
     () =>
       (window as unknown as { recordMotion: { done: boolean } }).recordMotion
@@ -234,6 +238,7 @@ test("玩家圆形收束、展开归位、快速开合与减少动态效果", as
   expect(Math.max(...frames.ys)).toBeGreaterThan(40);
   expect(frames.xs.at(-1)).toBeCloseTo(0, 0);
   expect(frames.ys.at(-1)).toBeCloseTo(0, 0);
+  await page.clock.resume();
   for (let i = 0; i < 7; i++) await capsule.click();
   await expect(capsule).toHaveAttribute("aria-expanded", "false");
   await expect(panel).toHaveCount(0);
