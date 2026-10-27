@@ -7,8 +7,6 @@ fn settings_default_matches_the_ui_contract() {
     assert!(settings.install_root.is_none());
     assert!(settings.global_install_root.is_none());
     assert_eq!(settings.distribution, Distribution::Cn);
-    assert!(settings.prefix.is_none());
-    assert!(settings.proton_path.is_none());
     assert_eq!(settings.launch_mode, "background");
     assert_eq!(settings.language, "zh-CN");
     assert!(!settings.reduce_motion);
@@ -22,8 +20,6 @@ fn settings_default_matches_the_ui_contract() {
 fn download_only_blocks_region_and_install_paths() {
     let current = Settings::default();
     let mut next = current.clone();
-    next.prefix = Some("/prefix".into());
-    next.proton_path = Some("/proton".into());
     next.launch_mode = "direct".into();
     next.language = "en-US".into();
     next.reduce_motion = true;
@@ -60,8 +56,6 @@ fn settings_round_trip_through_the_config_dir() {
         install_root: Some("/games/nte".to_string()),
         global_install_root: Some("/games/nte-global".to_string()),
         distribution: Distribution::Global,
-        prefix: Some("~/prefix".to_string()),
-        proton_path: Some("/opt/proton".to_string()),
         launch_mode: "direct".to_string(),
         language: "en-US".to_string(),
         reduce_motion: true,
@@ -69,6 +63,7 @@ fn settings_round_trip_through_the_config_dir() {
         hero_media: "photo".to_string(),
         minimize_to_tray_on_close: false,
         show_launcher_after_game_exit: false,
+        ..Default::default()
     };
     persist_settings(&settings).expect("persist settings");
 
@@ -86,8 +81,6 @@ fn settings_round_trip_through_the_config_dir() {
         Some("/games/nte-global")
     );
     assert_eq!(loaded.distribution, Distribution::Global);
-    assert_eq!(loaded.prefix.as_deref(), Some("~/prefix"));
-    assert_eq!(loaded.proton_path.as_deref(), Some("/opt/proton"));
     assert_eq!(loaded.launch_mode, "direct");
     assert_eq!(loaded.language, "en-US");
     assert!(loaded.reduce_motion);

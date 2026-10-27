@@ -9,7 +9,7 @@ Oddity 负责资源检查, 下载和启动; 游戏本身仍由 Proton 运行. �
 | 系统 | Linux x86_64, Wayland 或 X11 |
 | 运行库 | GTK 3, WebKitGTK 4.1, `libsecret`, `xdg-utils` |
 | 图形 | 支持 Vulkan 的显卡驱动 |
-| 游戏环境 | `umu-launcher`, Proton, 已初始化的 Wine prefix |
+| 游戏环境 | `umu-launcher`, Proton, 在设置中创建的运行环境 |
 | 存储 | 可写的游戏安装目录, 首次安装需要完整游戏资源 |
 
 > 安装包会声明 GTK 3, WebKitGTK 4.1 等必需依赖. `umu-launcher` 在 `.deb` 和 `.rpm` 中为推荐依赖, 在 Arch 包中为可选依赖, 需要确认已经安装.
@@ -52,7 +52,7 @@ Nix 和 Gentoo 用户分别参阅 [Nix 指南](nix.md)和 [Gentoo 指南](gentoo
 
 ## 准备游戏环境
 
-Oddity 通过 `umu-run` 调用 Proton. 开始前需要三样东西: `umu-run`, Proton 和已初始化的 Wine prefix.
+Oddity 通过 `umu-run` 调用 Proton. 开始前需要安装 `umu-run` 和 Proton, 再在设置中创建运行环境.
 
 ### umu-launcher
 
@@ -94,24 +94,11 @@ Oddity 会搜索该目录, 也可以在设置中手动选择解压后的文件�
 
 ### Wine prefix
 
-Wine prefix 是 Proton 保存 Windows 环境和登录状态的目录. Oddity 要求其中已有 `drive_c`, 可以选择已有的游戏前缀.
+Wine prefix 是 Proton 保存 Windows 环境和登录状态的目录. 在 Oddity 设置中打开 **Proton 运行环境**, 点击 **创建运行环境**, 选择已安装的游戏区服, 输入名称并选择包含 `proton` 和 `toolmanifest.vdf` 的 Proton 文件夹.
 
-首次使用时, 可以通过 umu 创建前缀. 将 `/path/to/Proton` 替换为上一步的 Proton 文件夹路径:
+首个环境会自动设为当前和稳定环境. Oddity 为它准备独立 prefix, 首次启动游戏时由 Proton 初始化 Windows 环境. 启动游戏前必须先创建运行环境.
 
-```bash
-WINEPREFIX="$HOME/.local/share/oddity/prefix" \
-PROTONPATH="/path/to/Proton" umu-run createprefix
-```
-
-命令结束后, 确认已生成 `drive_c`:
-
-```bash
-ls -d "$HOME/.local/share/oddity/prefix/drive_c"
-```
-
-最后在 Oddity 设置中选择同一个 Proton 文件夹和 Wine prefix 目录.
-
-> Oddity 不会在启动游戏前自动创建前缀.
+需要尝试其他 Proton 版本时, 可以[创建独立环境或复制所选环境](runtime-environments.md), 各环境共享游戏资源.
 
 ## 首次配置
 
@@ -121,8 +108,7 @@ ls -d "$HOME/.local/share/oddity/prefix/drive_c"
 | --- | --- |
 | 游戏地区 | 国服或国际服. 地区决定资源来源, 启动器程序和公告来源. |
 | 国服/国际服安装目录 | 分别设置, 不要让两个区服共用同一目录. |
-| Proton 路径 | 包含 `proton` 和 `toolmanifest.vdf` 的目录. |
-| Wine prefix | 已初始化且包含 `drive_c` 的前缀目录. |
+| Proton 运行环境 | 创建环境并选择包含 `proton` 和 `toolmanifest.vdf` 的 Proton 目录. prefix 由 Oddity 管理. |
 | 启动方式 | 默认使用 **后台启动**. |
 
 ![设置页](assets/launcher-settings.png)

@@ -30,6 +30,7 @@ fn game_status_reflects_the_session() {
         exit_notified: false,
         game_alive: Arc::new(AtomicBool::new(false)),
         _install_lock: None,
+        _prefix_lock: None,
         background: None,
     };
     let status = GameStatus::from_session(Some(&session));

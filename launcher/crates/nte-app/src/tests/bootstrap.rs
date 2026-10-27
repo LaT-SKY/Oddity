@@ -77,9 +77,10 @@ fn bootstrap_reports_a_complete_install() {
     write_script(&bin, "umu-run", "#!/bin/sh\nexit 0\n");
     env.set("PATH", &bin);
 
+    let profile = managed_environment(&proton, &install.dir.join("install"), Distribution::Cn);
     let settings = Settings {
-        prefix: Some(install.dir.join("prefix").display().to_string()),
-        proton_path: Some(proton.display().to_string()),
+        runtime_environments: vec![profile.clone()],
+        active_environment: Some(profile.id.clone()),
         ..install.settings()
     };
     let bootstrap = bootstrap_impl(&settings);
@@ -96,7 +97,7 @@ fn bootstrap_reports_a_complete_install() {
     );
     assert_eq!(
         bootstrap.prefix,
-        install.dir.join("prefix").display().to_string()
+        profile.prefix(&data_dir()).unwrap().display().to_string()
     );
     assert!(bootstrap.prefix_exists);
     assert_eq!(bootstrap.proton_name, "GE-Proton9-1");
@@ -240,18 +241,16 @@ fn bootstrap_reports_a_missing_install_when_nothing_is_found() {
 }
 
 #[test]
-fn bootstrap_uses_the_default_prefix() {
+fn bootstrap_requires_a_managed_environment() {
     let install = Install::new("bootstrap-defaults");
     let _env = isolated_env(&install.dir);
     install.launcher_config("[VERSION]\nVersion=1.4.16\n");
-    install.user_config("[Game]\nVersion_=1.4.20\n");
     let bootstrap = bootstrap_impl(&install.settings());
-    assert!(bootstrap.ok);
-    // 默认 prefix 落在数据目录下
-    assert_eq!(
-        bootstrap.prefix,
-        install.dir.join("data/oddity/prefix").display().to_string()
-    );
+    assert!(!bootstrap.ok);
+    assert!(bootstrap.error.unwrap().contains("请先"));
+    assert!(bootstrap.prefix.is_empty());
+    assert!(!bootstrap.prefix_exists);
+    assert!(bootstrap.proton_path.is_empty());
 }
 
 #[test]
@@ -292,7 +291,8 @@ fn bootstrap_does_not_fall_back_from_a_configured_empty_root() {
             .display()
             .to_string()
     );
-    assert!(detected.ok);
+    assert!(!detected.ok);
+    assert!(detected.error.unwrap().contains("请先"));
 }
 
 fn check_install(install: &Install, full: bool) -> Result<CheckResult, String> {

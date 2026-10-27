@@ -204,6 +204,87 @@ const text = (id: string) => document.getElementById(id)?.textContent;
 const button = (id: string) => document.getElementById(id) as HTMLButtonElement;
 const primary = () => wrapper!.find("#game-download-primary");
 const primaryText = () => primary().find(".btn__text").text();
+it("环境操作先保存修改, 处理期间拒绝重入并同步新登记", async () => {
+  const c = await boot();
+  const base = backend.invoke.getMockImplementation()!;
+  let finish!: (data: Bootstrap) => void;
+  let releaseSave!: () => void;
+  const saving = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  backend.invoke.mockClear();
+  backend.invoke.mockImplementation((command: string, args: never) =>
+    command === "save_settings"
+      ? saving.then(() => base(command, args))
+      : command === "environment_create"
+        ? new Promise<Bootstrap>((resolve) => {
+            finish = resolve;
+          })
+        : base(command, args),
+  );
+  c.form.theme = "dark";
+  c.form.globalInstallRoot = "/new-install";
+  const task = c.createRuntimeEnvironment(
+    "测试环境",
+    "/new-proton",
+    null,
+    "cn",
+  );
+  await flushPromises();
+  expect(c.runtimeEnvironmentBusy.value).toBe(true);
+  await c.checkUpdate();
+  await c.startGameDownload("check");
+  expect(backend.invoke.mock.calls.map(([command]) => command)).toEqual([
+    "save_settings",
+  ]);
+  expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
+    settings: expect.objectContaining({ globalInstallRoot: "/new-install" }),
+  });
+  releaseSave();
+  await flushPromises();
+  expect(backend.invoke).toHaveBeenCalledWith("environment_create", {
+    distribution: "cn",
+    name: "测试环境",
+    protonPath: "/new-proton",
+    sourceId: null,
+  });
+  expect(c.runtimeEnvironmentBusy.value).toBe(true);
+  expect(c.settingsPathsLocked.value).toBe(true);
+  expect(
+    await c.createRuntimeEnvironment("重复", "/new-proton", null, "cn"),
+  ).toBe(false);
+  const next = bootstrap({
+    settings: {
+      ...backend.data.settings,
+      runtimeEnvironments: [
+        {
+          id: "a".repeat(32),
+          name: "测试环境",
+          proton: { path: "/new-proton", identity: "pin" },
+          installRoot: "/game",
+          distribution: "cn",
+          createdAt: 1,
+        },
+      ],
+    },
+  });
+  finish(next);
+  expect(await task).toBe(true);
+  expect(c.runtimeEnvironmentBusy.value).toBe(false);
+  expect(c.state.bootstrap?.settings.runtimeEnvironments).toHaveLength(1);
+  c.form.reduceMotion = false;
+  await c.saveSettings();
+  expect(backend.data.settings.runtimeEnvironments[0].name).toBe("测试环境");
+});
+
+it("环境操作失败时保留原选择并释放等待状态", async () => {
+  const c = await boot();
+  backend.invoke.mockRejectedValueOnce(new Error("固定的 Proton 已变化"));
+  expect(await c.runtimeEnvironmentAction("switch", "missing")).toBe(false);
+  expect(c.runtimeEnvironmentError.value).toContain("Proton 已变化");
+  expect(c.runtimeEnvironmentBusy.value).toBe(false);
+  expect(c.state.bootstrap?.settings.activeEnvironment).toBeNull();
+});
 const key = (value: string, options: KeyboardEventInit = {}) =>
   document.dispatchEvent(
     new KeyboardEvent("keydown", {
@@ -250,6 +331,21 @@ describe("启动与设置", () => {
     expect(c.form.theme).toBe("light");
   });
 
+  it("未创建运行环境时, 启动操作转到设置并提示创建", async () => {
+    backend.data = bootstrap({
+      prefix: "",
+      prefixExists: false,
+      protonPath: "",
+    });
+    const c = await boot();
+    backend.invoke.mockClear();
+    c.handleLaunchAction();
+    await flushPromises();
+    expect(c.state.page).toBe("settings");
+    expect(text("toast")).toContain("请先在设置中创建");
+    expect(backend.invoke).not.toHaveBeenCalledWith("launch_official");
+  });
+
   it("启动失败仍完成入场并允许手动重新检测", async () => {
     const invoke = backend.invoke.getMockImplementation()!;
     let failedStatus = false;
@@ -279,12 +375,12 @@ describe("启动与设置", () => {
 
   it("重新检测前保存失败时保留表单并停止刷新", async () => {
     const c = await boot();
-    c.form.prefix = "/draft-prefix";
+    c.form.globalInstallRoot = "/draft-prefix";
     backend.invoke.mockClear();
     backend.invoke.mockRejectedValueOnce(new Error("disk full"));
     await c.redetect();
     expect(text("toast")).toBe("disk full");
-    expect(c.form.prefix).toBe("/draft-prefix");
+    expect(c.form.globalInstallRoot).toBe("/draft-prefix");
     expect(c.ui.saveState).toBe("error");
     expect(backend.invoke.mock.calls.map(([command]) => command)).toEqual([
       "save_settings",
@@ -313,8 +409,6 @@ describe("启动与设置", () => {
     const c = await boot();
     Object.assign(c.form, {
       installRoot: " /new ",
-      prefix: "/prefix2",
-      protonPath: "/proton2",
       launchMode: "",
       theme: "dark",
       reduceMotion: false,
@@ -323,11 +417,10 @@ describe("启动与设置", () => {
     await c.saveSettings();
     expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
       settings: {
+        ...settings,
         installRoot: "/new",
         globalInstallRoot: null,
         distribution: "cn",
-        prefix: "/prefix2",
-        protonPath: "/proton2",
         launchMode: "background",
         language: "zh-CN",
         theme: "dark",
@@ -340,7 +433,7 @@ describe("启动与设置", () => {
     expect(c.ui.saveState).toBe("saved");
     await vi.advanceTimersByTimeAsync(2000);
     expect(c.ui.saveState).toBe("idle");
-    Object.assign(c.form, { installRoot: "", prefix: "", protonPath: "" });
+    Object.assign(c.form, { installRoot: "", globalInstallRoot: "" });
     backend.invoke.mockRejectedValueOnce(new Error("disk full"));
     await c.saveSettings();
     expect(text("toast")).toBe("disk full");
@@ -480,7 +573,7 @@ describe("启动与设置", () => {
       document.querySelector<HTMLSelectElement>("#set-theme")!.disabled,
     ).toBe(false);
     expect(
-      document.querySelector<HTMLInputElement>("#set-proton")!.disabled,
+      document.querySelector<HTMLSelectElement>("#set-mode")!.disabled,
     ).toBe(false);
     expect(wrapper!.find(".settings-lock").text()).toContain(
       "暂时无法修改游戏地区和安装目录",
@@ -519,10 +612,10 @@ describe("启动与设置", () => {
           finish = resolve;
         }),
     );
-    c.form.prefix = "/first";
+    c.form.globalInstallRoot = "/first";
     c.queueSettingsSave(0);
     await flushPromises();
-    c.form.prefix = "/second";
+    c.form.globalInstallRoot = "/second";
     c.queueSettingsSave(0);
     await flushPromises();
     finish(bootstrap());
@@ -532,7 +625,7 @@ describe("启动与设置", () => {
     );
     expect(saves).toHaveLength(2);
     expect(saves[1][1]).toMatchObject({
-      settings: { prefix: "/second" },
+      settings: { globalInstallRoot: "/second" },
     });
     expect(c.ui.saveState).toBe("saved");
   });
@@ -540,19 +633,19 @@ describe("启动与设置", () => {
   it("自动保存失败后在下一次修改时重试", async () => {
     const c = await boot();
     backend.invoke.mockRejectedValueOnce(new Error("disk full"));
-    c.form.prefix = "/blocked";
+    c.form.globalInstallRoot = "/blocked";
     c.queueSettingsSave(0);
     await flushPromises();
     expect(text("toast")).toBe("disk full");
     expect(c.ui.saveState).toBe("error");
-    c.form.prefix = "/retry";
+    c.form.globalInstallRoot = "/retry";
     c.queueSettingsSave(0);
     await flushPromises();
     expect(c.ui.saveState).toBe("saved");
     expect(backend.invoke).toHaveBeenLastCalledWith(
       "save_settings",
       expect.objectContaining({
-        settings: expect.objectContaining({ prefix: "/retry" }),
+        settings: expect.objectContaining({ globalInstallRoot: "/retry" }),
       }),
     );
   });
@@ -606,18 +699,14 @@ describe("下载大小显示", () => {
 describe("更新检查", () => {
   it("启动检查不持久化探测路径或尚未保存的表单", async () => {
     const c = await boot((controller) => {
-      expect(controller.form.prefix).toBe("/prefix");
-      controller.form.prefix = "/draft-prefix";
-      controller.form.protonPath = "/draft-proton";
+      expect(controller.form.globalInstallRoot).toBe("");
+      controller.form.globalInstallRoot = "/draft-prefix";
     });
     expect(backend.invoke).not.toHaveBeenCalledWith(
       "save_settings",
       expect.anything(),
     );
-    expect(backend.data.settings.prefix).toBeNull();
-    expect(backend.data.settings.protonPath).toBeNull();
-    expect(c.form.prefix).toBe("/draft-prefix");
-    expect(c.form.protonPath).toBe("/draft-proton");
+    expect(c.form.globalInstallRoot).toBe("/draft-prefix");
   });
 
   it.each(["failed", "cancelled", "ready"] as const)(
@@ -676,13 +765,13 @@ describe("更新检查", () => {
     );
     backend.downloadHandler({ ...backend.downloadStatus, phase: "ready" });
     c.form.installRoot = "/unsaved/game";
-    c.form.prefix = "/unsaved/prefix";
+    c.form.globalInstallRoot = "/unsaved/prefix";
     c.applyTheme("dark");
     resolve(bootstrap({ gameVersion: "2.0" }));
     await flushPromises();
     expect(c.state.bootstrap?.gameVersion).toBe("2.0");
     expect(c.form.installRoot).toBe("/unsaved/game");
-    expect(c.form.prefix).toBe("/unsaved/prefix");
+    expect(c.form.globalInstallRoot).toBe("/unsaved/prefix");
     expect(c.form.theme).toBe("dark");
     expect(primaryText()).toBe("检查资源");
   });
@@ -1742,7 +1831,7 @@ it("组件卸载时释放原生订阅、视频 URL、定时器和全局事件", 
 it("卸载时取消尚未触发的自动保存", async () => {
   const c = await boot();
   backend.invoke.mockClear();
-  c.form.prefix = "/pending";
+  c.form.globalInstallRoot = "/pending";
   c.queueSettingsSave();
   wrapper!.unmount();
   wrapper = undefined;
@@ -1787,7 +1876,7 @@ it.each(["check_update", "save_settings", "bootstrap"] as const)(
         resolve = done;
       }),
     );
-    if (command === "save_settings") c.form.prefix = "/late";
+    if (command === "save_settings") c.form.globalInstallRoot = "/late";
     const pending =
       command === "check_update"
         ? c.checkUpdate(true)
@@ -1880,7 +1969,7 @@ it("保存先提交通用设置, 再提交已加载的签到偏好", async () =>
   c.attendanceForm.enabled = true;
   c.attendanceForm.trigger = "daily";
   c.attendanceForm.time = "20:30";
-  c.form.prefix = "/changed";
+  c.form.globalInstallRoot = "/changed";
   const original = backend.invoke.getMockImplementation()!;
   backend.invoke.mockImplementation(async (command, args) =>
     command === "attendance_configure"
@@ -1903,7 +1992,7 @@ it("签到未加载时保存不提交签到偏好", async () => {
   const c = await boot();
   c.attendance.loaded = false;
   c.attendanceForm.enabled = true;
-  c.form.prefix = "/changed";
+  c.form.globalInstallRoot = "/changed";
   backend.invoke.mockClear();
   await c.saveSettings();
   expect(backend.invoke.mock.calls.map(([command]) => command)).toEqual([
@@ -1919,7 +2008,7 @@ it("签到保存失败明确提示并保留错误状态", async () => {
   });
   c.attendance.loaded = true;
   c.attendanceForm.enabled = true;
-  c.form.prefix = "/changed";
+  c.form.globalInstallRoot = "/changed";
   const original = backend.invoke.getMockImplementation()!;
   backend.invoke.mockImplementation(async (command, args) => {
     if (command === "attendance_configure")

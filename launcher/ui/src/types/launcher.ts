@@ -57,8 +57,9 @@ export interface Settings {
   installRoot: string | null;
   globalInstallRoot: string | null;
   distribution: "cn" | "global";
-  prefix: string | null;
-  protonPath: string | null;
+  runtimeEnvironments: RuntimeEnvironment[];
+  activeEnvironment: string | null;
+  stableEnvironment: string | null;
   launchMode: string;
   language: string;
   reduceMotion: boolean;
@@ -66,6 +67,23 @@ export interface Settings {
   heroMedia: string;
   minimizeToTrayOnClose: boolean;
   showLauncherAfterGameExit: boolean;
+}
+export interface ProtonPin {
+  path: string;
+  identity: string;
+}
+export interface RuntimeEnvironment {
+  id: string;
+  name: string;
+  proton: ProtonPin;
+  installRoot: string;
+  distribution: "cn" | "global";
+  createdAt: number;
+}
+export interface RuntimeInstallation {
+  distribution: "cn" | "global";
+  installRoot: string;
+  installed: boolean;
 }
 export interface CheckItem {
   label: string;
@@ -89,6 +107,7 @@ export interface Bootstrap {
   gameExists: boolean;
   sdkPath: string;
   checks: CheckItem[];
+  runtimeInstallations: RuntimeInstallation[];
   settings: Settings;
   appVersion: string;
   os: string;
@@ -195,6 +214,8 @@ export interface Commands {
   check_update: CheckResult;
   fetch_bulletins: BulletinFeed;
   save_settings: Bootstrap;
+  environment_create: Bootstrap;
+  environment_action: Bootstrap;
   export_logs: string;
   open_directory: null;
   open_url: null;
@@ -230,6 +251,16 @@ export interface CommandArgs {
   check_update: { full: boolean };
   fetch_bulletins: { distribution: "cn" | "global" };
   save_settings: { settings: Settings };
+  environment_create: {
+    distribution: "cn" | "global";
+    name: string;
+    protonPath: string;
+    sourceId: string | null;
+  };
+  environment_action: {
+    action: "switch" | "keep" | "discard";
+    id: string | null;
+  };
   export_logs: { destination: string };
   open_directory: { path: string };
   open_url: { url: string };

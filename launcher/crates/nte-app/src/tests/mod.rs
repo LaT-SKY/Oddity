@@ -141,6 +141,22 @@ pub fn fake_proton(root: &Path, name: &str) -> PathBuf {
     dir
 }
 
+pub fn managed_environment(
+    proton: &Path,
+    install: &Path,
+    distribution: nte_core::distribution::Distribution,
+) -> nte_core::environment::RuntimeEnvironment {
+    nte_core::environment::create(
+        &crate::data_dir(),
+        None,
+        proton,
+        install,
+        distribution,
+        "测试环境",
+    )
+    .unwrap()
+}
+
 #[derive(Clone)]
 struct Route {
     status: u16,

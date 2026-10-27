@@ -469,9 +469,14 @@ fn prepare_task(
                 }
             }
         }
-        if mode == "apply" {
+        {
             let game = state.game.lock().map_err(|error| error.to_string())?;
-            if game.starting || game.session.as_ref().is_some_and(session_alive) {
+            if game.environment_busy {
+                return Err("运行环境任务正在进行, 暂时无法检查或更新资源".into());
+            }
+            if mode == "apply"
+                && (game.starting || game.session.as_ref().is_some_and(session_alive))
+            {
                 return Err("游戏正在运行，无法修改游戏文件".into());
             }
         }

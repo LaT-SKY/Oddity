@@ -112,7 +112,7 @@
     color var(--duration-fast) var(--ease);
 }
 
-.select-option:hover {
+.select-option:hover:not([aria-disabled="true"]) {
   background: var(--hover);
   color: var(--bone);
 }
@@ -121,6 +121,12 @@
   background: var(--nav-active-bg);
   color: var(--nav-active-color);
   font-weight: var(--weight-semibold);
+}
+
+.select-option[aria-disabled="true"] {
+  color: var(--muted);
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .select-option__text {

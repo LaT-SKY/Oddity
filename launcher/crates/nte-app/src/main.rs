@@ -35,6 +35,7 @@ use nte_core::{update, version};
 mod attendance_commands;
 mod background_server;
 mod download_commands;
+mod environment_commands;
 mod native_session;
 
 const APP_IDENTIFIER: &str = "io.github.oddity.Launcher";
@@ -46,6 +47,7 @@ struct AppState {
 
 #[derive(Default)]
 struct GameTracker {
+    environment_busy: bool,
     session: Option<GameSession>,
     starting: bool,
     next_id: u64,
@@ -65,6 +67,7 @@ struct GameSession {
     exit_notified: bool,
     game_alive: Arc<AtomicBool>,
     _install_lock: Option<Arc<nte_core::install_lock::InstallLock>>,
+    _prefix_lock: Option<Arc<nte_core::environment::PrefixLock>>,
     background: Option<Arc<NativeSession>>,
 }
 
@@ -104,6 +107,7 @@ struct Bootstrap {
     game_exists: bool,
     sdk_path: String,
     checks: Vec<CheckItem>,
+    runtime_installations: Vec<environment_commands::Installation>,
     settings: Settings,
     app_version: String,
     os: String,
@@ -189,6 +193,7 @@ impl GameStatus {
 }
 
 struct LaunchInvocation {
+    prefix_lock: Arc<nte_core::environment::PrefixLock>,
     install_lock: Arc<nte_core::install_lock::InstallLock>,
     result: LaunchResult,
     child: Child,
@@ -569,38 +574,6 @@ fn expand_path(raw: &str) -> PathBuf {
     PathBuf::from(raw)
 }
 
-fn default_prefix() -> PathBuf {
-    std::env::var_os("WINEPREFIX")
-        .map(PathBuf::from)
-        .filter(|path| !path.as_os_str().is_empty())
-        .unwrap_or_else(|| data_dir().join("prefix"))
-}
-
-/// Steam roots in discovery order. Steam exports the client path while it is
-/// running; XDG and the legacy `~/.steam` layout cover the rest.
-fn steam_roots() -> Vec<PathBuf> {
-    fn push(roots: &mut Vec<PathBuf>, path: PathBuf) {
-        if !path.as_os_str().is_empty() && !roots.contains(&path) {
-            roots.push(path);
-        }
-    }
-
-    let mut roots = Vec::new();
-    if let Some(raw) = std::env::var_os("STEAM_COMPAT_CLIENT_INSTALL_PATH") {
-        push(&mut roots, PathBuf::from(raw));
-    }
-    if let Some(raw) = std::env::var_os("XDG_DATA_HOME") {
-        push(&mut roots, PathBuf::from(raw).join("Steam"));
-    }
-    push(
-        &mut roots,
-        home_dir().join(".local").join("share").join("Steam"),
-    );
-    push(&mut roots, home_dir().join(".steam").join("steam"));
-    push(&mut roots, home_dir().join(".steam").join("root"));
-    roots
-}
-
 fn install_seeds(base: &Path, distribution: Distribution, seeds: &mut Vec<PathBuf>) {
     for name in [
         distribution.default_install_name(),
@@ -936,59 +909,7 @@ fn proton_install(path: &Path) -> Option<ProtonInstall> {
 }
 
 fn detect_proton(settings: &Settings) -> Option<ProtonInstall> {
-    if let Some(raw) = &settings.proton_path {
-        if let Some(install) = proton_install(&expand_path(raw)) {
-            return Some(install);
-        }
-    }
-    if let Some(raw) = std::env::var_os("PROTONPATH") {
-        if let Some(install) = proton_install(&expand_path(&raw.to_string_lossy())) {
-            return Some(install);
-        }
-    }
-
-    let mut candidates: Vec<ProtonInstall> = Vec::new();
-    for root in steam_roots() {
-        // Custom Proton builds (GE-Proton, CachyOS, ...) live here.
-        let compat = root.join("compatibilitytools.d");
-        if let Ok(entries) = fs::read_dir(&compat) {
-            for entry in entries.flatten() {
-                if let Some(install) = proton_install(&entry.path()) {
-                    candidates.push(install);
-                }
-            }
-        }
-        // Valve's own builds live in the Steam library.
-        let common = root.join("steamapps").join("common");
-        if let Ok(entries) = fs::read_dir(&common) {
-            for entry in entries.flatten() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                if !name.starts_with("Proton") {
-                    continue;
-                }
-                if let Some(install) = proton_install(&entry.path()) {
-                    candidates.push(install);
-                }
-            }
-        }
-    }
-    fn proton_score(name: &str) -> u8 {
-        if name.contains("GE-Proton") {
-            0
-        } else if name.contains("CachyOS") {
-            1
-        } else if name.contains("Experimental") {
-            3
-        } else {
-            2
-        }
-    }
-    candidates.sort_by(|a, b| {
-        proton_score(&a.name)
-            .cmp(&proton_score(&b.name))
-            .then_with(|| b.name.cmp(&a.name))
-    });
-    candidates.into_iter().next()
+    environment_commands::proton_path(settings).and_then(proton_install)
 }
 
 fn ensure_sdk_link(prefix: &Path, install_dir: &Path) -> Result<(), String> {
@@ -1056,12 +977,14 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
     let mut error: Option<String> = None;
     let launcher_root = detect_launcher_root(settings);
     let install_root = effective_install_root(settings, launcher_root.as_deref());
-    let prefix = settings
-        .prefix
-        .as_deref()
-        .map(expand_path)
-        .unwrap_or_else(default_prefix);
-    let prefix_exists = prefix.join("drive_c").is_dir();
+    let prefix = match environment_commands::prefix(settings) {
+        Ok(prefix) => prefix,
+        Err(message) => {
+            error = Some(message);
+            PathBuf::new()
+        }
+    };
+    let prefix_exists = !prefix.as_os_str().is_empty() && prefix.join("drive_c").is_dir();
 
     let mut launcher_version = String::new();
     let mut launcher_build = String::new();
@@ -1097,6 +1020,9 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
         .and_then(|p| find_sdk(p))
         .map(|p| p.display().to_string())
         .unwrap_or_default();
+    if let Err(message) = environment_commands::verify_proton(settings) {
+        error.get_or_insert(message);
+    }
     let proton = detect_proton(settings);
     let umu = which("umu-run");
     let official_exe = launcher_root
@@ -1178,6 +1104,7 @@ fn bootstrap_impl(settings: &Settings) -> Bootstrap {
         game_exists,
         sdk_path,
         checks,
+        runtime_installations: environment_commands::installations(settings),
         settings: settings.clone(),
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         os: format!(
@@ -1314,7 +1241,7 @@ async fn fetch_bulletins(distribution: Distribution) -> Result<BulletinFeed, Str
         .map_err(|error| format!("公告抓取任务失败：{error}"))
 }
 
-/// 下载任务只依赖游戏地区和两个地区的安装目录, 其余设置可以随时保存。
+/// 下载任务只依赖游戏地区和两个地区的安装目录.
 fn download_paths_changed(current: &Settings, next: &Settings) -> bool {
     current.distribution != next.distribution
         || current.install_root != next.install_root
@@ -1341,18 +1268,22 @@ fn save_settings(
     if next.hero_media != "video" && next.hero_media != "photo" {
         next.hero_media = "video".into();
     }
-    let current = state
-        .settings
-        .lock()
-        .map(|settings| settings.clone())
-        .unwrap_or_default();
+    let mut current = state.settings.lock().map_err(|error| error.to_string())?;
+    let game = state.game.lock().map_err(|error| error.to_string())?;
+    let busy = game.environment_busy
+        || game.starting
+        || game
+            .session
+            .as_ref()
+            .is_some_and(|session| session.closing || session_alive(session));
+    environment_commands::validate_settings_change(&current, &next, busy)?;
     if download_commands::blocks_changes(&guard.status) && download_paths_changed(&current, &next) {
         return Err("游戏资源任务正在进行, 暂时无法修改游戏地区或安装目录".into());
     }
     persist_settings(&next)?;
-    if let Ok(mut current) = state.settings.lock() {
-        *current = next.clone();
-    }
+    *current = next.clone();
+    drop(game);
+    drop(current);
     drop(guard);
     Ok(bootstrap_impl(&next))
 }
@@ -1662,17 +1593,17 @@ fn launch_impl_with_profile(
     );
     let official_exe = launcher_root.join(settings.distribution.client_exe());
     let direct_exe = game_exe_for(&launcher_root);
-    let prefix = settings
-        .prefix
-        .as_deref()
-        .map(expand_path)
-        .unwrap_or_else(default_prefix);
+    let prefix = environment_commands::prefix(settings)?;
+    environment_commands::verify_proton(settings)?;
     let umu = which("umu-run").ok_or_else(|| "PATH 中未找到 umu-run".to_string())?;
     let proton = detect_proton(settings)
         .ok_or_else(|| "未找到可用的 Proton（需要 proton 与 toolmanifest.vdf）".to_string())?;
     if !prefix.join("drive_c").is_dir() {
         return Err(format!("Wine prefix 尚未初始化：{}", prefix.display()));
     }
+    let prefix_lock = Arc::new(
+        nte_core::environment::lock_prefix(&prefix).map_err(|error| format!("{error:#}"))?,
+    );
     if let Some(game_exe) = &direct_exe {
         check_game_write_access(game_exe)?;
     }
@@ -1734,7 +1665,7 @@ fn launch_impl_with_profile(
             )
         };
 
-    let log_dir = data_dir().join("logs");
+    let log_dir = environment_commands::log_dir(settings)?;
     fs::create_dir_all(&log_dir).map_err(|e| format!("create log dir: {e}"))?;
     let background = if mode == "background" {
         let profile = profile_provider(&display_exe)?;
@@ -1901,6 +1832,7 @@ fn launch_impl_with_profile(
     }
 
     Ok(LaunchInvocation {
+        prefix_lock,
         install_lock,
         result: LaunchResult {
             mode,
@@ -1921,11 +1853,7 @@ async fn launch_official(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<LaunchResult, String> {
-    let settings = state
-        .settings
-        .lock()
-        .map(|s| s.clone())
-        .map_err(|e| e.to_string())?;
+    let settings;
 
     {
         let downloads = app.state::<download_commands::DownloadManager>();
@@ -1933,7 +1861,11 @@ async fn launch_official(
         if download_commands::blocks_changes(&inner.status) {
             return Err("游戏资源任务正在进行，暂时无法启动游戏".into());
         }
+        let current_settings = state.settings.lock().map_err(|error| error.to_string())?;
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;
+        if tracker.environment_busy {
+            return Err("运行环境任务正在进行, 请完成后再启动游戏".into());
+        }
         if tracker.starting {
             return Err("游戏正在启动，请稍候。".to_string());
         }
@@ -1949,6 +1881,7 @@ async fn launch_official(
         tracker.session = None;
         tracker.last_error = None;
         tracker.starting = true;
+        settings = current_settings.clone();
     }
 
     let invocation =
@@ -1986,6 +1919,7 @@ async fn launch_official(
             exit_notified: false,
             game_alive: Arc::new(AtomicBool::new(true)),
             _install_lock: Some(Arc::clone(&invocation.install_lock)),
+            _prefix_lock: Some(Arc::clone(&invocation.prefix_lock)),
             background: invocation.background.clone(),
         };
         tracker.session = Some(session.clone());
@@ -2257,6 +2191,11 @@ fn main() {
     }
     configure_graphics();
     let mut settings = load_settings();
+    for environment in &settings.runtime_environments {
+        if let Err(error) = nte_core::environment::recover_pending(&data_dir(), environment) {
+            eprintln!("运行环境恢复失败: {error:#}");
+        }
+    }
     if compatible {
         settings.hero_media = "photo".into();
         settings.reduce_motion = true;
@@ -2327,6 +2266,8 @@ fn main() {
             download_commands::game_download_start,
             download_commands::game_download_cancel,
             fetch_bulletins,
+            environment_commands::environment_create,
+            environment_commands::environment_action,
             save_settings,
             export_logs,
             open_directory,

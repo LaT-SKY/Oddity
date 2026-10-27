@@ -8,6 +8,14 @@
   gap: var(--space-18);
 }
 
+.settings-fields {
+  display: contents;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
 .settings-section {
   padding: var(--space-22) var(--space-24);
   border: 1px solid var(--line);

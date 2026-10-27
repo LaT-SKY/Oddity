@@ -10,7 +10,10 @@ import {
   queueSettingsSave,
   redetect,
   settingsPathsLocked,
+  runtimeEnvironmentBusy,
+  runtimePathsLocked,
 } from "../core/controller";
+import RuntimeEnvironments from "../components/RuntimeEnvironments.vue";
 import TaygedoSettings from "../components/TaygedoSettings.vue";
 import BaseSelect from "../components/BaseSelect.vue";
 import DirectoryField from "../components/DirectoryField.vue";
@@ -85,151 +88,143 @@ const launchModeHint = computed(
       :data-save-state="ui.saveState"
       @submit.prevent
     >
-      <section class="settings-section">
-        <h3>外观</h3>
-        <div class="field-grid">
-          <div class="field">
-            <span>主题</span>
-            <BaseSelect
-              id="set-theme"
-              v-model="form.theme"
-              :options="themeOptions"
-              @change="
-                applyTheme(form.theme);
-                queueSettingsSave(0);
-              "
-            />
+      <fieldset class="settings-fields" :disabled="runtimeEnvironmentBusy">
+        <section class="settings-section">
+          <h3>外观</h3>
+          <div class="field-grid">
+            <div class="field">
+              <span>主题</span>
+              <BaseSelect
+                id="set-theme"
+                v-model="form.theme"
+                :options="themeOptions"
+                @change="
+                  applyTheme(form.theme);
+                  queueSettingsSave(0);
+                "
+              />
+            </div>
+            <div class="field">
+              <span>主页主视觉</span>
+              <BaseSelect
+                id="set-hero-media"
+                v-model="form.heroMedia"
+                :options="heroMediaOptions"
+                @change="
+                  applyHeroMedia(form.heroMedia);
+                  queueSettingsSave(0);
+                "
+              />
+            </div>
           </div>
-          <div class="field">
-            <span>主页主视觉</span>
-            <BaseSelect
-              id="set-hero-media"
-              v-model="form.heroMedia"
-              :options="heroMediaOptions"
+          <label class="switch-row">
+            <span
+              ><strong>减少动效</strong
+              ><small>关闭入场与页面过渡，只保留状态反馈。</small></span
+            >
+            <input
+              id="set-motion"
+              v-model="form.reduceMotion"
               @change="
+                applyReduceMotion(form.reduceMotion);
                 applyHeroMedia(form.heroMedia);
                 queueSettingsSave(0);
               "
+              type="checkbox"
             />
-          </div>
-        </div>
-        <label class="switch-row">
-          <span
-            ><strong>减少动效</strong
-            ><small>关闭入场与页面过渡，只保留状态反馈。</small></span
-          >
-          <input
-            id="set-motion"
-            v-model="form.reduceMotion"
-            @change="
-              applyReduceMotion(form.reduceMotion);
-              applyHeroMedia(form.heroMedia);
-              queueSettingsSave(0);
-            "
-            type="checkbox"
-          />
-          <i class="switch" aria-hidden="true"></i>
-        </label>
-      </section>
+            <i class="switch" aria-hidden="true"></i>
+          </label>
+        </section>
 
-      <section class="settings-section">
-        <h3>安装与运行</h3>
-        <p v-if="settingsPathsLocked" class="settings-lock" role="status">
-          游戏资源任务进行中，暂时无法修改游戏地区和安装目录。
-        </p>
-        <div class="field-grid">
-          <div class="field">
-            <span>游戏地区</span>
-            <BaseSelect
-              id="set-distribution"
-              v-model="form.distribution"
-              :options="distributionOptions"
+        <section class="settings-section">
+          <h3>安装与运行</h3>
+          <p v-if="settingsPathsLocked" class="settings-lock" role="status">
+            {{
+              state.game !== "idle" || runtimeEnvironmentBusy
+                ? "游戏或运行环境任务进行中, 暂时无法修改运行路径."
+                : "游戏资源任务进行中，暂时无法修改游戏地区和安装目录。"
+            }}
+          </p>
+          <div class="field-grid">
+            <div class="field">
+              <span>游戏地区</span>
+              <BaseSelect
+                id="set-distribution"
+                v-model="form.distribution"
+                :options="distributionOptions"
+                :disabled="settingsPathsLocked"
+                @change="queueSettingsSave(0)"
+              />
+            </div>
+            <DirectoryField
+              id="set-install"
+              v-model="form.installRoot"
+              class="field field--wide"
+              label="国服安装目录"
+              placeholder="/path/to/Neverness To Everness"
               :disabled="settingsPathsLocked"
+              @input="queueSettingsSave()"
               @change="queueSettingsSave(0)"
             />
-          </div>
-          <DirectoryField
-            id="set-install"
-            v-model="form.installRoot"
-            class="field field--wide"
-            label="国服安装目录"
-            placeholder="/path/to/Neverness To Everness"
-            :disabled="settingsPathsLocked"
-            @input="queueSettingsSave()"
-            @change="queueSettingsSave(0)"
-          />
-          <DirectoryField
-            id="set-global-install"
-            v-model="form.globalInstallRoot"
-            class="field field--wide"
-            label="国际服安装目录"
-            placeholder="~/Games/Neverness To Everness Global"
-            :disabled="settingsPathsLocked"
-            @input="queueSettingsSave()"
-            @change="queueSettingsSave(0)"
-          />
-          <DirectoryField
-            id="set-prefix"
-            v-model="form.prefix"
-            class="field"
-            label="Wine prefix"
-            placeholder="~/.local/share/oddity/prefix"
-            @input="queueSettingsSave()"
-            @change="queueSettingsSave(0)"
-          />
-          <DirectoryField
-            id="set-proton"
-            v-model="form.protonPath"
-            class="field field--wide"
-            label="Proton 路径"
-            placeholder="~/.local/share/Steam/compatibilitytools.d/GE-Proton..."
-            @input="queueSettingsSave()"
-            @change="queueSettingsSave(0)"
-          />
-          <div class="field">
-            <span>启动方式</span>
-            <BaseSelect
-              id="set-mode"
-              v-model="form.launchMode"
-              :options="launchModeOptions"
+            <DirectoryField
+              id="set-global-install"
+              v-model="form.globalInstallRoot"
+              class="field field--wide"
+              label="国际服安装目录"
+              placeholder="~/Games/Neverness To Everness Global"
+              :disabled="settingsPathsLocked"
+              @input="queueSettingsSave()"
               @change="queueSettingsSave(0)"
-            /><small class="field__hint">{{ launchModeHint }}</small>
+            />
+            <div class="field">
+              <span>启动方式</span>
+              <BaseSelect
+                id="set-mode"
+                v-model="form.launchMode"
+                :disabled="runtimePathsLocked"
+                :options="launchModeOptions"
+                @change="queueSettingsSave(0)"
+              /><small class="field__hint">{{ launchModeHint }}</small>
+            </div>
           </div>
-        </div>
-        <label class="switch-row">
-          <span
-            ><strong>关闭窗口时最小化到托盘</strong
-            ><small>关闭主窗口时保持后台运行。</small></span
-          >
-          <input
-            id="set-minimize-to-tray"
-            v-model="form.minimizeToTrayOnClose"
-            type="checkbox"
-            @change="queueSettingsSave(0)"
-          />
-          <i class="switch" aria-hidden="true"></i>
-        </label>
-        <label class="switch-row">
-          <span
-            ><strong>游戏退出后打开启动器</strong
-            ><small>检测到游戏进程结束后，自动显示 Oddity 主界面。</small></span
-          >
-          <input
-            id="set-show-after-game-exit"
-            v-model="form.showLauncherAfterGameExit"
-            type="checkbox"
-            @change="queueSettingsSave(0)"
-          />
-          <i class="switch" aria-hidden="true"></i>
-        </label>
-      </section>
-      <p v-if="form.distribution === 'global'" class="field__hint">
-        塔吉多签到和实时数据仅适用于国服. 国际服请使用官方账号服务.
-      </p>
-      <TaygedoSettings
-        v-if="state.page === 'settings' && form.distribution === 'cn'"
-      />
-      <LogExport />
+          <label class="switch-row">
+            <span
+              ><strong>关闭窗口时最小化到托盘</strong
+              ><small>关闭主窗口时保持后台运行。</small></span
+            >
+            <input
+              id="set-minimize-to-tray"
+              v-model="form.minimizeToTrayOnClose"
+              type="checkbox"
+              @change="queueSettingsSave(0)"
+            />
+            <i class="switch" aria-hidden="true"></i>
+          </label>
+          <label class="switch-row">
+            <span
+              ><strong>游戏退出后打开启动器</strong
+              ><small
+                >检测到游戏进程结束后，自动显示 Oddity 主界面。</small
+              ></span
+            >
+            <input
+              id="set-show-after-game-exit"
+              v-model="form.showLauncherAfterGameExit"
+              type="checkbox"
+              @change="queueSettingsSave(0)"
+            />
+            <i class="switch" aria-hidden="true"></i>
+          </label>
+        </section>
+        <RuntimeEnvironments />
+        <p v-if="form.distribution === 'global'" class="field__hint">
+          塔吉多签到和实时数据仅适用于国服. 国际服请使用官方账号服务.
+        </p>
+        <TaygedoSettings
+          v-if="state.page === 'settings' && form.distribution === 'cn'"
+        />
+        <LogExport />
+      </fieldset>
     </form>
 
     <section class="diagnostics">

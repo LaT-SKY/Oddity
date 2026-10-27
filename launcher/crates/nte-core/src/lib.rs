@@ -9,6 +9,7 @@ pub mod background;
 pub mod bulletin;
 pub mod config;
 pub mod distribution;
+pub mod environment;
 pub mod error;
 pub mod game;
 pub mod install;

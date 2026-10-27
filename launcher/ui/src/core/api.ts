@@ -123,14 +123,14 @@ function previewOs() {
 const preview = previewPaths();
 
 const mock: Bootstrap = {
-  ok: true,
-  error: null,
+  ok: false,
+  error: "请先在设置中创建并选择 Proton 运行环境",
   installRoot: preview.installRoot,
   launcherRoot: preview.launcherRoot,
-  prefix: preview.prefix,
-  prefixExists: true,
-  protonName: preview.protonName,
-  protonPath: preview.protonPath,
+  prefix: "",
+  prefixExists: false,
+  protonName: "",
+  protonPath: "",
   umuAvailable: true,
   launcherVersion: "1.0.7.0924",
   launcherBuild: "1fba17f8",
@@ -142,20 +142,29 @@ const mock: Bootstrap = {
     { label: "启动器配置", ok: true, detail: preview.launcherRoot },
     { label: "游戏可执行文件", ok: true, detail: preview.gameExe },
     { label: "umu-launcher", ok: true, detail: "umu-run（PATH）" },
-    { label: "Proton", ok: true, detail: preview.protonName },
-    { label: "Wine prefix", ok: true, detail: preview.prefix },
+    { label: "Proton", ok: false, detail: "未选择运行环境" },
+    { label: "Wine prefix", ok: false, detail: "" },
     {
       label: "官方启动器",
       ok: true,
       detail: joinPath(preview.launcherRoot, distributions.cn.clientExe),
     },
   ],
+  runtimeInstallations: [
+    { distribution: "cn", installRoot: preview.installRoot, installed: true },
+    {
+      distribution: "global",
+      installRoot: "~/Games/Neverness To Everness Global",
+      installed: false,
+    },
+  ],
   settings: {
     installRoot: null,
     globalInstallRoot: null,
     distribution: "cn",
-    prefix: null,
-    protonPath: null,
+    runtimeEnvironments: [],
+    activeEnvironment: null,
+    stableEnvironment: null,
     launchMode: "background",
     language: "zh-CN",
     reduceMotion: false,
@@ -167,6 +176,58 @@ const mock: Bootstrap = {
   appVersion: APP_VERSION,
   os: previewOs(),
 };
+
+function applyPreviewDistribution() {
+  if (mock.settings.distribution === "global")
+    mock.installRoot =
+      mock.settings.globalInstallRoot || "~/Games/Neverness To Everness Global";
+  else mock.installRoot = mock.settings.installRoot || preview.installRoot;
+  mock.launcherRoot = joinPath(
+    mock.installRoot,
+    distributions[mock.settings.distribution].launcherDir,
+  );
+  mock.sdkPath = joinPath(mock.launcherRoot, "WPGameClientSDK_64.dll");
+  mock.gameExe = joinPath(
+    mock.installRoot,
+    "Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe",
+  );
+  for (const item of mock.checks) {
+    if (item.label === "启动器配置") item.detail = mock.launcherRoot;
+    if (item.label === "游戏可执行文件") item.detail = mock.gameExe;
+    if (
+      item.detail.endsWith("NTEGame.exe") ||
+      item.detail.endsWith("NTEGlobalGame.exe")
+    ) {
+      item.detail = joinPath(
+        mock.launcherRoot,
+        distributions[mock.settings.distribution].clientExe,
+      );
+    }
+  }
+  mockCheck.distribution = mock.settings.distribution;
+  mockCheck.installRoot = mock.installRoot;
+}
+
+function selectPreviewEnvironment(
+  profile: Bootstrap["settings"]["runtimeEnvironments"][number],
+) {
+  mock.settings.distribution = profile.distribution;
+  applyPreviewDistribution();
+  mock.settings.activeEnvironment = profile.id;
+  mock.prefix = joinPath(
+    preview.prefix.replace(/\/prefix$/, ""),
+    "environments",
+    profile.id,
+    "prefix",
+  );
+  mock.prefixExists = true;
+  mock.protonPath = profile.proton.path;
+  mock.protonName = mock.protonPath.split("/").pop() || preview.protonName;
+  mock.ok = true;
+  mock.error = null;
+  mock.checks[3] = { label: "Proton", ok: true, detail: mock.protonName };
+  mock.checks[4] = { label: "Wine prefix", ok: true, detail: mock.prefix };
+}
 
 const mockCheck: CheckResult = {
   installed: true,
@@ -446,6 +507,70 @@ async function previewInvoke(
       return { video: null, image: null };
     case "bootstrap":
       return clone(mock);
+    case "environment_create": {
+      const { name, protonPath, sourceId, distribution } =
+        args as CommandArgs["environment_create"];
+      const source = mock.settings.runtimeEnvironments.find(
+        (profile) => profile.id === sourceId,
+      );
+      if (sourceId && !source) throw new Error("源运行环境不存在");
+      const target = mock.runtimeInstallations.find(
+        (entry) => entry.distribution === distribution,
+      );
+      if (!target?.installed) throw new Error("尚未安装所选区服, 请先安装游戏");
+      if (!name.trim() || !protonPath.trim())
+        throw new Error("请填写环境名称和 Proton 目录");
+      if (
+        mock.settings.runtimeEnvironments.some(
+          (profile) => profile.name === name.trim(),
+        )
+      )
+        throw new Error("运行环境名称已存在");
+      const profile = {
+        id: String(mock.settings.runtimeEnvironments.length + 1).padStart(
+          32,
+          "0",
+        ),
+        name: name.trim(),
+        proton: { path: protonPath.trim(), identity: "browser-preview" },
+        installRoot: target.installRoot,
+        distribution,
+        createdAt: Math.floor(Date.now() / 1000),
+      };
+      mock.settings.runtimeEnvironments.push(profile);
+      if (!mock.settings.activeEnvironment) {
+        mock.settings.stableEnvironment = profile.id;
+        selectPreviewEnvironment(profile);
+      }
+      return clone(mock);
+    }
+    case "environment_action": {
+      const { action, id } = args as CommandArgs["environment_action"];
+      const profile = mock.settings.runtimeEnvironments.find(
+        (entry) => entry.id === id,
+      );
+      if (!profile) throw new Error("运行环境不存在");
+      if (action === "switch") {
+        const target = mock.runtimeInstallations.find(
+          (entry) => entry.distribution === profile.distribution,
+        );
+        if (target?.installRoot !== profile.installRoot)
+          throw new Error("运行环境与绑定的游戏目录不匹配");
+        selectPreviewEnvironment(profile);
+      } else if (action === "keep") {
+        mock.settings.stableEnvironment = id;
+      } else {
+        if (
+          !id ||
+          id === mock.settings.activeEnvironment ||
+          id === mock.settings.stableEnvironment
+        )
+          throw new Error("不能删除当前环境或稳定环境");
+        mock.settings.runtimeEnvironments =
+          mock.settings.runtimeEnvironments.filter((entry) => entry.id !== id);
+      }
+      return clone(mock);
+    }
     case "check_update":
       await new Promise((resolve) => setTimeout(resolve, 620));
       return clone(mockCheck);
@@ -471,34 +596,21 @@ async function previewInvoke(
     case "save_settings": {
       const settings = (args as { settings: Settings }).settings;
       mock.settings = { ...mock.settings, ...settings };
-      if (settings.distribution === "global")
-        mock.installRoot =
-          settings.globalInstallRoot || "~/Games/Neverness To Everness Global";
-      else if (settings.installRoot) mock.installRoot = settings.installRoot;
-      mock.launcherRoot = joinPath(
-        mock.installRoot,
-        distributions[settings.distribution].launcherDir,
-      );
-      mock.sdkPath = joinPath(mock.launcherRoot, "WPGameClientSDK_64.dll");
-      mock.gameExe = joinPath(
-        mock.installRoot,
-        "Client/WindowsNoEditor/HT/Binaries/Win64/HTGame.exe",
-      );
-      for (const item of mock.checks) {
-        if (item.label === "启动器配置") item.detail = mock.launcherRoot;
-        if (item.label === "游戏可执行文件") item.detail = mock.gameExe;
-        if (
-          item.detail.endsWith("NTEGame.exe") ||
-          item.detail.endsWith("NTEGlobalGame.exe")
-        ) {
-          item.detail = joinPath(
-            mock.launcherRoot,
-            distributions[settings.distribution].clientExe,
-          );
-        }
-      }
-      mockCheck.distribution = settings.distribution;
-      mockCheck.installRoot = mock.installRoot;
+      mock.runtimeInstallations = [
+        {
+          distribution: "cn",
+          installRoot: mock.settings.installRoot || preview.installRoot,
+          installed: true,
+        },
+        {
+          distribution: "global",
+          installRoot:
+            mock.settings.globalInstallRoot ||
+            "~/Games/Neverness To Everness Global",
+          installed: Boolean(mock.settings.globalInstallRoot),
+        },
+      ];
+      applyPreviewDistribution();
       return clone(mock);
     }
     case "game_download_status":
@@ -581,6 +693,8 @@ async function previewInvoke(
     case "open_directory":
       throw new Error("请在 Oddity 桌面应用中导出日志");
     case "launch_official":
+      if (!mock.settings.activeEnvironment)
+        throw new Error("请先创建 Proton 运行环境");
       previewGame.running = true;
       previewGame.closing = false;
       previewGame.pid = 23140;
