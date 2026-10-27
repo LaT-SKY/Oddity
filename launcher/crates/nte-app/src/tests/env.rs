@@ -120,7 +120,8 @@ fn open_url_spawns_the_desktop_opener() {
     open_url("https://example.test/".to_string()).expect("open url");
     // xdg-open 是异步启动的，等它把参数写进日志
     let deadline = Instant::now() + Duration::from_secs(2);
-    while !log.is_file() && Instant::now() < deadline {
+    while std::fs::read_to_string(&log).unwrap_or_default().is_empty() && Instant::now() < deadline
+    {
         thread::sleep(Duration::from_millis(10));
     }
     assert_eq!(

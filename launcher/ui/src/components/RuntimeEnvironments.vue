@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import BaseButton from "./BaseButton.vue";
 import { computed, ref, watch } from "vue";
 import {
   state,
@@ -10,6 +11,8 @@ import {
   runtimeEnvironmentAction,
 } from "../core/controller";
 import type { RuntimeEnvironment } from "../types/launcher";
+import BaseInput from "./BaseInput.vue";
+import SettingGroup from "./settings/SettingGroup.vue";
 import BaseModal from "./BaseModal.vue";
 import BaseSelect from "./BaseSelect.vue";
 import DirectoryField from "./DirectoryField.vue";
@@ -128,11 +131,7 @@ async function discard() {
 </script>
 
 <template>
-  <section
-    class="settings-section"
-    aria-labelledby="runtime-environments-title"
-  >
-    <h3 id="runtime-environments-title">Proton 运行环境</h3>
+  <SettingGroup title="Proton 运行环境" id="runtime-environments-title">
     <p class="runtime-environments__notice">
       各环境使用独立 prefix, 共享游戏安装.
       游戏更新、共享配置、宿主文件和云端状态不会随环境切换恢复.
@@ -142,6 +141,7 @@ async function discard() {
         <label for="runtime-environment">运行环境</label>
         <BaseSelect
           id="runtime-environment"
+          label="运行环境"
           v-model="selected"
           :options="options"
           :disabled="runtimeEnvironmentLocked"
@@ -157,45 +157,44 @@ async function discard() {
     </div>
     <p v-else class="field__hint">请先创建 Proton 运行环境, 再启动游戏.</p>
     <div class="runtime-environments__actions">
-      <button
+      <BaseButton
         type="button"
-        class="btn"
-        :class="profiles.length ? 'btn--ghost' : 'btn--primary'"
+        :variant="profiles.length ? 'secondary' : 'primary'"
         :disabled="runtimeEnvironmentLocked || !state.bootstrap"
         @click="openCreate"
       >
         <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg>
         {{ profiles.length ? "创建环境或副本" : "创建运行环境" }}
-      </button>
+      </BaseButton>
       <template v-if="profiles.length">
-        <button
+        <BaseButton
           type="button"
-          class="btn btn--link"
+          variant="ghost"
           :disabled="
             runtimeEnvironmentLocked || !profile || selected === active
           "
           @click="runtimeEnvironmentAction('switch', selected)"
         >
           切换到此环境
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           type="button"
-          class="btn btn--link"
+          variant="ghost"
           :disabled="
             runtimeEnvironmentLocked || !profile || selected === stable
           "
           @click="runtimeEnvironmentAction('keep', selected)"
         >
           保留为稳定环境
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           type="button"
-          class="btn btn--link runtime-environments__danger"
+          variant="danger"
           :disabled="runtimeEnvironmentLocked || !removable"
           @click="openDiscard"
         >
           删除环境
-        </button>
+        </BaseButton>
       </template>
     </div>
     <small v-if="active" class="field__hint"
@@ -213,6 +212,7 @@ async function discard() {
           <label for="runtime-environment-distribution">绑定区服</label>
           <BaseSelect
             id="runtime-environment-distribution"
+            label="绑定区服"
             v-model="distribution"
             :options="distributionOptions"
             :disabled="runtimeEnvironmentLocked"
@@ -226,6 +226,7 @@ async function discard() {
           <label for="runtime-environment-source">创建来源</label>
           <BaseSelect
             id="runtime-environment-source"
+            label="创建来源"
             v-model="sourceId"
             :options="sourceOptions"
             :disabled="runtimeEnvironmentLocked"
@@ -233,7 +234,7 @@ async function discard() {
         </div>
         <div class="field field--wide">
           <label for="runtime-environment-name">环境名称</label>
-          <input
+          <BaseInput
             id="runtime-environment-name"
             v-model="name"
             maxlength="64"
@@ -264,9 +265,9 @@ async function discard() {
         {{ runtimeEnvironmentError }}
       </p>
       <div class="runtime-environments__actions">
-        <button
+        <BaseButton
           type="button"
-          class="btn btn--primary"
+          variant="primary"
           :disabled="
             runtimeEnvironmentLocked ||
             !target?.installed ||
@@ -279,15 +280,15 @@ async function discard() {
             <use :href="source ? '#i-copy' : '#i-plus'" />
           </svg>
           {{ source ? "创建副本" : "创建环境" }}
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           type="button"
-          class="btn btn--link"
+          variant="ghost"
           :disabled="runtimeEnvironmentLocked"
           @click="creating = false"
         >
           取消创建
-        </button>
+        </BaseButton>
       </div>
     </BaseModal>
     <p
@@ -320,26 +321,26 @@ async function discard() {
         正在删除运行环境, 请稍候.
       </p>
       <div class="runtime-environments__actions">
-        <button
+        <BaseButton
           type="button"
-          class="btn btn--ghost runtime-environments__danger"
+          variant="danger"
           :disabled="runtimeEnvironmentLocked"
           @click="discard"
         >
           <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg>
           确定删除
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           type="button"
-          class="btn btn--link"
+          variant="ghost"
           :disabled="runtimeEnvironmentBusy"
           @click="confirming = false"
         >
           取消
-        </button>
+        </BaseButton>
       </div>
     </BaseModal>
-  </section>
+  </SettingGroup>
 </template>
 
 <style scoped>
@@ -356,16 +357,6 @@ async function discard() {
   align-items: center;
   gap: var(--space-24);
   margin: var(--space-16) 0;
-}
-
-.runtime-environments__danger,
-.runtime-environments__danger .icon,
-.runtime-environments__danger:hover:not(:disabled) {
-  color: var(--danger);
-}
-
-.btn--ghost.runtime-environments__danger {
-  background: var(--danger-fill);
 }
 
 .field__hint {

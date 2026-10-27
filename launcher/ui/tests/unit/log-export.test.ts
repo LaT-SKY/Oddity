@@ -2,20 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import LogExport from "../../src/components/LogExport.vue";
 
-const { open, invoke, isTauri, toast } = vi.hoisted(() => ({
+const { open, invoke, isTauri, notify } = vi.hoisted(() => ({
   open: vi.fn(),
   invoke: vi.fn(),
   isTauri: vi.fn(),
-  toast: vi.fn(),
+  notify: vi.fn(),
 }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open }));
 vi.mock("../../src/core/api", () => ({ invoke, isTauri }));
-vi.mock("../../src/core/controller", () => ({ toast }));
+vi.mock("../../src/core/notifications", () => ({ notify }));
 
 beforeEach(() => {
   open.mockReset();
   invoke.mockReset();
-  toast.mockReset();
+  notify.mockReset();
   isTauri.mockReturnValue(true);
 });
 
@@ -34,8 +34,16 @@ describe("日志导出", () => {
     expect(invoke).toHaveBeenCalledWith("export_logs", {
       destination: "/tmp/日志 导出",
     });
-    expect(toast).toHaveBeenNthCalledWith(1, "正在导出日志...", "ok", 0);
-    expect(toast).toHaveBeenNthCalledWith(2, "日志导出成功, 正在打开文件夹.");
+    expect(notify).toHaveBeenNthCalledWith(1, "正在导出日志...", "info", 0, {
+      key: "log-export",
+    });
+    expect(notify).toHaveBeenNthCalledWith(
+      2,
+      "日志导出成功, 正在打开文件夹.",
+      "ok",
+      3400,
+      { key: "log-export" },
+    );
     expect(invoke).toHaveBeenNthCalledWith(2, "open_directory", {
       path: "/tmp/日志 导出",
     });
@@ -50,7 +58,7 @@ describe("日志导出", () => {
     await wrapper.get("button").trigger("click");
     await flushPromises();
     expect(invoke).not.toHaveBeenCalled();
-    expect(toast).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
     expect(wrapper.find('[role="alert"]').exists()).toBe(false);
     expect(wrapper.get("button").attributes("disabled")).toBeUndefined();
   });
@@ -63,7 +71,9 @@ describe("日志导出", () => {
     await wrapper.get("button").trigger("click");
     await flushPromises();
     expect(wrapper.get("button").attributes("disabled")).toBeDefined();
-    expect(toast).toHaveBeenCalledWith("正在导出日志...", "ok", 0);
+    expect(notify).toHaveBeenCalledWith("正在导出日志...", "info", 0, {
+      key: "log-export",
+    });
     await wrapper.get("button").trigger("click");
     expect(invoke).toHaveBeenCalledTimes(1);
     reject("暂无可导出的日志");
@@ -73,10 +83,11 @@ describe("日志导出", () => {
       "open_directory",
       expect.anything(),
     );
-    expect(toast).toHaveBeenLastCalledWith(
+    expect(notify).toHaveBeenLastCalledWith(
       expect.stringContaining("暂无可导出的日志"),
       "error",
       6500,
+      { key: "log-export" },
     );
     expect(wrapper.get("button").attributes("disabled")).toBeUndefined();
     invoke.mockResolvedValue("/tmp/logs.zip");
@@ -108,10 +119,11 @@ describe("日志导出", () => {
     expect(wrapper.get('[role="alert"]').text()).toContain(
       "日志已导出, 但无法打开文件夹",
     );
-    expect(toast).toHaveBeenLastCalledWith(
+    expect(notify).toHaveBeenLastCalledWith(
       expect.stringContaining("opener failed"),
       "error",
       6500,
+      { key: "log-export" },
     );
   });
 

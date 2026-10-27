@@ -1,8 +1,11 @@
 <script setup lang="ts">
+import SettingGroup from "./settings/SettingGroup.vue";
+import SettingRow from "./settings/SettingRow.vue";
+import BaseButton from "./BaseButton.vue";
 import { ref } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
 import { invoke, isTauri } from "../core/api";
-import { toast } from "../core/controller";
+import { notify } from "../core/notifications";
 
 const exporting = ref(false);
 const savedPath = ref("");
@@ -21,18 +24,18 @@ async function exportLogs() {
       multiple: false,
     });
     if (destination === null) return;
-    toast("正在导出日志...", "ok", 0);
+    notify("正在导出日志...", "info", 0, { key: "log-export" });
     savedPath.value = await invoke("export_logs", { destination });
-    toast("日志导出成功, 正在打开文件夹.");
+    notify("日志导出成功, 正在打开文件夹.", "ok", 3400, { key: "log-export" });
     try {
       await invoke("open_directory", { path: destination });
     } catch (cause) {
       error.value = `日志已导出, 但无法打开文件夹: ${String(cause)}`;
-      toast(error.value, "error", 6500);
+      notify(error.value, "error", 6500, { key: "log-export" });
     }
   } catch (cause) {
     error.value = `导出日志失败: ${String(cause)}`;
-    toast(error.value, "error", 6500);
+    notify(error.value, "error", 6500, { key: "log-export" });
   } finally {
     exporting.value = false;
   }
@@ -40,36 +43,34 @@ async function exportLogs() {
 </script>
 
 <template>
-  <section class="settings-section">
-    <h3>日志</h3>
-    <div class="field">
-      <small class="field__hint">
-        将 Oddity 启动及后台会话日志打包为 ZIP, 保存到所选文件夹.
-      </small>
-      <div>
-        <button
-          id="settings-export-logs"
-          type="button"
-          class="btn btn--ghost"
-          :disabled="exporting"
-          :aria-busy="exporting"
-          @click="exportLogs"
-        >
-          {{ exporting ? "正在导出..." : "导出日志" }}
-        </button>
-      </div>
-      <small
-        v-if="savedPath"
-        class="field__hint log-export__result"
-        role="status"
+  <SettingGroup title="日志">
+    <SettingRow
+      label="启动与后台会话"
+      description="将 Oddity 启动及后台会话日志打包为 ZIP, 保存到所选文件夹."
+    >
+      <BaseButton
+        id="settings-export-logs"
+        icon="i-download-simple"
+        :busy="exporting"
+        @click="exportLogs"
+        >{{ exporting ? "正在导出..." : "导出日志" }}</BaseButton
       >
-        日志已导出至: {{ savedPath }}
-      </small>
-      <small v-if="error" class="field__hint log-export__result" role="alert">{{
-        error
-      }}</small>
-    </div>
-  </section>
+      <template v-if="savedPath || error" #detail>
+        <small
+          v-if="savedPath"
+          class="field__hint log-export__result"
+          role="status"
+          >日志已导出至: {{ savedPath }}</small
+        >
+        <small
+          v-if="error"
+          class="field__hint log-export__result"
+          role="alert"
+          >{{ error }}</small
+        >
+      </template>
+    </SettingRow>
+  </SettingGroup>
 </template>
 
 <style scoped>

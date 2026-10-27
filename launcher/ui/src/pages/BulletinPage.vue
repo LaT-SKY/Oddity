@@ -1,236 +1,169 @@
 <script setup lang="ts">
-import { computed } from "vue";
-import { fetchBulletins, openUrl, state } from "../core/controller";
-import { distributions } from "../core/distribution";
+import { motion } from "motion-v";
+import { computed, ref } from "vue";
 import type { BulletinItem } from "../types/launcher";
-
+import { fetchBulletins, form, openUrl, state } from "../core/controller";
+import { distributions } from "../core/distribution";
+import BaseButton from "../components/BaseButton.vue";
+import BaseTabs from "../components/BaseTabs.vue";
+import BaseView from "../components/BaseView.vue";
+import BulletinEntry from "../components/BulletinEntry.vue";
+import BulletinGroup from "../components/BulletinGroup.vue";
+import BulletinSkeleton from "../components/BulletinSkeleton.vue";
+import { useControlMotion } from "../composables/useControlMotion";
 const global = computed(
   () => state.bootstrap?.settings.distribution === "global",
 );
 const links = computed(() => distributions[global.value ? "global" : "cn"]);
-const items = computed(() => state.bulletins?.items || []);
-const bilibili = computed(() =>
-  items.value.filter((item) => item.kind === "bilibili"),
-);
-const previews = computed(() =>
-  items.value.filter((item) => item.kind === "preview"),
-);
-const maintenance = computed(() =>
-  items.value.filter((item) => item.kind === "maintenance"),
-);
-const errors = computed(() => state.bulletins?.errors || []);
+const items = computed(() => state.bulletins?.items ?? []);
+const errors = computed(() => state.bulletins?.errors ?? []);
 const loading = computed(() => state.bulletinsLoading);
-
-function label(item: BulletinItem) {
-  return item.publishedAt
-    ? `${item.source} · ${item.publishedAt}`
-    : item.source;
-}
+const stacked = computed(() => form.stackBulletins);
+const filter = ref<"all" | "social" | "preview" | "maintenance">("all");
+const filters = [
+  { value: "all", label: "全部" },
+  { value: "social", label: "官方动态" },
+  { value: "preview", label: "版本资讯" },
+  { value: "maintenance", label: "维护公告" },
+] as const;
+const visible = computed(() =>
+  items.value.filter(
+    (item) =>
+      filter.value === "all" ||
+      (filter.value === "social"
+        ? ["bilibili", "x"].includes(item.kind)
+        : item.kind === filter.value),
+  ),
+);
+const groups = computed(() => {
+  const result = new Map<string, BulletinItem[]>();
+  for (const item of visible.value) {
+    const group = result.get(item.source);
+    if (group) group.push(item);
+    else result.set(item.source, [item]);
+  }
+  return [...result.entries()];
+});
+const { surface } = useControlMotion();
 </script>
-
 <template>
-  <section
+  <motion.section
     class="page bulletin-page"
     id="page-bulletin"
+    :inert="state.page !== 'bulletin'"
+    :aria-hidden="state.page !== 'bulletin' || undefined"
+    :initial="false"
+    :animate="{
+      opacity: state.page === 'bulletin' ? 1 : 0,
+      x: state.page === 'bulletin' ? 0 : 22,
+      visibility: state.page === 'bulletin' ? 'visible' : 'hidden',
+    }"
+    :transition="surface"
     :class="{ 'is-active': state.page === 'bulletin' }"
     aria-labelledby="bulletin-title"
   >
     <header class="page-head">
       <div class="page-head__copy">
-        <h2 id="bulletin-title">公告</h2>
+        <h2 id="bulletin-title" tabindex="-1">公告</h2>
       </div>
-      <div class="page-head__actions">
-        <button
-          class="btn btn--link"
-          type="button"
-          :disabled="loading"
-          @click="fetchBulletins(false, true)"
-        >
-          <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-            <use href="#i-arrows-clockwise"></use>
-          </svg>
-          <span class="btn__text">{{ loading ? "正在更新" : "刷新公告" }}</span>
-        </button>
-      </div>
+      <BaseButton
+        variant="ghost"
+        icon="i-arrows-clockwise"
+        :busy="loading"
+        @click="fetchBulletins(false, true)"
+        >{{ loading ? "正在更新" : "刷新公告" }}</BaseButton
+      >
     </header>
-
-    <article class="bulletin-facts">
-      <span class="panel-label">游戏版本</span>
-      <div class="bulletin-number">
-        {{ state.bootstrap?.gameVersion || "未检测" }}
-      </div>
-      <p class="bulletin-copy">
-        {{
-          state.bootstrap?.gameExists ? "游戏资源已就绪" : "尚未检测到游戏资源"
-        }}。启动器版本 {{ state.bootstrap?.launcherVersion || "未知" }} / build
-        {{ state.bootstrap?.launcherBuild || "未知" }}。
-      </p>
-    </article>
-
-    <div class="bulletin-sections">
-      <section
-        v-if="!global"
-        class="bulletin-section bulletin-section--bilibili"
-        aria-labelledby="bilibili-title"
-      >
-        <div class="bulletin-section__head">
-          <div>
-            <h3 id="bilibili-title">B站官方动态</h3>
-          </div>
-        </div>
-        <div v-if="bilibili.length" class="bulletin-cards">
-          <button
-            v-for="item in bilibili"
-            :key="item.url"
-            class="bulletin-card bulletin-card--bilibili"
-            type="button"
-            @click="openUrl(item.url)"
-          >
-            <img
-              v-if="item.imageUrl"
-              class="bulletin-card__image"
-              :src="item.imageUrl"
-              alt=""
-            />
-            <span class="bulletin-card__meta">{{ label(item) }}</span
-            ><strong>{{ item.title }}</strong>
-            <span v-if="item.summary" class="bulletin-card__summary">{{
-              item.summary
-            }}</span>
-            <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-              <use href="#i-arrow-up-right"></use>
-            </svg>
-          </button>
-        </div>
-        <p v-else class="bulletin-empty bulletin-empty--small" role="status">
-          暂无可用动态，稍后可重新刷新
-        </p>
-      </section>
-
-      <section
-        class="bulletin-section bulletin-section--preview"
-        aria-labelledby="preview-title"
-      >
-        <div class="bulletin-section__head">
-          <div>
-            <h3 id="preview-title">{{ global ? "国际服新闻" : "版本前瞻" }}</h3>
-          </div>
-        </div>
+    <BaseTabs
+      class="bulletin-filters"
+      variant="navigation"
+      v-model="filter"
+      :options="filters"
+      label="公告分类"
+    />
+    <div class="bulletin-content" :aria-busy="loading">
+      <div v-if="errors.length" class="bulletin-errors">
         <div
-          v-if="previews.length"
-          class="bulletin-cards bulletin-cards--preview"
+          v-for="error in errors"
+          :key="error"
+          class="bulletin-source-error"
+          role="status"
         >
-          <button
-            v-for="item in previews"
-            :key="item.url"
-            class="bulletin-card bulletin-card--preview"
-            type="button"
-            @click="openUrl(item.url)"
+          <svg class="icon" aria-hidden="true"><use href="#i-info" /></svg>
+          <p>{{ error }}</p>
+        </div>
+        <div class="bulletin-retry">
+          <BaseButton
+            variant="ghost"
+            :disabled="loading"
+            @click="fetchBulletins(false, true)"
+            >重新读取</BaseButton
+          ><BaseButton
+            v-if="global"
+            variant="ghost"
+            @click="openUrl('https://x.com/NTE_JP')"
+            >打开 X 官方账号</BaseButton
           >
-            <img
-              v-if="item.imageUrl"
-              class="bulletin-card__image"
-              :src="item.imageUrl"
-              alt=""
+        </div>
+      </div>
+      <BulletinSkeleton v-if="loading && !items.length" />
+      <template v-else>
+        <p v-if="loading" class="bulletin-refreshing" role="status">
+          正在读取最新公告
+        </p>
+        <BaseView
+          :view-key="`${global}:${filter}:${stacked}`"
+          class="bulletin-feed"
+        >
+          <template v-if="stacked">
+            <template v-for="[source, group] in groups" :key="source">
+              <BulletinGroup
+                v-if="group.length > 1"
+                :items="group"
+                @open="openUrl"
+              />
+              <BulletinEntry v-else :item="group[0]" @open="openUrl" />
+            </template>
+          </template>
+          <template v-else>
+            <BulletinEntry
+              v-for="item in visible"
+              :key="item.url"
+              :item="item"
+              @open="openUrl"
             />
-            <span class="bulletin-card__meta">{{ label(item) }}</span
-            ><strong>{{ item.title }}</strong>
-            <span class="bulletin-card__summary">{{ item.summary }}</span>
-            <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-              <use href="#i-arrow-up-right"></use>
-            </svg>
-          </button>
-        </div>
-        <p v-else class="bulletin-empty bulletin-empty--small">
-          暂无前瞻数据。
-        </p>
-      </section>
-
-      <section
-        class="bulletin-section bulletin-section--maintenance"
-        aria-labelledby="maintenance-title"
-      >
-        <div class="bulletin-section__head">
-          <div>
-            <h3 id="maintenance-title">
-              {{ global ? "国际服公告" : "停服维护公告" }}
-            </h3>
-          </div>
-        </div>
-        <div v-if="maintenance.length" class="bulletin-list">
-          <button
-            v-for="item in maintenance"
-            :key="item.url"
-            class="bulletin-list__row"
-            type="button"
-            @click="openUrl(item.url)"
-          >
-            <span
-              ><strong>{{ item.title }}</strong
-              ><small>{{ item.summary }}</small></span
-            ><span class="bulletin-list__date">{{
-              item.publishedAt || "—"
-            }}</span>
-            <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-              <use href="#i-arrow-up-right"></use>
-            </svg>
-          </button>
-        </div>
-        <p v-else class="bulletin-empty bulletin-empty--small">
-          暂无公告数据。
-        </p>
-      </section>
-
-      <p v-if="errors.length" class="bulletin-source-note">
-        部分来源暂时不可用：{{ errors.join("；") }}。已展示成功读取的内容。
-      </p>
+          </template>
+          <p v-if="!visible.length" class="bulletin-empty">
+            {{ errors.length ? "该来源暂时无法读取." : "暂无公告." }}
+          </p>
+        </BaseView>
+      </template>
+      <footer class="bulletin-links">
+        <BaseButton
+          variant="ghost"
+          id="open-official"
+          @click="openUrl(links.official)"
+          >官方公告</BaseButton
+        >
+        <BaseButton
+          variant="ghost"
+          id="open-contract"
+          @click="openUrl(links.contract)"
+          >用户协议</BaseButton
+        >
+        <BaseButton
+          variant="ghost"
+          id="open-privacy"
+          @click="openUrl(links.privacy)"
+          >隐私政策</BaseButton
+        >
+        <BaseButton
+          variant="ghost"
+          id="open-support"
+          @click="openUrl(links.support)"
+          >官方客服</BaseButton
+        >
+      </footer>
     </div>
-
-    <div class="bulletin-links">
-      <button
-        class="link-row"
-        id="open-official"
-        type="button"
-        @click="openUrl(links.official)"
-      >
-        <span>打开官方公告页</span
-        ><svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-          <use href="#i-arrow-up-right"></use>
-        </svg>
-      </button>
-      <button
-        class="link-row"
-        id="open-contract"
-        type="button"
-        @click="openUrl(links.contract)"
-      >
-        <span>游戏用户协议</span
-        ><svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-          <use href="#i-arrow-up-right"></use>
-        </svg>
-      </button>
-      <button
-        class="link-row"
-        id="open-privacy"
-        type="button"
-        @click="openUrl(links.privacy)"
-      >
-        <span>个人信息保护政策</span
-        ><svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-          <use href="#i-arrow-up-right"></use>
-        </svg>
-      </button>
-      <button
-        class="link-row"
-        id="open-support"
-        type="button"
-        @click="openUrl(links.support)"
-      >
-        <span>官方客服与修复</span
-        ><svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-          <use href="#i-arrow-up-right"></use>
-        </svg>
-      </button>
-    </div>
-  </section>
+  </motion.section>
 </template>

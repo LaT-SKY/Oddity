@@ -10,6 +10,7 @@ fn settings_default_matches_the_ui_contract() {
     assert_eq!(settings.launch_mode, "background");
     assert_eq!(settings.language, "zh-CN");
     assert!(!settings.reduce_motion);
+    assert!(!settings.stack_bulletins);
     assert_eq!(settings.theme, "light");
     assert_eq!(settings.hero_media, "video");
     assert!(settings.minimize_to_tray_on_close);
@@ -59,6 +60,7 @@ fn settings_round_trip_through_the_config_dir() {
         launch_mode: "direct".to_string(),
         language: "en-US".to_string(),
         reduce_motion: true,
+        stack_bulletins: true,
         theme: "dark".to_string(),
         hero_media: "photo".to_string(),
         minimize_to_tray_on_close: false,
@@ -84,6 +86,7 @@ fn settings_round_trip_through_the_config_dir() {
     assert_eq!(loaded.launch_mode, "direct");
     assert_eq!(loaded.language, "en-US");
     assert!(loaded.reduce_motion);
+    assert!(loaded.stack_bulletins);
     assert_eq!(loaded.theme, "dark");
     assert_eq!(loaded.hero_media, "photo");
     assert!(!loaded.minimize_to_tray_on_close);
@@ -104,6 +107,7 @@ fn settings_fall_back_when_the_file_is_broken_or_partial() {
     dir.write_text("oddity/settings.json", "{\"theme\":\"dark\"}");
     let partial = load_settings();
     assert_eq!(partial.theme, "dark");
+    assert!(!partial.stack_bulletins);
     assert_eq!(partial.launch_mode, "background");
     assert_eq!(partial.hero_media, "video");
     assert!(partial.minimize_to_tray_on_close);

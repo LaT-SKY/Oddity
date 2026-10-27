@@ -1,10 +1,13 @@
+import { settingsCategory } from "./settings-helpers";
 import { test, expect, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 async function addAccount(page: Page, phone: string, first = false) {
+  await settingsCategory(page, "account");
   if (first) await page.locator("#attendance-action").click();
   else {
+    await settingsCategory(page, "account");
     await page.locator("#attendance-manage").click();
     await page.getByRole("button", { name: "添加账号", exact: true }).click();
   }
@@ -65,6 +68,7 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
   await screenshot(page, "home-empty-light.png");
   await page.getByRole("button", { name: /前往设置登录/ }).click();
   await expect(page.locator("#attendance-action")).toHaveText("立即登录");
+  await settingsCategory(page, "appearance");
   await page.locator("#set-hero-media-trigger").click();
   await page.getByRole("option", { name: "静态照片", exact: true }).click();
   await addAccount(page, "13800138000", true);
@@ -89,6 +93,7 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
   await page.getByRole("button", { name: "刷新游戏状态" }).click();
   await expect(panel).toHaveAttribute("aria-busy", "false");
   await page.locator('[data-page="settings"]').click();
+  await settingsCategory(page, "appearance");
   await page.locator("#set-theme-trigger").click();
   await page.getByRole("option", { name: "暗色", exact: true }).click();
   await page.locator('[data-page="home"]').click();
@@ -96,6 +101,21 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
   await expect(panel).toBeVisible();
   await screenshot(page, "home-panel-dark.png");
   await page.setViewportSize({ width: 980, height: 640 });
+  // 视口缩小时面板高度异步归位, 等布局稳定后再测量。
+  await expect
+    .poll(async () => {
+      const gap = await page.evaluate(() => {
+        const stats = document
+          .querySelector(".game-records__secondary")!
+          .getBoundingClientRect();
+        const footer = document
+          .querySelector(".game-records__foot")!
+          .getBoundingClientRect();
+        return footer.top - stats.bottom;
+      });
+      return gap >= 12 && gap <= 20;
+    })
+    .toBe(true);
   const positions = await page.evaluate(() => {
     const panel = document
       .querySelector(".game-records__panel")!
@@ -156,6 +176,7 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
   await page.locator("#home-title").click();
   await expect(panel).toHaveCount(0);
   await page.locator('[data-page="settings"]').click();
+  await settingsCategory(page, "account");
   await page.locator("#attendance-manage").click();
   await page.getByRole("button", { name: "移除", exact: true }).first().click();
   await page.getByRole("button", { name: "确认移除", exact: true }).click();
@@ -168,20 +189,33 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
   expect(errors).toEqual([]);
 });
 
-test("Motion 弹簧过冲、快速开合中断与减少动态效果", async ({ page }) => {
+test("玩家圆形收束、展开归位、快速开合与减少动态效果", async ({ page }) => {
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/");
+  await page.clock.runFor(1500);
   await expect(page.locator("#app")).toHaveClass(/is-intro-done/);
   await page.evaluate(() => {
-    const probe = { scales: [] as number[], done: false };
+    const probe = {
+      widths: [] as number[],
+      heights: [] as number[],
+      xs: [] as number[],
+      ys: [] as number[],
+      done: false,
+    };
     (window as unknown as { recordMotion: typeof probe }).recordMotion = probe;
     const start = performance.now();
     function sample() {
-      const el = document.querySelector(".game-records__panel");
-      if (el)
-        probe.scales.push(
-          new DOMMatrixReadOnly(getComputedStyle(el).transform).a,
-        );
+      const el = document.querySelector(".game-records__surface");
+      if (el) {
+        const box = el.getBoundingClientRect();
+        probe.widths.push(box.width);
+        probe.heights.push(box.height);
+        const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+        probe.xs.push(matrix.m41);
+        probe.ys.push(matrix.m42);
+      }
       if (performance.now() - start < 1400) requestAnimationFrame(sample);
       else probe.done = true;
     }
@@ -190,20 +224,36 @@ test("Motion 弹簧过冲、快速开合中断与减少动态效果", async ({ p
   const capsule = page.locator(".game-records__capsule");
   const panel = page.locator(".game-records__panel");
   await capsule.click();
+  await page.clock.runFor(1500);
   await page.waitForFunction(
     () =>
       (window as unknown as { recordMotion: { done: boolean } }).recordMotion
         .done,
   );
-  const scales = await page.evaluate(
+  const frames = await page.evaluate(
     () =>
-      (window as unknown as { recordMotion: { scales: number[] } }).recordMotion
-        .scales,
+      (
+        window as unknown as {
+          recordMotion: {
+            widths: number[];
+            heights: number[];
+            xs: number[];
+            ys: number[];
+          };
+        }
+      ).recordMotion,
   );
-  expect(scales.length).toBeGreaterThan(10);
-  expect(Math.min(...scales)).toBeLessThan(0.98);
-  expect(Math.max(...scales)).toBeGreaterThan(1.001);
-  expect(scales.at(-1)).toBeCloseTo(1, 2);
+  expect(frames.widths.length).toBeGreaterThan(10);
+  expect(Math.min(...frames.widths)).toBeLessThanOrEqual(65);
+  expect(frames.widths.at(-1)).toBeCloseTo(280, 0);
+  expect(
+    Math.max(...frames.heights) - Math.min(...frames.heights),
+  ).toBeGreaterThan(50);
+  expect(Math.min(...frames.xs)).toBeLessThan(-110);
+  expect(Math.max(...frames.ys)).toBeGreaterThan(40);
+  expect(frames.xs.at(-1)).toBeCloseTo(0, 0);
+  expect(frames.ys.at(-1)).toBeCloseTo(0, 0);
+  await page.clock.resume();
   for (let i = 0; i < 7; i++) await capsule.click();
   await expect(capsule).toHaveAttribute("aria-expanded", "false");
   await expect(panel).toHaveCount(0);
@@ -222,4 +272,48 @@ test("Motion 弹簧过冲、快速开合中断与减少动态效果", async ({ p
       ),
     )
     .toBe(1);
+});
+
+test("玩家组件各阶段中断与窗口缩放后精确归位", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("/");
+  await expect(page.locator("#app")).toHaveClass(/is-intro-done/);
+  const capsule = page.locator(".game-records__capsule");
+  const surface = page.locator(".game-records__surface");
+  const root = page.locator(".game-records");
+  await capsule.focus();
+  for (const stage of ["circle", "expand", "return"]) {
+    await capsule.press("Enter");
+    await page.waitForFunction((stage) => {
+      const el = document.querySelector<HTMLElement>(".game-records__surface")!;
+      const matrix = new DOMMatrixReadOnly(getComputedStyle(el).transform);
+      return stage === "circle"
+        ? el.offsetWidth < 100
+        : stage === "expand"
+          ? matrix.m42 > 30
+          : el.offsetWidth >= 278 && matrix.m42 > 2 && matrix.m42 < 30;
+    }, stage);
+    await capsule.press("Enter");
+    await expect(root).toHaveAttribute("data-moving", "false");
+    await expect(capsule).toHaveAttribute("aria-expanded", "false");
+    const box = await surface.evaluate((el) => ({
+      width: el.getBoundingClientRect().width,
+      height: el.getBoundingClientRect().height,
+      x: new DOMMatrixReadOnly(getComputedStyle(el).transform).m41,
+      y: new DOMMatrixReadOnly(getComputedStyle(el).transform).m42,
+    }));
+    expect(box.width).toBeCloseTo(204, 0);
+    expect(box.height).toBeCloseTo(44, 0);
+    expect(box.x).toBeCloseTo(0, 1);
+    expect(box.y).toBeCloseTo(0, 1);
+  }
+  await capsule.press("Enter");
+  await page.setViewportSize({ width: 980, height: 640 });
+  await expect(root).toHaveAttribute("data-moving", "false");
+  const bounds = await surface.boundingBox();
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(980);
+  expect(bounds!.y + bounds!.height).toBeLessThan(640);
+  await page.keyboard.press("Escape");
+  await expect(root).toHaveAttribute("data-moving", "false");
+  await expect(capsule).toHaveAttribute("aria-expanded", "false");
 });

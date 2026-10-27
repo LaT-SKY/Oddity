@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import BaseButton from "./BaseButton.vue";
+import BaseInput from "./BaseInput.vue";
 import { ref } from "vue";
 import { homeDir, join } from "@tauri-apps/api/path";
 import { open } from "@tauri-apps/plugin-dialog";
@@ -50,31 +52,35 @@ async function browse() {
   <div class="field">
     <label :for="id">{{ label }}</label>
     <div class="directory-field__controls">
-      <input
+      <BaseInput
         :id="id"
-        :value="modelValue"
+        :model-value="modelValue"
+        mono
+        :invalid="!!error"
+        :aria-describedby="error ? `${id}-error` : undefined"
         type="text"
         spellcheck="false"
         autocomplete="off"
         :placeholder="placeholder"
         :disabled="disabled || picking"
-        @input="
-          emit('update:modelValue', ($event.target as HTMLInputElement).value);
-          emit('input');
-        "
+        @update:model-value="emit('update:modelValue', $event)"
+        @input="emit('input')"
         @change="emit('change')"
       />
-      <button
+      <BaseButton
         type="button"
-        class="btn btn--ghost"
+        variant="secondary"
+        icon="i-folder-open"
         :disabled="disabled || picking"
         :aria-label="`浏览${label}`"
-        :aria-busy="picking"
+        :busy="picking"
         @click="browse"
       >
         浏览
-      </button>
+      </BaseButton>
     </div>
-    <small v-if="error" class="field__hint" role="alert">{{ error }}</small>
+    <small v-if="error" :id="`${id}-error`" class="field__hint" role="alert">{{
+      error
+    }}</small>
   </div>
 </template>

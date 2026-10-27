@@ -105,15 +105,3 @@ button:disabled {
   font-family: var(--mono);
   font-variant-numeric: tabular-nums;
 }
-
-.grain {
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: var(--z-grain);
-  opacity: var(--grain-opacity);
-  mix-blend-mode: var(--grain-blend);
-  border-radius: var(--window-radius);
-  overflow: hidden;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.6'/%3E%3C/svg%3E");
-}

@@ -1,3 +1,4 @@
+import { settingsCategory } from "./settings-helpers";
 import { test, expect } from "@playwright/test";
 
 test("设置页安装目录均可选择、取消并自动保存", async ({ page }) => {
@@ -18,6 +19,7 @@ test("设置页安装目录均可选择、取消并自动保存", async ({ page 
   await page.goto("/");
   await page.locator('[data-page="settings"]').click();
   await expect(page.locator("#page-settings")).toBeVisible();
+  await settingsCategory(page, "game");
   for (const [id, label] of [
     ["set-install", "国服安装目录"],
     ["set-global-install", "国际服安装目录"],

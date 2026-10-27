@@ -15,6 +15,7 @@ export const settings: Settings = {
   launchMode: "background",
   language: "zh-CN",
   reduceMotion: true,
+  stackBulletins: false,
   theme: "light",
   heroMedia: "photo",
   minimizeToTrayOnClose: true,

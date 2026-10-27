@@ -168,6 +168,7 @@ const mock: Bootstrap = {
     launchMode: "background",
     language: "zh-CN",
     reduceMotion: false,
+    stackBulletins: false,
     theme: "light",
     heroMedia: "video",
     minimizeToTrayOnClose: true,

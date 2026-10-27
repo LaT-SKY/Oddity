@@ -152,7 +152,7 @@ it("验证原因仅在弹窗显示, 登录失败也清空密码", async () => {
 it("签到与轮询保留未保存偏好, 弹窗循环焦点并还原", async () => {
   status.accounts = [account("1")];
   await boot();
-  // 单元测试不依赖弹窗动画, 避免 jsdom 缺少 DOMMatrixReadOnly.
+  // 焦点测试直接使用弹窗的稳定状态。
   c.applyReduceMotion(true);
   c.attendanceForm.enabled = true;
   c.attendanceForm.time = "21:30";

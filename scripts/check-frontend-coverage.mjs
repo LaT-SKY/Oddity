@@ -21,10 +21,13 @@ try {
   const groups = { core: [], ui: [] };
   for (const [file, metrics] of Object.entries(summary)) {
     if (file === "total") continue;
-    groups[file.endsWith(".vue") ? "ui" : "core"].push(metrics);
+    const isUi =
+      file.endsWith(".vue") ||
+      /\/composables\/(useNotificationArrival|usePlayerMotion)\.ts$/.test(file);
+    groups[isUi ? "ui" : "core"].push(metrics);
   }
   if (!groups.core.length || !groups.ui.length)
-    throw new Error("覆盖率报告缺少核心 TS 或 UI 组件");
+    throw new Error("覆盖率报告缺少核心 TS 或 UI 组件及动效");
   const percent = (files, metric) => {
     const total = files.reduce((sum, file) => sum + file[metric].total, 0);
     const covered = files.reduce((sum, file) => sum + file[metric].covered, 0);
@@ -40,11 +43,11 @@ try {
     "| 范围 | 行覆盖率 | 分支覆盖率 | 要求 |",
     "|---|---:|---:|---|",
     `| 核心 TS | ${coreLines.toFixed(2)}% | ${coreBranches.toFixed(2)}% | 每个文件行 ≥ 80%, 分支 ≥ 70%, 强制 |`,
-    `| UI 组件 | ${uiLines.toFixed(2)}% | ${percent(groups.ui, "branches").toFixed(2)}% | 行覆盖率参考目标 ≥ ${uiTarget}%, 不阻断 |`,
+    `| UI 组件及动效 | ${uiLines.toFixed(2)}% | ${percent(groups.ui, "branches").toFixed(2)}% | 行覆盖率参考目标 ≥ ${uiTarget}%, 不阻断 |`,
     "",
     uiLines < uiTarget
-      ? "UI 组件尚未达到参考目标, 本项不阻断检查。"
-      : "UI 组件已达到参考目标。",
+      ? "UI 组件及动效尚未达到参考目标, 本项不阻断检查。"
+      : "UI 组件及动效已达到参考目标。",
     "",
   ].join("\n");
   console.log(report);

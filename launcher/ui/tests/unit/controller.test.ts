@@ -43,6 +43,26 @@ vi.mock("../../src/core/api", () => ({
     return backend.downloadUnlisten;
   },
 }));
+const notificationProjection = vi.hoisted(() => ({
+  items: [] as import("../../src/core/notifications").NotificationItem[],
+}));
+// 控制器测试检查通知数据, 运动轨迹由浏览器用例验证。
+vi.mock("../../src/composables/useNotificationArrival", async () => {
+  const { computed, ref } = await import("vue");
+  return {
+    useNotificationArrival: () => ({
+      displayed: computed(() => notificationProjection.items),
+      retiring: ref([]),
+      landed: computed(() =>
+        notificationProjection.items.map((item) => item.id),
+      ),
+      incoming: ref(null),
+      revealed: ref(null),
+      phase: ref(0),
+      settled: computed(() => notificationProjection.items),
+    }),
+  };
+});
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: () => ({
     isMaximized: backend.isMaximized,
@@ -191,6 +211,7 @@ async function boot(
 ) {
   const controller = await import("../../src/core/controller");
   const { default: App } = await import("../../src/App.vue");
+  notificationProjection.items = controller.notifications;
   wrapper = mount(App, { attachTo: document.body });
   await flushPromises();
   beforeCheck?.(controller);
@@ -201,9 +222,11 @@ async function boot(
   return controller;
 }
 const text = (id: string) => document.getElementById(id)?.textContent;
+const noticeMessage = () =>
+  document.querySelector(".notification-message")?.textContent;
 const button = (id: string) => document.getElementById(id) as HTMLButtonElement;
 const primary = () => wrapper!.find("#game-download-primary");
-const primaryText = () => primary().find(".btn__text").text();
+const primaryText = () => primary().text();
 it("环境操作先保存修改, 处理期间拒绝重入并同步新登记", async () => {
   const c = await boot();
   const base = backend.invoke.getMockImplementation()!;
@@ -324,7 +347,7 @@ describe("启动与设置", () => {
     });
     const c = await boot();
     expect(button("setup-chip").hidden).toBe(false);
-    expect(text("toast")).toBe("找不到游戏");
+    expect(noticeMessage()).toBe("找不到游戏");
     expect(c.displayVersion.value).toBe(APP_VERSION);
     expect(text("update-state-text")).toBe("等待检查");
     expect(c.form.launchMode).toBe("background");
@@ -342,7 +365,7 @@ describe("启动与设置", () => {
     c.handleLaunchAction();
     await flushPromises();
     expect(c.state.page).toBe("settings");
-    expect(text("toast")).toContain("请先在设置中创建");
+    expect(noticeMessage()).toContain("请先在设置中创建");
     expect(backend.invoke).not.toHaveBeenCalledWith("launch_official");
   });
 
@@ -362,14 +385,14 @@ describe("启动与设置", () => {
       return invoke(command, args);
     });
     const c = await boot();
-    expect(text("toast")).toBe("bootstrap failed");
+    expect(noticeMessage()).toBe("bootstrap failed");
     expect(button("app").classList.contains("is-intro-done")).toBe(true);
     await c.redetect();
     expect(c.state.bootstrap?.ok).toBe(true);
-    expect(text("toast")).toBe("已重新检测环境。");
+    expect(noticeMessage()).toBe("已重新检测环境。");
     backend.invoke.mockRejectedValueOnce("redetect failed");
     await c.redetect();
-    expect(text("toast")).toBe("redetect failed");
+    expect(noticeMessage()).toBe("redetect failed");
     expect(button("settings-redetect").disabled).toBe(false);
   });
 
@@ -379,7 +402,7 @@ describe("启动与设置", () => {
     backend.invoke.mockClear();
     backend.invoke.mockRejectedValueOnce(new Error("disk full"));
     await c.redetect();
-    expect(text("toast")).toBe("disk full");
+    expect(noticeMessage()).toBe("disk full");
     expect(c.form.globalInstallRoot).toBe("/draft-prefix");
     expect(c.ui.saveState).toBe("error");
     expect(backend.invoke.mock.calls.map(([command]) => command)).toEqual([
@@ -436,10 +459,10 @@ describe("启动与设置", () => {
     Object.assign(c.form, { installRoot: "", globalInstallRoot: "" });
     backend.invoke.mockRejectedValueOnce(new Error("disk full"));
     await c.saveSettings();
-    expect(text("toast")).toBe("disk full");
+    expect(noticeMessage()).toBe("disk full");
     expect(c.ui.saveState).toBe("error");
     await vi.advanceTimersByTimeAsync(6000);
-    expect(button("toast").classList.contains("is-visible")).toBe(false);
+    expect(document.querySelector(".notification-stack")).toBeNull();
   });
 
   it("文本输入防抖自动保存, 保存状态随后回到空闲", async () => {
@@ -636,7 +659,7 @@ describe("启动与设置", () => {
     c.form.globalInstallRoot = "/blocked";
     c.queueSettingsSave(0);
     await flushPromises();
-    expect(text("toast")).toBe("disk full");
+    expect(noticeMessage()).toBe("disk full");
     expect(c.ui.saveState).toBe("error");
     c.form.globalInstallRoot = "/retry";
     c.queueSettingsSave(0);
@@ -1000,7 +1023,7 @@ describe("更新检查", () => {
     expect(c.state.download?.phase).toBe("needs-update");
     expect(c.launchView.value.label).toBe("更新游戏");
     expect(primaryText()).toBe("更新游戏");
-    expect(text("toast")?.trim()).toBe("");
+    expect(document.querySelector(".notification-stack")).toBeNull();
   });
 
   it("未安装游戏时启动不执行资源检查", async () => {
@@ -1017,7 +1040,7 @@ describe("更新检查", () => {
     backend.startFail = true;
     const c = await boot();
     expect(c.state.download?.phase ?? "idle").toBe("idle");
-    expect(text("toast")?.trim()).toBe("");
+    expect(document.querySelector(".notification-stack")).toBeNull();
   });
 
   it("完整校验发现损坏后，主按钮继续提交完整校验", async () => {
@@ -1206,11 +1229,11 @@ describe("更新检查", () => {
     await pending;
     expect(text("update-state-title")).toBe("检查失败");
     expect(text("home-status-text")).toBe("检查失败，打开更新页");
-    expect(text("toast")).toBe("CDN offline");
+    expect(noticeMessage()).toBe("CDN offline");
     expect(button("update-quick").disabled).toBe(false);
     backend.invoke.mockRejectedValueOnce("silent error");
     await c.checkUpdate(false, true);
-    expect(text("toast")).toBe("CDN offline");
+    expect(noticeMessage()).toBe("CDN offline");
   });
 });
 
@@ -1229,7 +1252,7 @@ describe("游戏会话", () => {
     backend.handler(session());
     expect(c.state.game).toBe("idle");
     await nextTick();
-    expect(text("toast")).toBe("游戏已退出。");
+    expect(noticeMessage()).toBe("游戏已退出。");
   });
 
   it("进程在反馈期间退出时不收起窗口", async () => {
@@ -1239,7 +1262,7 @@ describe("游戏会话", () => {
     backend.status = session();
     await vi.advanceTimersByTimeAsync(900);
     expect(c.state.game).toBe("idle");
-    expect(text("toast")).toBe("游戏进程已退出，启动未完成。");
+    expect(noticeMessage()).toBe("游戏进程已退出，启动未完成。");
     expect(backend.invoke).not.toHaveBeenCalledWith("win_hide");
   });
 
@@ -1249,13 +1272,13 @@ describe("游戏会话", () => {
     c.handleLaunchAction();
     await flushPromises();
     expect(c.state.game).toBe("idle");
-    expect(text("toast")).toBe("spawn failed");
+    expect(noticeMessage()).toBe("spawn failed");
     backend.status = session({ running: true });
     backend.invoke.mockRejectedValueOnce("spawn uncertain");
     c.handleLaunchAction();
     await flushPromises();
     expect(c.state.game).toBe("running");
-    expect(text("toast")).toBe("spawn uncertain");
+    expect(noticeMessage()).toBe("spawn uncertain");
   });
 
   it("启动状态查询或隐藏窗口失败仍保持可用的关闭按钮", async () => {
@@ -1270,7 +1293,7 @@ describe("游戏会话", () => {
     c.handleLaunchAction();
     await flushPromises();
     expect(c.state.game).toBe("idle");
-    expect(text("toast")).toBe("游戏已关闭。");
+    expect(noticeMessage()).toBe("游戏已关闭。");
   });
 
   it("关闭命令失败时同步仍运行、已退出和未知状态", async () => {
@@ -1281,7 +1304,7 @@ describe("游戏会话", () => {
     c.handleLaunchAction();
     await flushPromises();
     expect(c.state.game).toBe("running");
-    expect(text("toast")).toBe("close failed");
+    expect(noticeMessage()).toBe("close failed");
     backend.invoke
       .mockRejectedValueOnce("close unknown")
       .mockRejectedValueOnce(new Error("status failed"));
@@ -1314,7 +1337,7 @@ describe("游戏会话", () => {
     const c = await boot();
     c.handleLaunchAction();
     await nextTick();
-    expect(text("toast")).toBe("浏览器预览：模拟启动流程。");
+    expect(noticeMessage()).toBe("浏览器预览：模拟启动流程。");
     await vi.advanceTimersByTimeAsync(900);
     expect(c.state.game).toBe("running");
     expect(backend.invoke).not.toHaveBeenCalledWith("win_hide");
@@ -1386,15 +1409,15 @@ describe("导航和窗口交互", () => {
     expect(backend.invoke).toHaveBeenCalledWith("win_close");
     backend.invoke.mockRejectedValueOnce(new Error("window failed"));
     await c.windowAction("close");
-    expect(text("toast")).toBe("window failed");
+    expect(noticeMessage()).toBe("window failed");
     await c.openUrl("https://example.com");
     expect(backend.invoke).toHaveBeenCalledWith("open_url", {
       url: "https://example.com",
     });
-    expect(text("toast")).toBe("已在浏览器打开。");
+    expect(noticeMessage()).toBe("已在浏览器打开。");
     backend.invoke.mockRejectedValueOnce("cannot open");
     await c.openUrl("https://example.com");
-    expect(text("toast")).toBe("cannot open");
+    expect(noticeMessage()).toBe("cannot open");
     wrapper!
       .find("#titlebar")
       .element.dispatchEvent(
@@ -1414,7 +1437,7 @@ describe("导航和窗口交互", () => {
       "_blank",
       "noopener,noreferrer",
     );
-    expect(text("toast")).toBe("预览模式：已在新标签页打开。");
+    expect(noticeMessage()).toBe("预览模式：已在新标签页打开。");
     backend.invoke.mockClear();
     await c.windowAction("minimize");
     c.dragWindow(new MouseEvent("mousedown"));
@@ -1488,7 +1511,7 @@ describe("主视觉和资源", () => {
     await nextTick();
     expect(c.media.looping).toBe(false);
     expect(video.currentTime).toBe(6);
-    expect(canvas.classList.contains("is-visible")).toBe(false);
+    expect(canvas.classList.contains("is-visible")).toBe(true);
     await vi.advanceTimersByTimeAsync(100);
     expect(draw).not.toHaveBeenCalled();
     Object.defineProperty(video, "seeking", { value: true });
@@ -1716,7 +1739,7 @@ it("组件事件和双向绑定将用户操作传给控制器", async () => {
   await flushPromises();
   await wrapper!.find("#settings-redetect").trigger("click");
   await flushPromises();
-  expect(text("toast")).toBe("已重新检测环境。");
+  expect(noticeMessage()).toBe("已重新检测环境。");
   for (const id of [
     "open-official",
     "open-contract",
@@ -1743,7 +1766,7 @@ it("组件事件和双向绑定将用户操作传给控制器", async () => {
   await wrapper!.find('[data-page="bulletin"]').trigger("click");
   expect(c.state.page).toBe("bulletin");
   await wrapper!.find('[data-page="home"]').trigger("click");
-  await wrapper!.find("#check-btn").trigger("click");
+  await wrapper!.find('[data-page="update"]').trigger("click");
   await flushPromises();
   expect(c.state.page).toBe("update");
   backend.downloadHandler({ ...backend.downloadStatus, phase: "ready" });
@@ -1764,10 +1787,6 @@ it("版本显示随后台快照刷新, 缺失值显示未知而非固定版本",
   });
   await c.redetect();
   expect(c.displayVersion.value).toBe("9.8.7");
-  expect(wrapper!.find(".bulletin-number").text()).toBe("6.5.4");
-  expect(wrapper!.find(".bulletin-copy").text()).toContain(
-    "3.2.1 / build abcd",
-  );
   backend.data = bootstrap({
     appVersion: "",
     gameVersion: "",
@@ -1777,13 +1796,6 @@ it("版本显示随后台快照刷新, 缺失值显示未知而非固定版本",
   });
   await c.redetect();
   expect(c.displayVersion.value).toBe(APP_VERSION);
-  expect(wrapper!.find(".bulletin-number").text()).toBe("未检测");
-  expect(wrapper!.find(".bulletin-copy").text()).toContain(
-    "尚未检测到游戏资源",
-  );
-  expect(wrapper!.find(".bulletin-copy").text()).toContain(
-    "启动器版本 未知 / build 未知",
-  );
 });
 
 it("后台会话事件通过响应式绑定更新按钮文字、图标和禁用状态", async () => {
@@ -1890,7 +1902,7 @@ it.each(["check_update", "save_settings", "bootstrap"] as const)(
     await pending;
     expect(c.state.bootstrap).toBeNull();
     expect(c.state.check).toBeNull();
-    expect(c.ui.toast.visible).toBe(false);
+    expect(Boolean(c.notifications.length)).toBe(false);
     expect(c.ui.saveState).toBe("idle");
     expect(c.ui.redetecting).toBe(false);
   },
@@ -2016,8 +2028,10 @@ it("签到保存失败明确提示并保留错误状态", async () => {
     return original(command, args);
   });
   await c.saveSettings();
-  expect(c.ui.toast.message).toBe("签到设置保存失败: 定时任务设置失败");
-  expect(c.ui.toast.kind).toBe("error");
+  expect(c.notifications[0]?.message).toBe(
+    "签到设置保存失败: 定时任务设置失败",
+  );
+  expect(c.notifications[0]?.kind).toBe("error");
   expect(c.ui.saveState).toBe("error");
   expect(c.attendance.busy).toBe(false);
 });
@@ -2101,11 +2115,30 @@ it("区服切换后隔离公告缓存并丢弃旧请求", async () => {
   finishCn({ items: [], errors: ["old cn feed"] });
   await pending;
   expect(c.state.bulletins).toEqual(globalFeed);
-  expect(localStorage.getItem("nte.bulletins.v2.global")).toContain(
-    "global feed",
-  );
+  expect(localStorage.getItem("nte.bulletins.v2.global")).toBeNull();
   expect(localStorage.getItem("nte.bulletins.v2.cn")).toBeNull();
   expect(wrapper!.findComponent({ name: "HomeGameRecords" }).exists()).toBe(
     false,
   );
+});
+
+it("公告来源失败不缓存, 下次读取会重新请求", async () => {
+  const c = await boot();
+  localStorage.removeItem("nte.bulletins.v2.cn");
+  backend.invoke.mockResolvedValueOnce({
+    items: [],
+    errors: ["B站动态: 暂时不可用"],
+  });
+  await c.fetchBulletins(true, true);
+  expect(c.state.bulletins?.errors).toHaveLength(1);
+  expect(localStorage.getItem("nte.bulletins.v2.cn")).toBeNull();
+  backend.invoke.mockResolvedValueOnce({ items: [], errors: [] });
+  await c.fetchBulletins();
+  expect(c.state.bulletins?.errors).toEqual([]);
+  expect(localStorage.getItem("nte.bulletins.v2.cn")).toContain('"errors":[]');
+  backend.invoke.mockResolvedValueOnce({ items: [], errors: ["临时失败"] });
+  await c.fetchBulletins(true, true);
+  backend.invoke.mockResolvedValueOnce({ items: [], errors: [] });
+  await c.fetchBulletins();
+  expect(c.state.bulletins?.errors).toEqual([]);
 });

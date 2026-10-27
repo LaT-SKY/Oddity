@@ -1,80 +1,47 @@
-/* 窄窗与低高度窗口的响应式覆盖。 */
-
-/* ---------------- compact window ---------------- */
-
-@media (max-width: 1060px) {
-  .main {
-    margin: var(--space-18) var(--space-20) var(--space-20);
-  }
-  .hero__content {
-    width: 64%;
-    max-width: calc(100% - 300px);
-    padding: clamp(32px, 4.5vw, 48px);
-  }
-  .page-head__copy h2 {
-    font-size: var(--text-4xl);
-  }
+/* 以面板的实际可用宽度调整表单与公告。 */
+.drawer {
+  container: secondary / inline-size;
 }
-
-@media (max-height: 720px) {
-  .main {
-    margin: var(--space-16) var(--space-20) var(--space-18);
-  }
-  .page {
-    gap: var(--space-14);
-  }
-  .hero__cn {
-    font-size: clamp(72px, 9vw, 92px);
-  }
-  .hero__tagline {
-    margin-top: var(--space-20);
-    font-size: var(--text-lg);
-  }
-  .hero__actions {
-    margin-top: var(--space-24);
-  }
-  .hero__status {
-    margin-top: var(--space-14);
-  }
-  .btn {
-    height: 48px;
-  }
-  .btn__icon {
-    width: 30px;
-    height: 30px;
-  }
-}
-
-@media (max-width: 940px) {
-  .bulletin-cards {
-    grid-template-columns: 1fr;
-  }
-  .bulletin-card--preview {
-    grid-template-columns: 1fr;
-    min-height: 0;
-  }
-  .bulletin-card--preview > .bulletin-card__image {
-    grid-row: auto;
-    grid-column: 1;
-    min-height: 150px;
-    height: 150px;
-    border-radius: var(--r-md) var(--r-md) 0 0;
-  }
-  .bulletin-card--preview > :not(.bulletin-card__image) {
-    grid-column: 1;
-    margin-right: var(--space-18);
-    margin-left: var(--space-18);
-  }
-  .bulletin-card--preview > .bulletin-card__meta {
-    margin-top: var(--space-18);
-  }
-  .bulletin-card--preview > .icon {
-    margin-bottom: var(--space-18);
-  }
+@container secondary (max-width: 820px) {
   .field-grid {
     grid-template-columns: 1fr;
   }
   .field--wide {
     grid-column: auto;
+  }
+  .page {
+    padding: 28px;
+  }
+  .panel {
+    padding: 20px;
+  }
+  .page-head {
+    align-items: flex-start;
+  }
+  .page-head__actions .btn {
+    padding: 0 8px;
+  }
+}
+@media (max-height: 680px) {
+  .app {
+    --scene-inset: 24px;
+  }
+  .hero__cn {
+    font-size: 48px;
+  }
+  .hero__title {
+    margin-bottom: 18px;
+  }
+}
+@media (max-width: 979px) {
+  .app {
+    --drawer-width: calc(100vw - 100px);
+    --scene-inset: 24px;
+  }
+  .brand-word {
+    display: none;
+  }
+  .titlebar {
+    gap: 16px;
   }
 }

@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import BaseView from "./BaseView.vue";
+import BaseTabs from "./BaseTabs.vue";
+import BaseInput from "./BaseInput.vue";
+import BaseButton from "./BaseButton.vue";
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import {
   attendance,
@@ -237,6 +241,8 @@ async function remove(id: string) {
 <template>
   <BaseModal
     :open="open"
+    :view-key="mode"
+    :direction="mode === 'add' ? 1 : -1"
     :theme="form.theme"
     :reduce-motion="form.reduceMotion"
     :title="mode === 'list' ? '塔吉多账号' : '添加塔吉多账号'"
@@ -306,146 +312,148 @@ async function remove(id: string) {
         <div class="attendance__actions">
           <template v-if="confirming === account.id"
             ><span class="account-row__danger">确认移除此账号?</span
-            ><button
+            ><BaseButton
               type="button"
-              class="btn btn--link account-row__danger"
+              variant="danger"
               :disabled="attendance.busy"
               @click="remove(account.id)"
             >
-              确认移除</button
-            ><button
+              确认移除</BaseButton
+            ><BaseButton
               type="button"
-              class="btn btn--link"
+              variant="ghost"
               :disabled="attendance.busy"
               @click="confirming = ''"
             >
               取消
-            </button></template
+            </BaseButton></template
           >
           <template v-else
-            ><button
+            ><BaseButton
               type="button"
-              class="btn btn--link"
+              variant="ghost"
               :disabled="attendance.busy"
               @click="add(true)"
             >
-              重新登录</button
-            ><button
+              重新登录</BaseButton
+            ><BaseButton
               type="button"
-              class="btn btn--link account-row__danger"
+              variant="danger"
               :disabled="attendance.busy"
               @click="confirming = account.id"
             >
               <svg class="icon" aria-hidden="true"><use href="#i-trash" /></svg
               >移除
-            </button></template
+            </BaseButton></template
           >
         </div>
       </article>
       <p v-if="!accounts.length" class="attendance__hint">尚未登录</p>
       <footer class="modal__foot">
-        <button
+        <BaseButton
           type="button"
-          class="btn btn--primary"
+          variant="primary"
           :disabled="attendance.busy"
           @click="add()"
         >
           <svg class="icon" aria-hidden="true"><use href="#i-plus" /></svg
           >添加账号
-        </button>
+        </BaseButton>
       </footer>
     </template>
     <form v-else @submit.prevent="login">
-      <div class="login-tabs" role="tablist" aria-label="登录方式">
-        <button
-          v-for="tab in ['password', 'sms'] as const"
-          :key="tab"
-          type="button"
-          role="tab"
-          class="login-tabs__tab"
-          :class="{ 'is-active': loginMode === tab }"
-          :aria-selected="loginMode === tab"
-          :disabled="attendance.busy || sending"
-          @click="switchLogin(tab)"
-        >
-          {{ tab === "password" ? "密码登录" : "短信验证码" }}
-        </button>
-      </div>
+      <BaseTabs
+        :model-value="loginMode"
+        :options="[
+          { value: 'password', label: '密码登录' },
+          { value: 'sms', label: '短信验证码' },
+        ]"
+        label="登录方式"
+        :disabled="attendance.busy || sending"
+        @change="switchLogin"
+      />
       <p v-if="relogin" class="attendance__hint">
         请输入需要重新登录的账号手机号和登录凭据
       </p>
-      <div class="field-grid">
-        <label class="field" :class="{ 'field--wide': loginMode === 'sms' }"
-          ><span>手机号码</span
-          ><input
-            id="attendance-phone"
-            v-model="phone"
-            type="tel"
-            inputmode="numeric"
-            autocomplete="username"
-            maxlength="11"
-            pattern="[0-9]{11}"
-            required
-            :disabled="attendance.busy"
-        /></label>
-        <label v-if="loginMode === 'password'" class="field"
-          ><span>密码</span
-          ><input
-            id="attendance-password"
-            v-model="password"
-            type="password"
-            autocomplete="current-password"
-            required
-            :disabled="attendance.busy"
-        /></label>
-        <div v-else class="field field--wide">
-          <span>短信验证码</span>
-          <div class="attendance__code-row">
-            <input
-              id="attendance-code"
-              v-model="code"
-              aria-label="短信验证码"
+      <BaseView
+        class="attendance-login-fields"
+        :view-key="loginMode"
+        :direction="loginMode === 'sms' ? 1 : -1"
+        :reduce-motion="form.reduceMotion"
+      >
+        <div class="field-grid">
+          <label class="field field--wide"
+            ><span>手机号码</span
+            ><BaseInput
+              id="attendance-phone"
+              v-model="phone"
+              type="tel"
               inputmode="numeric"
-              autocomplete="one-time-code"
-              maxlength="8"
+              autocomplete="username"
+              maxlength="11"
+              pattern="[0-9]{11}"
               required
               :disabled="attendance.busy"
-            />
-            <button
-              type="button"
-              class="btn btn--ghost"
-              :disabled="attendance.busy || sending || cooldown > 0"
-              @click="sendCode"
-            >
-              {{
-                sending
-                  ? "正在发送"
-                  : cooldown
-                    ? `重新发送 (${cooldown}s)`
-                    : "发送验证码"
-              }}
-            </button>
+          /></label>
+          <label v-if="loginMode === 'password'" class="field field--wide"
+            ><span>密码</span
+            ><BaseInput
+              id="attendance-password"
+              v-model="password"
+              type="password"
+              autocomplete="current-password"
+              required
+              :disabled="attendance.busy"
+          /></label>
+          <div v-else class="field field--wide">
+            <span>短信验证码</span>
+            <div class="attendance__code-row">
+              <BaseInput
+                id="attendance-code"
+                v-model="code"
+                aria-label="短信验证码"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                maxlength="8"
+                required
+                :disabled="attendance.busy"
+              />
+              <BaseButton
+                type="button"
+                variant="secondary"
+                :disabled="attendance.busy || sending || cooldown > 0"
+                @click="sendCode"
+              >
+                {{
+                  sending
+                    ? "正在发送"
+                    : cooldown
+                      ? `重新发送 (${cooldown}s)`
+                      : "发送验证码"
+                }}
+              </BaseButton>
+            </div>
           </div>
         </div>
-      </div>
-      <label v-if="loginMode === 'password'" class="attendance__remember"
-        ><input
-          v-model="remember"
-          type="checkbox"
-          :disabled="attendance.busy"
-        />保存密码, 登录失效时自动恢复</label
-      >
+        <label v-if="loginMode === 'password'" class="attendance__remember"
+          ><input
+            v-model="remember"
+            type="checkbox"
+            :disabled="attendance.busy"
+          />保存密码, 登录失效时自动恢复</label
+        >
+      </BaseView>
       <footer class="modal__foot">
-        <button
+        <BaseButton
           id="attendance-login"
-          class="btn btn--primary"
+          variant="primary"
           type="submit"
           :disabled="attendance.busy || sending"
         >
           <svg class="icon" aria-hidden="true"><use href="#i-sign-in" /></svg
-          >{{ attendance.busy ? "正在登录" : "登录" }}</button
-        ><button
-          class="btn btn--link"
+          >{{ attendance.busy ? "正在登录" : "登录" }}</BaseButton
+        ><BaseButton
+          variant="ghost"
           type="button"
           :disabled="attendance.busy"
           @click="
@@ -454,7 +462,7 @@ async function remove(id: string) {
           "
         >
           返回账号列表
-        </button>
+        </BaseButton>
       </footer>
     </form>
     <p v-if="error" class="attendance__error" role="alert">{{ error }}</p>

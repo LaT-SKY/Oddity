@@ -13,6 +13,7 @@ describe("BaseSelect", () => {
     const update = vi.fn();
     const change = vi.fn();
     const wrapper = mount(BaseSelect, {
+      global: { stubs: { Teleport: true } },
       props: {
         "onUpdate:modelValue": update,
         onChange: change,
@@ -45,6 +46,7 @@ describe("BaseSelect", () => {
   it("支持键盘上下键切换选项及 Escape 关闭", async () => {
     const update = vi.fn();
     const wrapper = mount(BaseSelect, {
+      global: { stubs: { Teleport: true } },
       props: {
         "onUpdate:modelValue": update,
         modelValue: "a",
@@ -58,8 +60,10 @@ describe("BaseSelect", () => {
     expect(wrapper.find(".select-dropdown").exists()).toBe(true);
 
     await trigger.trigger("keydown", { key: "ArrowDown" });
+    expect(update).not.toHaveBeenCalled();
+    await trigger.trigger("keydown", { key: "Enter" });
     expect(update).toHaveBeenCalledWith("b");
-
+    await trigger.trigger("click");
     await trigger.trigger("keydown", { key: "Escape" });
     await vi.advanceTimersByTimeAsync(1000);
     expect(wrapper.find(".select-dropdown").exists()).toBe(false);
@@ -69,6 +73,7 @@ describe("BaseSelect", () => {
 
   it("点击外部区域自动收起下拉菜单", async () => {
     const wrapper = mount(BaseSelect, {
+      global: { stubs: { Teleport: true } },
       props: {
         modelValue: "a",
         options,
@@ -91,6 +96,7 @@ describe("BaseSelect", () => {
     const update = vi.fn();
     const change = vi.fn();
     const wrapper = mount(BaseSelect, {
+      global: { stubs: { Teleport: true } },
       props: {
         "onUpdate:modelValue": update,
         onChange: change,
@@ -111,6 +117,7 @@ describe("BaseSelect", () => {
   it("置灰选项不可点击或通过原生控件选择, 方向键跳过不可用项", async () => {
     const update = vi.fn();
     const wrapper = mount(BaseSelect, {
+      global: { stubs: { Teleport: true } },
       props: {
         modelValue: "a",
         options: [options[0], { ...options[1], disabled: true }, options[2]],
@@ -128,10 +135,13 @@ describe("BaseSelect", () => {
     expect(update).not.toHaveBeenCalled();
     expect(wrapper.findAll("option")[1].attributes("disabled")).toBeDefined();
     await trigger.trigger("keydown", { key: "ArrowDown" });
+    expect(update).not.toHaveBeenCalled();
+    await trigger.trigger("keydown", { key: "Enter" });
     expect(update).toHaveBeenLastCalledWith("c");
     await wrapper.setProps({ modelValue: "c" });
     await trigger.trigger("keydown", { key: "ArrowUp" });
     await trigger.trigger("keydown", { key: "ArrowUp" });
+    await trigger.trigger("keydown", { key: "Enter" });
     expect(update).toHaveBeenLastCalledWith("a");
     wrapper.unmount();
   });

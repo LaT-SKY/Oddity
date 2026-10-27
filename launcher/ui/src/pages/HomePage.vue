@@ -1,15 +1,14 @@
 <script setup lang="ts">
+import { motion } from "motion-v";
 import {
   state,
   launchView,
   updateView,
   homeDownloadNotice,
   showPage,
-  startGameDownload,
-  downloadBusy,
   handleLaunchAction,
 } from "../core/controller";
-import HeroMedia from "../components/HeroMedia.vue";
+import { playerExpanded } from "../composables/useSceneMotion";
 import HomeGameRecords from "../components/HomeGameRecords.vue";
 </script>
 
@@ -18,23 +17,40 @@ import HomeGameRecords from "../components/HomeGameRecords.vue";
     class="page page--home"
     :class="{ 'is-active': state.page === 'home' }"
     id="page-home"
+    :inert="state.page !== 'home'"
     aria-labelledby="home-title"
   >
     <div class="hero">
       <div class="hero__inner">
-        <HeroMedia />
-        <div class="hero__fade" aria-hidden="true"></div>
         <HomeGameRecords
           v-if="state.bootstrap?.settings.distribution !== 'global'"
         />
-        <div class="hero__content">
+        <motion.div
+          class="hero__content"
+          :initial="{ opacity: 0, y: 22 }"
+          :animate="{
+            opacity: state.page !== 'home' ? 0.25 : playerExpanded ? 0.65 : 1,
+            y: 0,
+          }"
+          :transition="{
+            type: 'spring',
+            stiffness: 180,
+            damping: 25,
+            delay: 0.1,
+          }"
+        >
           <h1 class="hero__title" id="home-title">
-            <span class="hero__cn">异环</span>
-            <span class="hero__en">NEVERNESS TO EVERNESS</span>
+            <span class="hero__cn">{{
+              state.bootstrap?.settings.distribution === "global"
+                ? "NTE"
+                : "异环"
+            }}</span>
           </h1>
-          <p class="hero__tagline">一切正常，就是异常。</p>
           <div class="hero__actions">
-            <button
+            <motion.button
+              :while-hover="{ scale: 1.025, y: -2 }"
+              :while-press="{ scale: 0.96, y: 1 }"
+              :transition="{ type: 'spring', stiffness: 460, damping: 26 }"
               class="btn btn--primary btn--trailing"
               id="launch-btn"
               @click="handleLaunchAction"
@@ -51,22 +67,7 @@ import HomeGameRecords from "../components/HomeGameRecords.vue";
                 ><svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
                   <use :href="'#' + launchView.icon"></use></svg
               ></span>
-            </button>
-            <button
-              class="btn btn--link"
-              id="check-btn"
-              :disabled="downloadBusy()"
-              :class="{ 'is-busy': downloadBusy() }"
-              @click="
-                showPage('update');
-                startGameDownload('check', false);
-              "
-            >
-              <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
-                <use href="#i-arrows-clockwise"></use>
-              </svg>
-              <span class="btn__text">检查更新</span>
-            </button>
+            </motion.button>
           </div>
           <button
             class="hero__status"
@@ -87,7 +88,7 @@ import HomeGameRecords from "../components/HomeGameRecords.vue";
                 : updateView.homeStatusText
             }}</span>
           </button>
-        </div>
+        </motion.div>
       </div>
     </div>
   </section>

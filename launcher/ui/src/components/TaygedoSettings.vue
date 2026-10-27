@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import BaseSwitch from "./BaseSwitch.vue";
+import BaseInput from "./BaseInput.vue";
+import BaseDisclosure from "./BaseDisclosure.vue";
+import SettingRow from "./settings/SettingRow.vue";
+import SettingGroup from "./settings/SettingGroup.vue";
+import BaseButton from "./BaseButton.vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { isTauri } from "../core/api";
 import {
@@ -11,6 +17,7 @@ import {
 import BaseSelect from "./BaseSelect.vue";
 import TaygedoAccountDialog from "./TaygedoAccountDialog.vue";
 const open = ref(false);
+const scheduleExpanded = ref(true);
 const startMode = ref<"list" | "add">("list");
 const accounts = computed(() => attendance.status?.accounts ?? []);
 function manage(mode: "list" | "add") {
@@ -59,103 +66,111 @@ onMounted(() => {
 onBeforeUnmount(() => clearInterval(poll));
 </script>
 <template>
-  <section
-    class="settings-section attendance"
-    aria-labelledby="attendance-title"
+  <SettingGroup
+    title="塔吉多签到"
+    id="attendance-title"
+    class="attendance"
+    description="每天自动完成塔吉多社区与异环角色签到"
   >
-    <div class="attendance__head">
-      <h3 id="attendance-title">塔吉多签到</h3>
-      <button
+    <template #action>
+      <BaseButton
         v-if="accounts.length"
         id="attendance-manage"
         type="button"
-        class="btn btn--link"
+        variant="ghost"
         @click="manage('list')"
       >
         <svg class="icon" aria-hidden="true"><use href="#i-users" /></svg
         >管理账号
-      </button>
-    </div>
-    <p class="attendance__hint">每天自动完成塔吉多社区与异环角色签到</p>
+      </BaseButton>
+    </template>
     <p v-if="!isTauri()" class="attendance__hint">浏览器预览使用模拟数据</p>
-    <label class="switch-row"
-      ><span
-        ><strong>自动签到</strong
-        ><small>{{
-          !accounts.length
-            ? "登录账号后可开启"
-            : !attendanceForm.enabled
-              ? "开启后按所选时机执行"
-              : attendanceForm.trigger === "launch"
-                ? "每次打开启动器时执行"
-                : attendanceForm.trigger === "boot"
-                  ? "用户登录后执行一次"
-                  : attendanceForm.trigger === "daily"
-                    ? "按北京时间每天执行"
-                    : "只在下方的立即签到按钮中执行"
-        }}</small></span
-      ><input
+    <SettingRow
+      label="自动签到"
+      for="attendance-enabled"
+      :description="
+        !accounts.length
+          ? '登录账号后可开启'
+          : !attendanceForm.enabled
+            ? '开启后按所选时机执行'
+            : attendanceForm.trigger === 'launch'
+              ? '每次打开启动器时执行'
+              : attendanceForm.trigger === 'boot'
+                ? '用户登录后执行一次'
+                : attendanceForm.trigger === 'daily'
+                  ? '按北京时间每天执行'
+                  : '只在下方的立即签到按钮中执行'
+      "
+      v-slot="{ describedby }"
+    >
+      <BaseSwitch
         id="attendance-enabled"
         v-model="attendanceForm.enabled"
-        type="checkbox"
+        label="自动签到"
+        :describedby="describedby"
         :disabled="!accounts.length || attendance.busy"
-        @change="queueSettingsSave(0)" /><i
-        class="switch"
-        aria-hidden="true"
-      ></i
-    ></label>
-    <div v-if="attendanceForm.enabled" class="field-grid attendance__schedule">
-      <div
-        class="field"
-        :class="{ 'field--wide': attendanceForm.trigger !== 'daily' }"
-      >
-        <span>签到时机</span
-        ><BaseSelect
-          id="attendance-trigger"
-          v-model="attendanceForm.trigger"
-          :options="options"
-          :disabled="attendance.busy"
-          @change="queueSettingsSave(0)"
-        />
+        @change="queueSettingsSave(0)"
+      />
+    </SettingRow>
+    <BaseDisclosure
+      v-if="attendanceForm.enabled"
+      title="签到时机"
+      v-model="scheduleExpanded"
+    >
+      <div class="field-grid attendance__schedule">
+        <div
+          class="field"
+          :class="{ 'field--wide': attendanceForm.trigger !== 'daily' }"
+        >
+          <span>签到时机</span
+          ><BaseSelect
+            id="attendance-trigger"
+            label="签到时机"
+            v-model="attendanceForm.trigger"
+            :options="options"
+            :disabled="attendance.busy"
+            @change="queueSettingsSave(0)"
+          />
+        </div>
+        <label v-if="attendanceForm.trigger === 'daily'" class="field"
+          ><span>每日时间</span
+          ><BaseInput
+            id="attendance-time"
+            v-model="attendanceForm.time"
+            type="time"
+            required
+            :disabled="attendance.busy"
+            @change="queueSettingsSave(0)"
+        /></label>
       </div>
-      <label v-if="attendanceForm.trigger === 'daily'" class="field"
-        ><span>每日时间</span
-        ><input
-          id="attendance-time"
-          v-model="attendanceForm.time"
-          type="time"
-          required
-          :disabled="attendance.busy"
-          @change="queueSettingsSave(0)"
-      /></label>
-    </div>
+    </BaseDisclosure>
     <div class="attendance__actions">
-      <button
+      <BaseButton
         id="attendance-action"
         type="button"
-        class="btn btn--primary"
+        variant="primary"
         :disabled="primary.disabled || attendance.busy"
         @click="primary.mode ? manage(primary.mode) : runAttendance()"
       >
         <svg class="icon" aria-hidden="true">
           <use :href="'#' + primary.icon" /></svg
         ><span class="btn__text">{{ primary.label }}</span>
-      </button>
+      </BaseButton>
     </div>
     <p v-if="attendance.error" class="attendance__error" role="alert">
       {{ attendance.error }}
     </p>
     <p v-else-if="failure" class="attendance__error" role="status">
       {{ failure }}
-      <button
+      <BaseButton
         id="attendance-failure-details"
         type="button"
-        class="btn btn--link"
+        variant="ghost"
         @click="manage('list')"
       >
         查看详情
-      </button>
+      </BaseButton>
     </p>
     <TaygedoAccountDialog v-model:open="open" :start-mode="startMode" />
-  </section>
+  </SettingGroup>
 </template>

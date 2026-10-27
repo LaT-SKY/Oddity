@@ -1,35 +1,4 @@
-/* 设置页的表单布局与输入框。 */
-
-/* ---------------- settings ---------------- */
-
-.settings {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-18);
-}
-
-.settings-fields {
-  display: contents;
-  min-width: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.settings-section {
-  padding: var(--space-22) var(--space-24);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  background: var(--surface-2);
-}
-
-.settings-section h3 {
-  margin: 0 0 var(--space-16);
-  font-size: var(--text-md);
-  font-weight: var(--weight-semibold);
-  letter-spacing: 0.01em;
-  color: var(--bone);
-}
+/* 设置工作区与分类内容。 */
 
 .field-grid {
   display: grid;
@@ -57,60 +26,248 @@
   color: var(--faint);
 }
 
-.field input {
-  width: 100%;
-  height: 44px;
-  padding: 0 var(--space-13);
-  border: 1px solid var(--field-border);
-  border-radius: var(--r-sm);
-  background: var(--input-bg);
-  color: var(--bone);
-  font-family: var(--mono);
-  font-size: var(--text-sm);
-  outline: none;
-  transition:
-    border-color var(--duration-base) var(--ease),
-    background var(--duration-base) var(--ease);
+.page.settings-page {
+  padding: 28px;
+  overflow: hidden;
 }
-
-.field select {
-  width: 100%;
-  height: 44px;
-  padding: 0 var(--space-13);
-  border: 1px solid var(--field-border);
-  border-radius: var(--r-sm);
-  background: var(--input-bg);
-  color: var(--bone);
-  font-family: var(--font);
-  font-size: var(--text-md);
-  outline: none;
-  appearance: none;
-  cursor: pointer;
-  background-image: var(--select-arrow);
-  background-repeat: no-repeat;
-  background-position: right var(--space-13) center;
-  padding-right: var(--space-34);
-  transition:
-    border-color var(--duration-base) var(--ease),
-    background var(--duration-base) var(--ease);
+.settings-workspace {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 22px;
+  min-height: 0;
 }
-
-.field input::placeholder {
-  color: var(--faint);
-  opacity: 1;
+.settings-head {
+  flex: none;
+  gap: 16px;
 }
-
-.field input:focus,
-.field select:focus {
+.settings-head__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-save {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+.settings-search {
+  position: relative;
+  flex: none;
+}
+.settings-search .control-input {
+  height: 42px;
+  padding-inline: 38px 40px;
+  border-color: transparent;
+  background: var(--ghost-bg);
+}
+.settings-search .control-input:focus {
   border-color: var(--input-focus-border);
-  background-color: var(--input-bg);
+  background: var(--input-bg);
 }
-
-.field input:disabled,
-.field select:disabled {
-  border-color: var(--line);
-  background: var(--surface-2);
-  color: var(--faint);
-  cursor: not-allowed;
-  opacity: 0.65;
+.settings-search input::-webkit-search-cancel-button {
+  appearance: none;
+}
+.settings-search__icon {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  width: 18px;
+  height: 18px;
+  color: var(--muted);
+  pointer-events: none;
+}
+.settings-search__clear {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+}
+.settings-frame {
+  display: grid;
+  grid-template-columns: 152px minmax(0, 1fr);
+  gap: 28px;
+  flex: 1;
+  min-height: 0;
+}
+.settings-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.settings-category > svg,
+.settings-category > span:not(.settings-category__focus) {
+  position: relative;
+}
+.settings-category .icon {
+  width: 17px;
+  height: 17px;
+}
+.settings-stage {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+.settings-fields {
+  display: contents;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.settings-panel,
+.settings-search-results {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  padding: 3px 10px 12px 3px;
+  scrollbar-width: none;
+}
+.settings-panel::-webkit-scrollbar,
+.settings-search-results::-webkit-scrollbar,
+.settings-categories::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.settings-panel {
+  visibility: hidden;
+}
+.settings-panel.is-current {
+  visibility: visible;
+}
+.settings-panel .setting-group__head {
+  margin-bottom: 4px;
+}
+.settings-panel .setting-row {
+  grid-template-columns: minmax(0, 1fr) minmax(142px, 42%);
+  gap: 12px 20px;
+  min-height: 84px;
+}
+.settings-panel .setting-row:has(.control-switch) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.settings-panel .setting-row__control {
+  width: 100%;
+}
+.settings-path {
+  padding-block: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.settings-path:last-child {
+  border-bottom: 0;
+}
+.settings-path .field > label {
+  color: var(--bone);
+  font-size: var(--text-md);
+  letter-spacing: 0;
+}
+.settings-panel [data-setting]:focus {
+  outline-offset: -1px;
+}
+.settings-panel .runtime-environments__notice {
+  margin-top: 12px;
+}
+.settings-panel .check-row {
+  padding-block: 14px;
+}
+.settings-check-status {
+  margin-left: auto;
+  flex: none;
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+.settings-check-status.is-bad {
+  color: var(--danger);
+}
+.settings-search-results {
+  z-index: 2;
+  gap: 0;
+}
+.settings-results-count {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.settings-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 12px;
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--r-control);
+  text-align: left;
+}
+.settings-result strong,
+.settings-result small {
+  display: block;
+}
+.settings-result strong {
+  color: var(--bone);
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+}
+.settings-result small {
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.65;
+}
+.settings-result > .icon {
+  color: var(--muted);
+  width: 16px;
+  height: 16px;
+}
+.settings-result:hover,
+.settings-result:focus-visible {
+  background: var(--hover);
+}
+@container secondary (max-width: 760px) {
+  .settings-frame {
+    grid-template-columns: 136px minmax(0, 1fr);
+    gap: 18px;
+  }
+  .settings-categories .settings-category {
+    padding-inline: 9px;
+    gap: 8px;
+  }
+  .settings-panel .setting-row:not(:has(.control-switch)) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@container secondary (max-width: 560px) {
+  .page.settings-page {
+    padding: 22px 18px;
+  }
+  .settings-workspace {
+    gap: 16px;
+  }
+  .settings-frame {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 16px;
+  }
+  .settings-categories {
+    flex-direction: row;
+    overflow: auto hidden;
+    scrollbar-width: none;
+  }
+  .settings-categories .settings-category {
+    flex: none;
+    min-height: 38px;
+  }
+  .settings-category .icon {
+    display: none;
+  }
+  .settings-panel {
+    padding-right: 4px;
+  }
+  .settings-save {
+    display: none;
+  }
 }
