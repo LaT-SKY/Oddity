@@ -75,7 +75,8 @@ test("更新页目录选择按地区保存并与设置页同步", async ({ page 
   await browse.click();
   await expect(input).toHaveValue("/tmp/国服 Test");
   await expect(input).toBeEnabled();
-  await page.locator("#download-distribution").selectOption("global");
+  await page.locator("#download-distribution-trigger").click();
+  await page.getByRole("option", { name: "国际服", exact: true }).click();
   await input.fill("/tmp/global-original");
   await browse.click();
   await expect(input).toHaveValue("/tmp/国际服 Test");

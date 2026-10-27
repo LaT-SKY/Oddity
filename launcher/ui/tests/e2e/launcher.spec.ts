@@ -77,9 +77,11 @@ test("导航、更新、设置、快捷键与启动关闭流程", async ({ page 
   await page.keyboard.press("Control+4");
   await expect(page.locator("#page-settings")).toBeVisible();
   await expect(page.locator(".check-row")).toHaveCount(6);
-  await page.locator("#set-theme").selectOption("dark");
+  await page.locator("#set-theme-trigger").click();
+  await page.getByRole("option", { name: "暗色", exact: true }).click();
   await expect(page.locator("#app")).toHaveAttribute("data-theme", "dark");
-  await page.locator("#set-hero-media").selectOption("photo");
+  await page.locator("#set-hero-media-trigger").click();
+  await page.getByRole("option", { name: "静态照片", exact: true }).click();
   await page.locator(".switch-row").first().click();
   await expect(page.locator("#set-motion")).toBeChecked();
   await expect(page.locator("#set-minimize-to-tray")).toBeChecked();
@@ -218,9 +220,11 @@ test("视频双缓冲循环无黑帧, 离页暂停并保留进度", async ({ pag
   await expect.poll(clock, { timeout: 15_000 }).toBeGreaterThan(stopped);
 
   await page.locator('[data-page="settings"]').click();
-  await page.locator("#set-hero-media").selectOption("photo");
+  await page.locator("#set-hero-media-trigger").click();
+  await page.getByRole("option", { name: "静态照片", exact: true }).click();
   await expect(canvas).not.toHaveClass(/is-visible/);
-  await page.locator("#set-hero-media").selectOption("video");
+  await page.locator("#set-hero-media-trigger").click();
+  await page.getByRole("option", { name: "动态视频", exact: true }).click();
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -422,7 +426,8 @@ test("Motion 弹窗入场、快速重开与减少动态效果", async ({ page })
 
 test("国际服切换同步启动方式、公告来源和专属功能", async ({ page }) => {
   await page.goto("/#settings");
-  await page.locator("#set-distribution").selectOption("global");
+  await page.locator("#set-distribution-trigger").click();
+  await page.getByRole("option", { name: "国际服", exact: true }).click();
   await expect(page.locator("#settings-form")).toHaveAttribute(
     "data-save-state",
     "saved",

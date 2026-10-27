@@ -178,7 +178,7 @@ onBeforeUnmount(() => {
       :disabled="disabled"
       tabindex="-1"
       aria-hidden="true"
-      class="select-native-hidden"
+      hidden
       @change="onNativeChange"
     >
       <option
