@@ -89,111 +89,90 @@ test("减少动效、重复通知合并与键盘阅读", async ({ page }) => {
 
 test("圆球、正方形过冲、矩形归位与旧通知第三段下移", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
+  // 评测机负载抖动会跳过中间帧, 固定时钟后逐帧推进动画。
+  const now = new Date();
+  await page.clock.install({ time: now });
+  await page.clock.pauseAt(now);
   await page.goto("/");
+  await page.clock.runFor(2500);
   const stack = page.locator(".notification-stack");
   await expect(stack).toHaveAttribute("data-phase", "0");
   const oldId = await page
     .locator('.notification-slot[data-front="true"]')
     .getAttribute("data-notification-id");
-  await page.evaluate((oldId) => {
-    const probe = {
-      frames: [] as {
-        phase: number;
-        width: number;
-        height: number;
-        x: number;
-        y: number;
-        oldY: number;
-      }[],
-      done: false,
-    };
-    (
-      window as unknown as { notificationProbe: typeof probe }
-    ).notificationProbe = probe;
-    const start = performance.now();
-    const baseline = document
-      .querySelector<HTMLElement>(
-        `[data-notification-id="${oldId}"] .notification-depth`,
-      )!
-      .getBoundingClientRect().top;
-    function sample() {
-      const root = document.querySelector<HTMLElement>(".notification-stack");
-      const shell = root?.querySelector<HTMLElement>(
-        ".is-arriving .notification-surface",
-      );
-      const old = root?.querySelector<HTMLElement>(
-        `[data-notification-id="${oldId}"] .notification-depth`,
-      );
-      if (root && shell && old) {
-        const box = shell.getBoundingClientRect();
-        probe.frames.push({
-          phase: Number(root.dataset.phase),
-          width: box.width,
-          height: box.height,
-          x: box.left + box.width / 2,
-          y: box.top + box.height / 2,
-          oldY: old.getBoundingClientRect().top - baseline,
-        });
-      }
-      if (performance.now() - start < 1600) requestAnimationFrame(sample);
-      else probe.done = true;
-    }
-    requestAnimationFrame(sample);
-  }, oldId);
+  expect(oldId).not.toBeNull();
+  const baseline = await page
+    .locator(`[data-notification-id="${oldId}"] .notification-depth`)
+    .evaluate((element) => element.getBoundingClientRect().top);
   await page.locator("#launch-btn").click();
-  await page.waitForFunction(
-    () =>
-      (window as unknown as { notificationProbe: { done: boolean } })
-        .notificationProbe.done,
-  );
-  const frames = await page.evaluate(
-    () =>
-      (
-        window as unknown as {
-          notificationProbe: {
-            frames: {
-              phase: number;
-              width: number;
-              height: number;
-              x: number;
-              y: number;
-              oldY: number;
-            }[];
-          };
-        }
-      ).notificationProbe.frames,
-  );
-  expect(
-    frames.some(
-      (frame) =>
-        frame.phase === 1 &&
-        frame.width <= 25 &&
-        Math.abs(frame.width - frame.height) < 1,
-    ),
-  ).toBe(true);
+  // 指针停在通知上暂停自动关闭计时, 采样期间不会中途移除。
+  await page.mouse.move(200, 100);
+  const frames: {
+    phase: number;
+    width: number;
+    height: number;
+    x: number;
+    y: number;
+    oldY: number;
+  }[] = [];
+  let settledOldY = 0;
+  for (let step = 0; step < 220; step++) {
+    await page.clock.runFor(16);
+    const sample = await page.evaluate(
+      ({ oldId, baseline }) => {
+        const root = document.querySelector<HTMLElement>(".notification-stack");
+        if (!root) return null;
+        const shell = root.querySelector<HTMLElement>(
+          ".is-arriving .notification-surface",
+        );
+        const old = root.querySelector<HTMLElement>(
+          `[data-notification-id="${oldId}"] .notification-depth`,
+        );
+        const box = shell?.getBoundingClientRect();
+        return {
+          oldY: old ? old.getBoundingClientRect().top - baseline : 0,
+          frame: box
+            ? {
+                phase: Number(root.dataset.phase),
+                width: box.width,
+                height: box.height,
+                x: box.left + box.width / 2,
+                y: box.top + box.height / 2,
+                oldY: old!.getBoundingClientRect().top - baseline,
+              }
+            : null,
+        };
+      },
+      { oldId, baseline },
+    );
+    if (!sample) break;
+    if (sample.frame) frames.push(sample.frame);
+    settledOldY = sample.oldY;
+  }
+  const ball = frames.find((frame) => frame.width <= 25);
+  expect(ball).toBeTruthy();
+  expect(Math.abs(ball!.width - ball!.height)).toBeLessThan(1);
   const squares = frames.filter((frame) => frame.phase === 2);
   expect(squares.length).toBeGreaterThanOrEqual(3);
   expect(
     squares.every((frame) => Math.abs(frame.width - frame.height) < 1),
   ).toBe(true);
-  const ball = frames.find((frame) => frame.phase === 1)!;
   expect(Math.min(...squares.map((frame) => frame.x))).toBeLessThan(
-    ball.x - 16,
+    ball!.x - 16,
   );
   expect(Math.max(...squares.map((frame) => frame.y))).toBeGreaterThan(
-    ball.y + 25,
+    ball!.y + 25,
   );
-  expect(Math.min(...frames.map((frame) => frame.x))).toBeLessThan(ball.x - 24);
-
+  expect(Math.min(...frames.map((frame) => frame.x))).toBeLessThan(
+    ball!.x - 24,
+  );
   expect(
     frames
       .filter((frame) => frame.phase < 3)
       .every((frame) => Math.abs(frame.oldY) < 0.5),
   ).toBe(true);
-  expect(frames.some((frame) => frame.phase === 3 && frame.oldY > 8)).toBe(
-    true,
-  );
-  expect(Math.max(...frames.map((frame) => frame.oldY))).toBeLessThan(20);
+  expect(settledOldY).toBeGreaterThan(8);
+  expect(settledOldY).toBeLessThan(20);
   await expect(stack).toHaveAttribute("data-phase", "0");
   const front = page.locator(
     '.notification-slot[data-front="true"] .notification-surface',
@@ -208,15 +187,14 @@ test("圆球、正方形过冲、矩形归位与旧通知第三段下移", async
   const compact = await button.boundingBox();
   expect(compact!.width).toBeLessThanOrEqual(34);
   await button.hover();
-  await expect
-    .poll(async () => (await button.boundingBox())!.width)
-    .toBeGreaterThan(70);
+  await page.clock.runFor(600);
   const expanded = await button.boundingBox();
+  expect(expanded!.width).toBeGreaterThan(70);
   expect(Math.abs(expanded!.x - compact!.x)).toBeLessThan(0.6);
   await page.mouse.move(600, 500);
-  await expect
-    .poll(async () => (await button.boundingBox())!.width)
-    .toBeLessThanOrEqual(34);
+  await page.clock.runFor(600);
+  expect((await button.boundingBox())!.width).toBeLessThanOrEqual(34);
+  await page.clock.resume();
 });
 
 test("运动中切换减少动效立即归位, 清空后可以再次入场", async ({ page }) => {
@@ -264,7 +242,6 @@ test("最后一条通知沿弧线缩回图标, 动画结束后再移除", async 
     };
     (window as unknown as { departureProbe: typeof probe }).departureProbe =
       probe;
-    const start = performance.now();
     function sample() {
       const shell = document.querySelector<HTMLElement>(
         ".is-retiring .notification-surface",
@@ -279,10 +256,18 @@ test("最后一条通知沿弧线缩回图标, 动画结束后再移除", async 
           opacity: Number(getComputedStyle(shell).opacity),
         });
       }
-      if (performance.now() - start < 1600) requestAnimationFrame(sample);
-      else probe.done = true;
     }
-    requestAnimationFrame(sample);
+    // 按 DOM 变更采样可以记录动画结束前的最后一帧, 卸载前的位置才是真实终点。
+    const observer = new MutationObserver(sample);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class", "style"],
+      subtree: true,
+    });
+    setTimeout(() => {
+      observer.disconnect();
+      probe.done = true;
+    }, 1600);
   });
   await stack.getByRole("button", { name: "关闭通知", exact: true }).click();
   await page.waitForFunction(
