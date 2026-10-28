@@ -252,9 +252,10 @@ function drawPoster(
   ctx.strokeStyle = "rgba(227, 236, 248, 0.12)";
   ctx.lineWidth = 1;
   ctx.stroke();
-  const metricWidth = contentWidth / metrics.length;
+  const metricInset = 28;
+  const metricWidth = (contentWidth - metricInset * 2) / metrics.length;
   metrics.forEach((metric, index) => {
-    const x = padding + metricWidth * index;
+    const x = padding + metricInset + metricWidth * index;
     ctx.fillStyle = "#9cabbc";
     ctx.font = `500 20px ${font}`;
     ctx.fillText(metric.label, x, 668);
