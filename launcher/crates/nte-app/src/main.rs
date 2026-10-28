@@ -2139,7 +2139,9 @@ fn install_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 fn launcher_builder<R: tauri::Runtime>() -> tauri::Builder<R> {
     let builder = tauri::Builder::<R>::new();
-    builder.plugin(tauri_plugin_dialog::init())
+    builder
+        .plugin(tauri_plugin_dialog::init())
+        .manage(log_commands::LogExports::default())
 }
 
 fn main() {
@@ -2205,7 +2207,6 @@ fn main() {
             settings: Mutex::new(settings),
             game: Mutex::new(GameTracker::default()),
         })
-        .manage(log_commands::LogExports::default())
         .manage(download_commands::DownloadManager::default())
         .manage(background_server::BackgroundServer::start())
         .on_window_event(|window, event| {

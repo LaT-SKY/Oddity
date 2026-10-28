@@ -442,4 +442,32 @@ mod tests {
             assert!(output.contains("[凭据已移除]"));
         }
     }
+
+    #[test]
+    fn exported_archive_removes_spaced_credentials() {
+        let dir = TempDir::new("spaced-credentials");
+        dir.write(
+            "logs/test.log",
+            concat!(
+                "password: colon-secret\n",
+                "token = equals-secret\n",
+                "{\"password\": \"json-secret\"}\n",
+                "{\\\"access_token\\\": \\\"escaped-secret\\\"}\n",
+                "\"refresh_token\" : \n\n  \"multiline-secret\"\n",
+            ),
+        );
+        let mut prepared = PreparedLogs::with_home(&dir.join("logs"), None, None).unwrap();
+        let output = prepared.save(dir.path()).unwrap();
+        let mut zip = zip::ZipArchive::new(File::open(output).unwrap()).unwrap();
+        let mut text = String::new();
+        zip.by_name("test.log")
+            .unwrap()
+            .read_to_string(&mut text)
+            .unwrap();
+        assert!(!text.contains("secret"), "凭据未从导出包移除");
+        assert_eq!(prepared.preview.redactions.credentials, 5);
+        assert!(!serde_json::to_string(&prepared.preview)
+            .unwrap()
+            .contains("secret"));
+    }
 }

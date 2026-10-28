@@ -20,22 +20,22 @@ impl Redactions {
 
 // 只按明确字段识别凭据, 保留资源哈希和普通标识符.
 static HEADERS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?im)(\b(?:authorization|proxy-authorization|cookie|set-cookie)[ \t]*[:=][ \t]*)[^\r\n]+"#).unwrap()
+    Regex::new(r#"(?im)(\b(?:authorization|proxy-authorization|cookie|set-cookie)[\x20\t]*[:=][\x20\t]*)[^\r\n]+"#).unwrap()
 });
 const FIELD_NAMES: &str = r"(?:access|refresh|laohu|id|auth|session|user)[_-]?token|token|password|passwd|pwd|secret|client[_-]?secret|api[_-]?key|authorization|cookie";
 static ESCAPED_FIELDS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
-        r#"(?ix)(\b(?:{FIELD_NAMES})\\["'][ \t]*[:=][ \t]*\\["'])[^\r\n]+"#
+        r#"(?ix)(\b(?:{FIELD_NAMES})\\["'][\x20\t]*[:=][\x20\t]*\\["'])[^\r\n]+"#
     ))
     .unwrap()
 });
 static FIELDS: LazyLock<Regex> = LazyLock::new(|| {
     // 正在写入的末行可能缺少结束引号, 仍移除已经写出的凭据.
-    Regex::new(&format!(r#"(?ix)(\b(?:{FIELD_NAMES})\b["']?[ \t]*[:=][ \t]*)(?:"(?:\\.|[^"\\\r\n])*\\?"?|'(?:\\.|[^'\\\r\n])*\\?'?|[^\s,;&"'{{}}\[\]]+)"#)).unwrap()
+    Regex::new(&format!(r#"(?ix)(\b(?:{FIELD_NAMES})\b["']?[\x20\t]*[:=][\x20\t]*)(?:"(?:\\.|[^"\\\r\n])*\\?"?|'(?:\\.|[^'\\\r\n])*\\?'?|[^\s,;&"'{{}}\[\]]+)"#)).unwrap()
 });
 pub(super) static PENDING_FIELD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
-        r#"(?ix)\b(?:{FIELD_NAMES})\b["']?[ \t]*[:=][ \t]*$"#
+        r#"(?ix)\b(?:{FIELD_NAMES})\b["']?[\x20\t]*[:=][\x20\t]*$"#
     ))
     .unwrap()
 });

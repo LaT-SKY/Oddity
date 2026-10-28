@@ -83,7 +83,10 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 async function boot() {
-  wrapper = mount(Component, { attachTo: document.body });
+  const app = document.createElement("div");
+  app.id = "app";
+  document.body.append(app);
+  wrapper = mount(Component, { attachTo: app });
   await flushPromises();
 }
 function el(selector: string) {
