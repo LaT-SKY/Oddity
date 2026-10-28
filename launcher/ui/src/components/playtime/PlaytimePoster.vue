@@ -44,10 +44,11 @@ async function generatePoster() {
   error.value = "";
   try {
     await document.fonts?.ready;
+    const wallpaper = await loadWallpaper();
     const canvas = document.createElement("canvas");
     canvas.width = 1080;
     canvas.height = 1440;
-    drawPoster(canvas.getContext("2d"), props.stats);
+    drawPoster(canvas.getContext("2d"), props.stats, wallpaper);
     if (!props.open) return;
     posterUrl.value = canvas.toDataURL("image/png");
   } catch (cause) {
@@ -105,9 +106,70 @@ function posterName() {
   return `异环游玩记录-${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}.png`;
 }
 
+const imageRequests = new Map<string, Promise<HTMLImageElement | null>>();
+let wallpaperRequest: Promise<HTMLImageElement | null> | null = null;
+
+function loadImage(src: string, anonymous = false) {
+  const key = `${anonymous ? "cors" : "same"}:${src}`;
+  const existing = imageRequests.get(key);
+  if (existing) return existing;
+  const request = new Promise<HTMLImageElement | null>((resolve) => {
+    const image = new Image();
+    if (anonymous) image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => resolve(null);
+    image.src = src;
+  });
+  imageRequests.set(key, request);
+  return request;
+}
+
+function loadWallpaper() {
+  if (wallpaperRequest) return wallpaperRequest;
+  wallpaperRequest = (async () => {
+    if (isTauri()) {
+      try {
+        const media = await invoke("launcher_background");
+        if (media.image) {
+          const official = await loadImage(media.image, true);
+          if (official) return official;
+        }
+      } catch {}
+    }
+    return loadImage(
+      new URL("assets/hero-keyart.jpg", window.location.href).href,
+    );
+  })();
+  return wallpaperRequest;
+}
+
+function drawImageCover(
+  ctx: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  width: number,
+  height: number,
+  focusX = 0.5,
+  focusY = 0.5,
+) {
+  const scale = Math.max(
+    width / image.naturalWidth,
+    height / image.naturalHeight,
+  );
+  const drawWidth = image.naturalWidth * scale;
+  const drawHeight = image.naturalHeight * scale;
+  ctx.drawImage(
+    image,
+    (width - drawWidth) * focusX,
+    (height - drawHeight) * focusY,
+    drawWidth,
+    drawHeight,
+  );
+}
+
 function drawPoster(
   context: CanvasRenderingContext2D | null,
   stats: PlaytimeStats,
+  wallpaper: HTMLImageElement | null,
 ) {
   if (!context) throw new Error("无法创建画布");
   const ctx = context;
@@ -118,18 +180,30 @@ function drawPoster(
   const font =
     '"Space Grotesk", "Noto Sans CJK SC", "Noto Sans SC", sans-serif';
 
-  ctx.fillStyle = "#10151c";
+  ctx.fillStyle = "#080d13";
   ctx.fillRect(0, 0, width, height);
-  const glow = ctx.createRadialGradient(880, 120, 20, 880, 120, 700);
-  glow.addColorStop(0, "rgba(89, 121, 151, 0.34)");
-  glow.addColorStop(1, "rgba(16, 21, 28, 0)");
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, width, height);
-  const shade = ctx.createLinearGradient(0, 900, 0, height);
-  shade.addColorStop(0, "rgba(16, 21, 28, 0)");
-  shade.addColorStop(1, "rgba(8, 12, 17, 0.72)");
-  ctx.fillStyle = shade;
-  ctx.fillRect(0, 900, width, height - 900);
+  if (wallpaper) {
+    drawImageCover(ctx, wallpaper, width, height, 0.62, 0.46);
+    const overlay = ctx.createLinearGradient(0, 0, 0, height);
+    overlay.addColorStop(0, "rgba(5, 9, 14, 0.18)");
+    overlay.addColorStop(0.3, "rgba(5, 9, 14, 0.26)");
+    overlay.addColorStop(0.48, "rgba(5, 9, 14, 0.56)");
+    overlay.addColorStop(0.64, "rgba(7, 12, 18, 0.9)");
+    overlay.addColorStop(1, "rgba(7, 12, 18, 0.99)");
+    ctx.fillStyle = overlay;
+    ctx.fillRect(0, 0, width, height);
+    const side = ctx.createLinearGradient(0, 0, width * 0.7, 0);
+    side.addColorStop(0, "rgba(5, 9, 14, 0.34)");
+    side.addColorStop(1, "rgba(5, 9, 14, 0)");
+    ctx.fillStyle = side;
+    ctx.fillRect(0, 0, width * 0.7, height);
+  } else {
+    const glow = ctx.createRadialGradient(880, 120, 20, 880, 120, 700);
+    glow.addColorStop(0, "rgba(89, 121, 151, 0.34)");
+    glow.addColorStop(1, "rgba(16, 21, 28, 0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, width, height);
+  }
 
   ctx.textBaseline = "alphabetic";
   ctx.fillStyle = "#d5e0ec";
@@ -162,36 +236,41 @@ function drawPoster(
     { label: "单次最长", value: formatPlaytime(stats.longestSessionMs) },
     { label: "游玩场次", value: `${stats.sessionCount} 次` },
   ];
+  roundedRect(ctx, padding, 486, contentWidth, 118, 16);
+  ctx.fillStyle = "rgba(5, 11, 17, 0.42)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(227, 236, 248, 0.12)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
   const metricWidth = contentWidth / metrics.length;
   metrics.forEach((metric, index) => {
     const x = padding + metricWidth * index;
-    ctx.fillStyle = "#8294a7";
+    ctx.fillStyle = "#9cabbc";
     ctx.font = `500 20px ${font}`;
-    ctx.fillText(metric.label, x, 536);
-    ctx.fillStyle = "#dce6f0";
+    ctx.fillText(metric.label, x, 528);
+    ctx.fillStyle = "#f2f6fb";
     ctx.font = `600 26px ${font}`;
-    ctx.fillText(metric.value, x, 578);
+    ctx.fillText(metric.value, x, 572);
   });
-  ctx.strokeStyle = "rgba(227, 236, 248, 0.14)";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(padding, 626);
-  ctx.lineTo(width - padding, 626);
-  ctx.stroke();
 
-  ctx.fillStyle = "#dce6f0";
+  roundedRect(ctx, padding, 640, contentWidth, 252, 16);
+  ctx.fillStyle = "rgba(5, 11, 17, 0.46)";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(227, 236, 248, 0.12)";
+  ctx.stroke();
+  ctx.fillStyle = "#edf2f8";
   ctx.font = `600 24px ${font}`;
-  ctx.fillText("最近 12 个月", padding, 688);
-  ctx.fillStyle = "#8294a7";
+  ctx.fillText("最近 12 个月", padding + 28, 682);
+  ctx.fillStyle = "#b3c0cf";
   ctx.font = `500 20px ${font}`;
   ctx.textAlign = "right";
-  ctx.fillText(`${heatmapDays(stats)} 天有记录`, width - padding, 688);
+  ctx.fillText(`已游玩 ${heatmapDays(stats)} 天`, width - padding - 28, 682);
   ctx.textAlign = "left";
 
   const cell = 13;
   const gap = 4;
   const gridX = padding + 34;
-  const gridY = 724;
+  const gridY = 736;
   const weekdays = ["一", "", "三", "", "五", "", "日"];
   ctx.font = `500 14px ${font}`;
   ctx.textAlign = "center";
@@ -218,25 +297,25 @@ function drawPoster(
     ctx.fillText(month.label, x, gridY - 12);
   });
 
-  ctx.fillStyle = "#dce6f0";
+  ctx.fillStyle = "#edf2f8";
   ctx.font = `600 24px ${font}`;
-  ctx.fillText("月度时长", padding, 940);
-  drawMonthlyChart(ctx, stats, padding, 958, contentWidth, 224, font);
+  ctx.fillText("月度时长", padding, 930);
+  drawMonthlyChart(ctx, stats, padding, 948, contentWidth, 270, font);
 
   ctx.strokeStyle = "rgba(227, 236, 248, 0.14)";
   ctx.beginPath();
-  ctx.moveTo(padding, 1260);
-  ctx.lineTo(width - padding, 1260);
+  ctx.moveTo(padding, 1265);
+  ctx.lineTo(width - padding, 1265);
   ctx.stroke();
   ctx.fillStyle = "#d5e0ec";
   ctx.font = `600 20px ${font}`;
-  ctx.fillText("Oddity", padding, 1310);
+  ctx.fillText("Oddity", padding, 1315);
   ctx.fillStyle = "#8294a7";
   ctx.textAlign = "right";
   ctx.fillText(
     `${new Date().getFullYear()}.${pad(new Date().getMonth() + 1)}.${pad(new Date().getDate())}`,
     width - padding,
-    1310,
+    1315,
   );
   ctx.textAlign = "left";
 
@@ -270,7 +349,7 @@ function drawMonthlyChart(
   const ceiling = Math.max(hour, Math.ceil(max / hour) * hour);
   ctx.save();
   roundedRect(ctx, x, y, width, height, 14);
-  ctx.fillStyle = "rgba(255, 255, 255, 0.025)";
+  ctx.fillStyle = "rgba(5, 11, 17, 0.46)";
   ctx.fill();
   ctx.strokeStyle = "rgba(227, 236, 248, 0.12)";
   ctx.lineWidth = 1;

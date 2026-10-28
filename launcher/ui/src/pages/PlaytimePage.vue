@@ -157,7 +157,7 @@ onBeforeUnmount(stopTimer);
         <section class="playtime-activity panel">
           <header class="playtime-section-head">
             <h3>最近 12 个月</h3>
-            <span>{{ heatmapDays }} 天有记录</span>
+            <span>已游玩 {{ heatmapDays }} 天</span>
           </header>
           <PlaytimeHeatmap
             :heatmap="stats.heatmap"

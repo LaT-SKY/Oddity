@@ -20,7 +20,7 @@ const props = defineProps<{
 const weekdays = ["一", "", "三", "", "五", "", "日"];
 const summary = computed(
   () =>
-    `最近 12 个月游玩 ${formatPlaytime(props.totalMs)}, ${props.daysPlayed} 天有记录`,
+    `最近 12 个月游玩 ${formatPlaytime(props.totalMs)}, 已游玩 ${props.daysPlayed} 天`,
 );
 const [, animate] = useAnimate();
 const { reduced } = useControlMotion();
