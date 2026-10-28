@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { motion } from "motion-v";
-import { computed } from "vue";
 import {
-  playtime,
   state,
   launchView,
   updateView,
@@ -10,11 +8,8 @@ import {
   showPage,
   handleLaunchAction,
 } from "../core/controller";
-import { formatPlaytime, latestSession } from "../core/playtime";
 import { playerExpanded } from "../composables/useSceneMotion";
 import HomeGameRecords from "../components/HomeGameRecords.vue";
-
-const lastPlaytime = computed(() => latestSession(playtime.history));
 </script>
 
 <template>
@@ -92,22 +87,6 @@ const lastPlaytime = computed(() => latestSession(playtime.history));
                 ? homeDownloadNotice.text
                 : updateView.homeStatusText
             }}</span>
-          </button>
-          <button
-            v-if="lastPlaytime"
-            class="hero__playtime"
-            type="button"
-            @click="showPage('records')"
-          >
-            <span>{{ playtime.recent ? "本次游玩" : "上次游玩" }}</span>
-            <strong>{{
-              formatPlaytime(lastPlaytime.endedAt - lastPlaytime.startedAt)
-            }}</strong>
-            <span class="hero__playtime-link"
-              >查看记录
-              <svg class="icon" aria-hidden="true">
-                <use href="#i-arrow-up-right" /></svg
-            ></span>
           </button>
         </motion.div>
       </div>

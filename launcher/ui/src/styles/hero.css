@@ -105,39 +105,6 @@
 .hero__status .status-dot {
   background: currentColor;
 }
-.hero__playtime {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 9px;
-  margin-top: 12px;
-  padding: 0;
-  border: 0;
-  color: rgb(255 255 255 / 72%);
-  background: transparent;
-  font: 400 11px var(--font);
-  text-align: left;
-  cursor: pointer;
-  transition: color 140ms ease;
-}
-.hero__playtime:hover {
-  color: rgb(255 255 255 / 92%);
-}
-.hero__playtime strong {
-  color: #fff;
-  font-size: 13px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-.hero__playtime-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: rgb(255 255 255 / 86%);
-}
-.hero__playtime-link .icon {
-  width: 11px;
-  height: 11px;
-}
 .eyebrow {
   display: flex;
   align-items: center;

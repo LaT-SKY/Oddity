@@ -326,7 +326,6 @@ export const playtime = reactive({
   loading: false,
   loaded: false,
   error: "",
-  recent: false,
 });
 let playtimeRequest = 0;
 const PLAYTIME_RECENT_MS = 5 * 60 * 1000;
@@ -341,11 +340,6 @@ export async function loadPlaytime(): Promise<boolean> {
     playtime.history = next;
     playtime.loaded = true;
     playtime.error = "";
-    if (playtime.recent) {
-      const last = latestSession(next);
-      if (!last || Date.now() - last.endedAt >= PLAYTIME_RECENT_MS)
-        playtime.recent = false;
-    }
     return true;
   } catch (cause) {
     if (epoch === generation && request === playtimeRequest) {
@@ -367,7 +361,6 @@ async function announcePlaytimeExit(fallback: string) {
   const recent = Boolean(
     last && Date.now() - last.endedAt < PLAYTIME_RECENT_MS,
   );
-  playtime.recent = recent;
   if (!recent || !last) {
     notify(fallback);
     return;
@@ -1441,7 +1434,6 @@ async function launchGame() {
     return;
   }
   if (!isTauri()) notify("浏览器预览：模拟启动流程。", "ok", 2600);
-  playtime.recent = false;
   setLaunchState("launching");
   const startedAt = performance.now();
   try {
@@ -2030,7 +2022,6 @@ export async function init() {
   bindInteractions();
   showPage(hashPage(), false);
   setLaunchState("idle");
-  playtime.recent = false;
   playtime.loading = false;
   void loadPlaytime();
   disposers.push(
@@ -2111,7 +2102,6 @@ export function dispose() {
     loading: false,
     loaded: false,
     error: "",
-    recent: false,
   });
   resetNotifications();
   Object.assign(state, {

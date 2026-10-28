@@ -1432,7 +1432,6 @@ describe("游戏会话", () => {
     backend.handler(session());
     await flushPromises();
     expect(c.state.game).toBe("idle");
-    expect(c.playtime.recent).toBe(true);
     expect(c.playtime.history?.sessions).toHaveLength(1);
     expect(noticeMessage()).toBe("游戏已退出 · 本次游玩 2 小时");
   });

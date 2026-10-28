@@ -31,9 +31,7 @@ test("游玩记录展示统计、热力图和可保存的海报", async ({ page 
   await expect(modal).toBeHidden();
 
   await page.locator('[data-page="home"]').click();
-  const summary = page.locator(".hero__playtime");
-  await expect(summary).toContainText("上次游玩");
-  await expect(summary).toContainText(/小时|分钟/);
+  await expect(page.locator(".hero__playtime")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 
