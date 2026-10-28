@@ -208,6 +208,14 @@ export interface LauncherBackgroundMedia {
   video: string | null;
   image: string | null;
 }
+export interface LogPreview {
+  id: string;
+  fileCount: number;
+  redactions: { home: number; phone: number; credentials: number; jwt: number };
+  samples: { file: string; line: number; text: string }[];
+  normalizedFiles: number;
+}
+
 export interface Commands {
   attendance_status: AttendanceStatus;
   attendance_refresh_game_records: AttendanceStatus;
@@ -226,7 +234,9 @@ export interface Commands {
   save_settings: Bootstrap;
   environment_create: Bootstrap;
   environment_action: Bootstrap;
-  export_logs: string;
+  prepare_log_export: LogPreview;
+  save_log_export: string;
+  discard_log_export: void;
   open_directory: null;
   open_url: null;
   launch_official: LaunchResult;
@@ -271,7 +281,9 @@ export interface CommandArgs {
     action: "switch" | "keep" | "discard";
     id: string | null;
   };
-  export_logs: { destination: string };
+  prepare_log_export: undefined;
+  save_log_export: { id: string; destination: string };
+  discard_log_export: { id: string };
   open_directory: { path: string };
   open_url: { url: string };
   launch_official: undefined;

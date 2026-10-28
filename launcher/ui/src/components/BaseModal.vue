@@ -218,7 +218,7 @@ function keydown(event: KeyboardEvent) {
 }
 </script>
 <template>
-  <Teleport to="body">
+  <Teleport to="#app" defer>
     <Transition
       :css="false"
       @before-enter="beforeEnter"
