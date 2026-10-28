@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { motion } from "motion-v";
 import BaseButton from "../components/BaseButton.vue";
 import PlaytimeHeatmap from "../components/playtime/PlaytimeHeatmap.vue";
@@ -78,13 +78,10 @@ function stopTimer() {
   timer = undefined;
 }
 watch(
-  () => Boolean(stats.value.active),
-  (active) => (active ? startTimer() : stopTimer()),
+  () => state.page === "records" && Boolean(stats.value.active),
+  (running) => (running ? startTimer() : stopTimer()),
   { immediate: true },
 );
-onMounted(() => {
-  void loadPlaytime();
-});
 onBeforeUnmount(stopTimer);
 </script>
 

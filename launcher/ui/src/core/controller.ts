@@ -1400,7 +1400,6 @@ function applyGameStatus(
   if (status.running) {
     state.session = status;
     setLaunchState(status.closing ? "closing" : "running");
-    void loadPlaytime();
     return;
   }
   state.session = null;
@@ -1984,7 +1983,7 @@ function bindInteractions() {
   onWindow("focus", () => {
     if (state.game === "launching" || state.game === "closing") return;
     syncGameStatus();
-    void loadPlaytime();
+    if (state.page === "records") void loadPlaytime();
   });
 }
 
@@ -2023,7 +2022,6 @@ export async function init() {
   showPage(hashPage(), false);
   setLaunchState("idle");
   playtime.loading = false;
-  void loadPlaytime();
   disposers.push(
     listenGameState((status) => applyGameStatus(status, { announce: true })),
   );
