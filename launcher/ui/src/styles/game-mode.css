@@ -1,0 +1,65 @@
+/* 工作区布局共用设置页样式, 此处仅定义游戏选项的控件样式. */
+.game-mode-page .setting-row.is-unavailable {
+  opacity: 0.45;
+}
+.game-mode-page .is-unavailable .control-switch {
+  opacity: 1;
+}
+
+.game-mode-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.game-mode-details .setting-row {
+  grid-template-columns: minmax(0, 1fr) minmax(142px, 42%);
+}
+.game-mode-details .setting-row__control,
+.game-mode-details .control-select {
+  width: 100%;
+}
+.game-mode-resolution {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  min-width: 0;
+  color: var(--muted);
+}
+.game-mode-resolution input {
+  width: 100%;
+  min-width: 0;
+}
+.game-mode-number {
+  width: 100%;
+}
+.game-mode-gpu.is-unavailable,
+.game-mode-details.is-unavailable {
+  opacity: 0.45;
+}
+.game-mode-gpu.is-unavailable .control-switch,
+.game-mode-gpu.is-unavailable .btn {
+  opacity: 1;
+}
+.game-mode-system.is-unavailable .btn {
+  opacity: 1;
+}
+.game-mode-details.is-unavailable .select-trigger {
+  opacity: 1;
+}
+.game-mode-gpu-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-8);
+  margin-top: var(--space-16);
+}
+.game-mode-confirm {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.65;
+}
+@container secondary (max-width: 600px) {
+  .game-mode-details .setting-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

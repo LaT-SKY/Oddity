@@ -16,6 +16,12 @@ fn main() -> Result<()> {
     if command == "recovery" {
         return recovery(&args[1..]);
     }
+    if command == "game-mode-gpu-apply" && args.len() == 1 {
+        return nte_core::game_mode::gpu::apply_system_json(std::io::stdin());
+    }
+    if command == "game-mode-tuning-apply" && args.len() == 1 {
+        return nte_core::game_mode::tuning::apply_system_json(std::io::stdin());
+    }
     if command == "keyring-check" {
         nte_core::attendance::check_keyring()?;
         println!("Keyring 存取与清理检查通过");

@@ -1,3 +1,4 @@
+import { defaultGamescope } from "../../src/core/gameMode";
 import type {
   Bootstrap,
   CheckResult,
@@ -13,6 +14,13 @@ export const settings: Settings = {
   activeEnvironment: null,
   stableEnvironment: null,
   launchMode: "background",
+  gameMode: {
+    performance: false,
+    inhibit: false,
+    notifications: false,
+    overlay: false,
+    gamescope: { ...defaultGamescope },
+  },
   language: "zh-CN",
   reduceMotion: true,
   stackBulletins: false,

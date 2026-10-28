@@ -107,8 +107,8 @@ pub fn running(paths: &UserPaths) -> Result<bool> {
     if !paths.instance_lock().try_exists()? {
         return Ok(false);
     }
-    let file = open_lock(paths, false)?;
-    match file.try_lock() {
+    let lock = LauncherLock(open_lock(paths, false)?);
+    match lock.0.try_lock() {
         Ok(()) => Ok(false),
         Err(std::fs::TryLockError::WouldBlock) => Ok(true),
         Err(error) => Err(error.into()),
@@ -401,8 +401,11 @@ mod tests {
         let recovery = LauncherLock::recovery(&paths).unwrap();
         assert!(LauncherLock::launcher(&paths).is_err());
         assert!(LauncherLock::recovery(&paths).is_err());
+        let inherited = recovery.0.try_clone().unwrap();
         drop(recovery);
         assert!(!running(&paths).unwrap());
+        assert!(LauncherLock::recovery(&paths).is_ok());
+        drop(inherited);
     }
 
     #[test]

@@ -62,6 +62,60 @@ export interface AttendanceStatus {
   accounts: AttendanceAccount[];
   preferences: AttendancePreferences;
 }
+export interface GamescopeOptions {
+  enabled: boolean;
+  windowMode: "fullscreen" | "borderless" | "windowed";
+  gameWidth: number;
+  gameHeight: number;
+  outputWidth: number;
+  outputHeight: number;
+  fps: number;
+  scaling: "linear" | "nearest" | "fsr" | "nis" | "integer";
+}
+export interface GpuConfig {
+  enabled: boolean;
+  device: number;
+  vendor: "nvidia" | "amd";
+  coreOffset: number;
+  memoryOffset: number;
+  powerMode: number;
+  amdLevel: "auto" | "high" | "low" | "profileStandard" | "profilePeak";
+}
+export interface GpuInfo {
+  config: GpuConfig;
+  devices: { id: number; vendor: GpuConfig["vendor"] }[];
+}
+export interface GameModeTuning {
+  pinCores: string | null;
+  parkCores: string | null;
+  renice: number | null;
+  ioprio: string | null;
+}
+export interface GameModeOptions {
+  performance: boolean;
+  inhibit: boolean;
+  notifications: boolean;
+  overlay: boolean;
+  gamescope: GamescopeOptions;
+}
+export interface GameModeFeatureStatus {
+  id: keyof GameModeOptions;
+  available: boolean;
+  state:
+    | "ready"
+    | "unavailable"
+    | "disabled"
+    | "waiting"
+    | "active"
+    | "requested"
+    | "error"
+    | "finished";
+  detail: string;
+}
+export interface GameModeStatus {
+  capabilities: GameModeFeatureStatus[];
+  session: GameModeFeatureStatus[] | null;
+}
 export interface Settings {
   installRoot: string | null;
   globalInstallRoot: string | null;
@@ -70,6 +124,7 @@ export interface Settings {
   activeEnvironment: string | null;
   stableEnvironment: string | null;
   launchMode: string;
+  gameMode: GameModeOptions;
   language: string;
   reduceMotion: boolean;
   stackBulletins: boolean;
@@ -245,6 +300,11 @@ export interface Commands {
   open_url: null;
   launch_official: LaunchResult;
   game_status: GameStatus;
+  game_mode_status: GameModeStatus;
+  game_mode_gpu_info: GpuInfo;
+  game_mode_tuning_info: GameModeTuning;
+  game_mode_tuning_apply: GameModeTuning;
+  game_mode_gpu_apply: GpuInfo;
   game_download_status: DownloadStatus;
   game_download_start: DownloadStatus;
   game_download_cancel: DownloadStatus;
@@ -292,6 +352,11 @@ export interface CommandArgs {
   open_url: { url: string };
   launch_official: undefined;
   game_status: undefined;
+  game_mode_status: undefined;
+  game_mode_gpu_info: undefined;
+  game_mode_tuning_info: undefined;
+  game_mode_tuning_apply: { config: GameModeTuning };
+  game_mode_gpu_apply: { config: GpuConfig };
   game_download_status: undefined;
   game_download_start: { mode: "check" | "apply"; full: boolean };
   game_download_cancel: undefined;

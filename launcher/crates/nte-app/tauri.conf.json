@@ -5,7 +5,7 @@
   "identifier": "io.github.oddity.Launcher",
   "build": {
     "beforeDevCommand": {
-      "script": "pnpm run dev",
+      "script": "cargo build --manifest-path ../Cargo.toml -p nte-cli --locked && pnpm run dev",
       "cwd": "../../ui"
     },
     "beforeBuildCommand": {

@@ -8,7 +8,9 @@ test("分类显示相关设置, 保存现有数据且切换时保留滚动位置
   await expect(nav.getByRole("button")).toHaveCount(5);
   await expect(page.locator("#set-theme-trigger")).toBeVisible();
   await expect(page.locator("#set-install")).not.toBeVisible();
-  const header = await page.locator(".settings-head").boundingBox();
+  const header = await page
+    .locator("#page-settings .settings-head")
+    .boundingBox();
   const panel = page.locator("#settings-panel-appearance");
   await panel.hover();
   await page.mouse.wheel(0, 500);
@@ -25,9 +27,9 @@ test("分类显示相关设置, 保存现有数据且切换时保留滚动位置
   );
   await settingsCategory(page, "appearance");
   expect(await panel.evaluate((el) => el.scrollTop)).toBeCloseTo(top, 0);
-  expect((await page.locator(".settings-head").boundingBox())!.y).toBe(
-    header!.y,
-  );
+  expect(
+    (await page.locator("#page-settings .settings-head").boundingBox())!.y,
+  ).toBe(header!.y);
   await settingsCategory(page, "game");
   await expect(page.locator("#set-install")).toHaveValue(
     "/tmp/settings-layout",
@@ -42,13 +44,19 @@ test("搜索名称和关键词, 键盘定位并聚焦设置项, Escape 先清空
   await page.goto("/#settings");
   const search = page.getByRole("searchbox", { name: "搜索设置" });
   await search.fill("路径");
-  await expect(page.locator(".settings-result")).toHaveCount(2);
+  await expect(page.locator("#page-settings .settings-result")).toHaveCount(2);
   await search.press("ArrowDown");
-  await expect(page.locator(".settings-result").first()).toBeFocused();
+  await expect(
+    page.locator("#page-settings .settings-result").first(),
+  ).toBeFocused();
   await page.keyboard.press("ArrowDown");
-  await expect(page.locator(".settings-result").last()).toBeFocused();
+  await expect(
+    page.locator("#page-settings .settings-result").last(),
+  ).toBeFocused();
   await page.keyboard.press("ArrowUp");
-  await expect(page.locator(".settings-result").first()).toBeFocused();
+  await expect(
+    page.locator("#page-settings .settings-result").first(),
+  ).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(search).toHaveValue("");
   await expect(page.locator('[data-category="game"]')).toHaveAttribute(
@@ -82,7 +90,9 @@ test("分类键盘切换, 运行环境入口直接定位, 窄面板不产生横�
   await expect(page.locator("#attendance-action")).toBeVisible();
   await page.setViewportSize({ width: 640, height: 520 });
   await settingsCategory(page, "game");
-  const bounds = await page.locator(".settings-categories").boundingBox();
+  const bounds = await page
+    .locator("#page-settings .settings-categories")
+    .boundingBox();
   expect(bounds!.height).toBeLessThan(60);
   expect(
     await page

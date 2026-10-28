@@ -52,6 +52,25 @@ chmod +x ./oddity-*.AppImage
 
 Nix 和 Gentoo 用户分别参阅 [Nix 指南](nix.md)和 [Gentoo 指南](gentoo.md).
 
+## 可选的游戏模式功能
+
+主导航中的“游戏模式”页面提供独立选项, 默认关闭, 修改后在下次启动游戏时应用:
+
+页面按常规、CPU 与优先级、GPU 超频、Gamescope 分类, 支持搜索并定位设置. CPU 与 GPU 配置依赖“启用 GameMode”; 关闭后整体置灰并禁止应用, 保留已保存的配置供重新启用时使用.
+
+- GameMode: 需要系统提供 GameMode 服务. Oddity 为本轮识别到的游戏进程注册优化请求, 游戏退出后释放.
+- CPU 与优先级: 可设置核心绑定、核心停驻、进程和 I/O 优先级. 核心选项写入 `[cpu]`, 优先级写入 `[general]`. 使用默认值会移除对应覆盖项. 自动选择核心取决于 GameMode 对 CPU 拓扑的支持, 停驻和提高进程优先级需要 GameMode 具备相应权限.
+- 防止空闲休眠: 需要桌面支持 XDG Inhibit Portal, 并安装对应桌面的 Portal 后端. 实际空闲和自动挂起行为由桌面决定.
+- 屏蔽通知: 当前支持提供临时抑制接口的 Plasma 通知服务, 保留用户原有的勿扰设置.
+- 性能浮层: 需要安装 MangoHud, 并在所选 Proton/umu 环境中支持 Vulkan 浮层.
+- Gamescope: 需要安装 Gamescope, 可设置窗口模式、游戏与输出分辨率、帧率上限和缩放方式. 同时启用性能浮层时使用 `mangoapp`, 需要系统提供该程序.
+
+GPU 超频需要 GameMode 和支持的 NVIDIA / AMD 显卡. NVIDIA 支持 PowerMizer、核心和显存频率偏移, 驱动需允许相应调节; AMD 提供性能等级选项. 配置默认不调整频率. 点击“应用配置”后通过 `pkexec` 授权写入 `/etc/gamemode.ini`, 原配置备份为 `/etc/gamemode.ini.oddity-backup`. 此配置影响所有 GameMode 游戏, 应在结束游戏后修改. 超频存在系统不稳定或硬件损坏风险. 配置字段与驱动要求参阅 [GameMode 上游示例](https://github.com/FeralInteractive/gamemode/blob/master/example/gamemode.ini).
+
+不可用项会整行置灰并提示所缺依赖或桌面支持情况. 最小化到托盘时保持请求; 彻底退出 Oddity 会释放由启动器持有的桌面请求.
+
+CPU 与优先级通过独立“应用配置”按钮授权写入 `/etc/gamemode.ini`, 与 GPU 配置相互保留. GameMode 的用户或游戏目录配置可能覆盖这些系统设置. GameMode 与 MangoHud 可以同时启用; 未使用 Gamescope 时通过 Vulkan 浮层环境启用 MangoHud, GameMode 直接注册实际游戏进程. 使用 Gamescope 时性能浮层改用 `--mangoapp`.
+
 ## 准备游戏环境
 
 Oddity 通过 `umu-run` 调用 Proton. 开始前需要安装 `umu-run` 和 Proton, 再在设置中创建运行环境.

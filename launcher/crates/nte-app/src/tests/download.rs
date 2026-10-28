@@ -312,6 +312,7 @@ fn commands_reject_overlapping_tasks_and_running_games() {
             x: 1120,
             y: 636,
         },
+        false,
     )
     .unwrap();
     fixture.app.state::<AppState>().game.lock().unwrap().session = Some(crate::GameSession {
@@ -326,6 +327,7 @@ fn commands_reject_overlapping_tasks_and_running_games() {
         game_alive: Arc::new(AtomicBool::new(false)),
         _install_lock: None,
         _prefix_lock: None,
+        game_mode: None,
         background: Some(background.clone()),
     });
     assert!(game_download_start(

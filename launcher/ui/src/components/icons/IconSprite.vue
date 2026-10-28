@@ -86,6 +86,36 @@
           d="M212.24,100.24l-80,80a6,6,0,0,1-8.48,0l-80-80a6,6,0,0,1,8.48-8.48L128,167.51l75.76-75.75a6,6,0,0,1,8.48,8.48Z"
         />
       </symbol>
+      <symbol id="i-cpu" viewBox="0 0 256 256">
+        <g
+          fill="none"
+          stroke="currentColor"
+          stroke-width="12"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="64" y="64" width="128" height="128" rx="12" />
+          <rect x="96" y="96" width="64" height="64" rx="4" />
+          <path
+            d="M96 40v24m32-24v24m32-24v24M96 192v24m32-24v24m32-24v24M40 96h24m-24 32h24m-24 32h24m128-64h24m-24 32h24m-24 32h24"
+          />
+        </g>
+      </symbol>
+      <symbol id="i-graphics-card" viewBox="0 0 256 256">
+        <g
+          fill="none"
+          stroke="currentColor"
+          stroke-width="12"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="40" y="64" width="184" height="120" rx="12" />
+          <circle cx="144" cy="124" r="32" />
+          <path
+            d="M16 48h24v152m40-16v24h96v-24M40 104H24m16 40H24m120-52v64m-32-32h64"
+          />
+        </g>
+      </symbol>
       <symbol id="i-monitor" viewBox="0 0 256 256">
         <path
           d="M208,42H48A22,22,0,0,0,26,64V176a22,22,0,0,0,22,22H208a22,22,0,0,0,22-22V64A22,22,0,0,0,208,42Zm10,134a10,10,0,0,1-10,10H48a10,10,0,0,1-10-10V64A10,10,0,0,1,48,54H208a10,10,0,0,1,10,10Zm-52,48a6,6,0,0,1-6,6H96a6,6,0,0,1,0-12h64A6,6,0,0,1,166,224Z"
