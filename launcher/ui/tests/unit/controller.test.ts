@@ -971,7 +971,7 @@ describe("更新检查", () => {
       phase: "game",
       currentFile: "Client/data.pak",
       currentFileBytes: 300 * 1024 * 1024,
-      downloadedBytes: 15,
+      downloadedBytes: 4,
       totalBytes: 10,
       patchBytes: 6,
       fullBytes: 4,
@@ -982,7 +982,7 @@ describe("更新检查", () => {
     });
     await nextTick();
     expect(document.body.textContent).toContain("暂停下载");
-    expect(c.downloadView.value.progress).toBe(50);
+    expect(c.downloadView.value.progress).toBe(40);
     expect(c.downloadView.value.sizeText).toBe("本次需下载 10 B");
     expect(c.downloadView.value.stageText).toBe("应用补丁");
     expect(c.downloadView.value.splitText).toBe("补丁 6 B / 完整文件 4 B");
@@ -999,7 +999,7 @@ describe("更新检查", () => {
       pendingFiles: 2,
     });
     await nextTick();
-    expect(c.downloadView.value.progress).toBe(0);
+    expect(c.downloadView.value.progress).toBe(80);
     expect(c.downloadView.value.downloadedText).toBe("8 B / 10 B");
     expect(button("download-install-root").disabled).toBe(true);
     await c.cancelGameDownload();
@@ -1195,7 +1195,7 @@ describe("更新检查", () => {
     ).toBe(true);
   });
 
-  it("下载按字节推进, 校验和写入阶段按完成文件数显示", async () => {
+  it("下载进度始终按体积推进, 完成后才显示 100%", async () => {
     const c = await boot();
     const status: DownloadStatus = {
       ...backend.downloadStatus,
@@ -1207,9 +1207,9 @@ describe("更新检查", () => {
       stage: "patch",
     };
     backend.downloadHandler(status);
-    expect(c.downloadView.value.progress).toBe(50);
+    expect(c.downloadView.value.progress).toBe(99);
     backend.downloadHandler({ ...status, downloadedBytes: 101 });
-    expect(c.downloadView.value.progress).toBe(50);
+    expect(c.downloadView.value.progress).toBe(99);
     backend.downloadHandler({
       ...status,
       downloadedBytes: 80,
@@ -1223,7 +1223,7 @@ describe("更新检查", () => {
     });
     expect(c.downloadView.value.progress).toBe(99);
     backend.downloadHandler({ ...status, completedFiles: 2, stage: "install" });
-    expect(c.downloadView.value.progress).toBeLessThan(100);
+    expect(c.downloadView.value.progress).toBe(99);
     backend.downloadHandler({
       ...status,
       phase: "ready",
@@ -1231,6 +1231,33 @@ describe("更新检查", () => {
       stage: "",
     });
     expect(c.downloadView.value.progress).toBe(100);
+  });
+
+  it("暂停后仍按已下载体积显示进度", async () => {
+    const c = await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "cancelled",
+      completedFiles: 192,
+      totalFiles: 334,
+      totalBytes: Math.round(76.6 * 1024 ** 3),
+      downloadedBytes: 579 * 1024 ** 2,
+      stage: "install",
+    });
+    expect(c.downloadView.value.progress).toBe(1);
+  });
+
+  it("未完成时文件数回退也不会显示 100%", async () => {
+    const c = await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      totalBytes: 0,
+      downloadedBytes: 0,
+      completedFiles: 3,
+      totalFiles: 3,
+    });
+    expect(c.downloadView.value.progress).toBe(99);
   });
 
   it.each([

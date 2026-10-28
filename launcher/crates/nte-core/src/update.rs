@@ -210,6 +210,7 @@ pub fn apply_file_resumable(
         }
     }
     let mut downloaded = 0;
+    let mut resumed = part.metadata().map(|metadata| metadata.len()).unwrap_or(0);
     let mut verified = false;
     for base in zip_bases {
         if cancelled() {
@@ -219,10 +220,14 @@ pub fn apply_file_resumable(
             let length = fs::metadata(&part)?.len();
             if file.zip_size == Some(length) {
                 if launcher_hash_matches(&part, file.zip_checksum.as_deref(), cancelled)? {
+                    downloaded += length;
+                    on_bytes(length);
+                    resumed = 0;
                     verified = true;
                     break;
                 }
                 fs::remove_file(&part)?;
+                resumed = 0;
             }
         }
         let existing = part.metadata().map(|metadata| metadata.len()).unwrap_or(0);
@@ -240,6 +245,9 @@ pub fn apply_file_resumable(
             Err(_) => continue,
         };
         let append = existing > 0 && response.status().as_u16() == 206;
+        if !append {
+            resumed = 0;
+        }
         let mut output = if append {
             fs::OpenOptions::new().append(true).open(&part)?
         } else {
@@ -277,6 +285,7 @@ pub fn apply_file_resumable(
             .is_some_and(|size| fs::metadata(&part).is_ok_and(|metadata| metadata.len() >= size))
         {
             fs::remove_file(&part)?;
+            resumed = 0;
         }
     }
     if !verified {
@@ -284,6 +293,10 @@ pub fn apply_file_resumable(
             "启动器文件下载或校验失败: {}",
             file.path
         )));
+    }
+    if resumed > 0 {
+        downloaded += resumed;
+        on_bytes(resumed);
     }
     let archive_file = fs::File::open(&part)?;
     let mut archive = zip::ZipArchive::new(archive_file)
@@ -529,8 +542,9 @@ mod tests {
             &|| false,
         )
         .expect("resume launcher file");
-        assert_eq!(bytes, (zip.len() - zip.len() / 2) as u64);
-        assert_eq!(observed, bytes);
+        // 可续传前缀与本次下载量一起计入进度.
+        assert_eq!(bytes, zip.len() as u64);
+        assert_eq!(observed, zip.len() as u64);
         assert_eq!(dir.read("file.bin"), content);
         assert!(!dir.is_file(&part));
         assert!(!dir.is_file("file.oddity-new"));
@@ -741,7 +755,7 @@ mod tests {
         assert!(!cancelled());
         assert_eq!(
             apply_file_resumable(dir.path(), &bases, &file, &mut |_| {}, &|| false).unwrap(),
-            0
+            zip.len() as u64
         );
         assert_eq!(dir.read("file.dll"), content);
     }
