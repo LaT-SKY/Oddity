@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import {
+  attendanceTaskOptions,
+  attendanceTasksComplete,
+} from "../core/attendanceTasks";
 import BaseSwitch from "./BaseSwitch.vue";
 import BaseInput from "./BaseInput.vue";
 import BaseDisclosure from "./BaseDisclosure.vue";
@@ -18,6 +22,7 @@ import BaseSelect from "./BaseSelect.vue";
 import TaygedoAccountDialog from "./TaygedoAccountDialog.vue";
 const open = ref(false);
 const scheduleExpanded = ref(true);
+const tasksExpanded = ref(true);
 const startMode = ref<"list" | "add">("list");
 const accounts = computed(() => attendance.status?.accounts ?? []);
 function manage(mode: "list" | "add") {
@@ -31,11 +36,19 @@ const primary = computed(() => {
     return { label: "立即登录", icon: "i-sign-in", mode: "add" as const };
   if (attendance.running)
     return { label: "正在签到", icon: "i-calendar-check", disabled: true };
-  if (accounts.value.every((account) => account.signedToday))
+  if (!Object.values(attendanceForm.tasks).some(Boolean))
+    return { label: "请先授权任务", icon: "i-calendar-check", disabled: true };
+  if (
+    accounts.value.every((account) =>
+      attendanceTasksComplete(account, attendanceForm.tasks),
+    )
+  )
     return { label: "今日已签到", icon: "i-check-circle", disabled: true };
   if (
     accounts.value
-      .filter((account) => !account.signedToday)
+      .filter(
+        (account) => !attendanceTasksComplete(account, attendanceForm.tasks),
+      )
       .every((account) =>
         ["auth", "verification"].includes(account.attention?.kind ?? ""),
       )
@@ -143,6 +156,29 @@ onBeforeUnmount(() => clearInterval(poll));
             @change="queueSettingsSave(0)"
         /></label>
       </div>
+    </BaseDisclosure>
+    <BaseDisclosure title="任务授权" v-model="tasksExpanded">
+      <p class="attendance__hint">
+        授权适用于所有账号, 手动与自动执行均只完成已开启的任务.
+        保存后在下次执行时生效.
+      </p>
+      <SettingRow
+        v-for="task in attendanceTaskOptions"
+        :key="task.key"
+        :label="task.label"
+        :for="'attendance-task-' + task.key"
+        :description="task.description"
+        v-slot="{ describedby }"
+      >
+        <BaseSwitch
+          :id="'attendance-task-' + task.key"
+          v-model="attendanceForm.tasks[task.key]"
+          :label="task.label"
+          :describedby="describedby"
+          :disabled="!attendance.loaded || attendance.busy"
+          @change="queueSettingsSave(0)"
+        />
+      </SettingRow>
     </BaseDisclosure>
     <div class="attendance__actions">
       <BaseButton

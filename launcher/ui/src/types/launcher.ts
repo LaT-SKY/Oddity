@@ -1,7 +1,16 @@
 export type AttendanceTrigger = "off" | "launch" | "boot" | "daily" | "manual";
+export interface AttendanceTasks {
+  communitySign: boolean;
+  roleSign: boolean;
+  browsePosts: boolean;
+  likePosts: boolean;
+  sharePosts: boolean;
+  cloudDuration: boolean;
+}
 export interface AttendancePreferences {
   trigger: AttendanceTrigger;
   time: string;
+  tasks: AttendanceTasks;
 }
 export interface AttendanceFailure {
   kind:

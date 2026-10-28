@@ -1,3 +1,4 @@
+import { defaultAttendanceTasks } from "../../src/core/attendanceTasks";
 import { APP_VERSION } from "../../src/core/version";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { settings } from "./fixtures";
@@ -364,7 +365,11 @@ it("签到预览默认关闭, 手机号密码登录不保存原始凭据且不�
   ).rejects.toThrow();
   await expect(
     invoke("attendance_configure", {
-      preferences: { trigger: "daily", time: "20:30" },
+      preferences: {
+        trigger: "daily",
+        time: "20:30",
+        tasks: { ...defaultAttendanceTasks },
+      },
     }),
   ).rejects.toThrow("请先登录");
   const logged = await invoke("attendance_login", {
@@ -381,7 +386,11 @@ it("签到预览默认关闭, 手机号密码登录不保存原始凭据且不�
   expect(localStorage.length).toBe(0);
   await invoke("attendance_keyring_check");
   await invoke("attendance_configure", {
-    preferences: { trigger: "launch", time: "08:00" },
+    preferences: {
+      trigger: "launch",
+      time: "08:00",
+      tasks: { ...defaultAttendanceTasks },
+    },
   });
   expect((await invoke("attendance_run")).accounts[0].lastReport?.ok).toBe(
     true,

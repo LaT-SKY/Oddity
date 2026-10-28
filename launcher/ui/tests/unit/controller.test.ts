@@ -1,3 +1,4 @@
+import { defaultAttendanceTasks } from "../../src/core/attendanceTasks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { nextTick } from "vue";
@@ -125,7 +126,11 @@ beforeEach(() => {
           case "attendance_status":
             return {
               accounts: [],
-              preferences: { trigger: "off", time: "08:00" },
+              preferences: {
+                trigger: "off",
+                time: "08:00",
+                tasks: { ...defaultAttendanceTasks },
+              },
             };
           case "launcher_background":
             return structuredClone(backend.background);
@@ -1975,7 +1980,11 @@ it("保存先提交通用设置, 再提交已加载的签到偏好", async () =>
   const c = await boot();
   c.syncAttendance({
     accounts: [],
-    preferences: { trigger: "off", time: "08:00" },
+    preferences: {
+      trigger: "off",
+      time: "08:00",
+      tasks: { ...defaultAttendanceTasks },
+    },
   });
   c.attendance.loaded = true;
   c.attendanceForm.enabled = true;
@@ -1985,7 +1994,14 @@ it("保存先提交通用设置, 再提交已加载的签到偏好", async () =>
   const original = backend.invoke.getMockImplementation()!;
   backend.invoke.mockImplementation(async (command, args) =>
     command === "attendance_configure"
-      ? { accounts: [], preferences: { trigger: "daily", time: "20:30" } }
+      ? {
+          accounts: [],
+          preferences: {
+            trigger: "daily",
+            time: "20:30",
+            tasks: { ...defaultAttendanceTasks },
+          },
+        }
       : original(command, args),
   );
   backend.invoke.mockClear();
@@ -1995,7 +2011,11 @@ it("保存先提交通用设置, 再提交已加载的签到偏好", async () =>
     "attendance_configure",
   ]);
   expect(backend.invoke).toHaveBeenLastCalledWith("attendance_configure", {
-    preferences: { trigger: "daily", time: "20:30" },
+    preferences: {
+      trigger: "daily",
+      time: "20:30",
+      tasks: { ...defaultAttendanceTasks },
+    },
   });
   expect(c.ui.saveState).toBe("saved");
 });
@@ -2016,7 +2036,11 @@ it("签到保存失败明确提示并保留错误状态", async () => {
   const c = await boot();
   c.syncAttendance({
     accounts: [],
-    preferences: { trigger: "off", time: "08:00" },
+    preferences: {
+      trigger: "off",
+      time: "08:00",
+      tasks: { ...defaultAttendanceTasks },
+    },
   });
   c.attendance.loaded = true;
   c.attendanceForm.enabled = true;
@@ -2066,7 +2090,11 @@ it("短信控制器保留未保存偏好, 发送失败复位并阻止并发", as
   expect(c.attendance.busy).toBe(false);
   backend.invoke.mockResolvedValueOnce({
     accounts: [],
-    preferences: { trigger: "off", time: "08:00" },
+    preferences: {
+      trigger: "off",
+      time: "08:00",
+      tasks: { ...defaultAttendanceTasks },
+    },
   });
   await c.loginAttendanceSms(" 13800138000 ", "123456", "test-device");
   expect(backend.invoke).toHaveBeenLastCalledWith("attendance_login_sms", {
@@ -2078,6 +2106,7 @@ it("短信控制器保留未保存偏好, 发送失败复位并阻止并发", as
     enabled: true,
     trigger: "boot",
     time: "21:30",
+    tasks: { ...defaultAttendanceTasks },
   });
   expect(c.attendance.error).toBe("");
   expect(c.attendance.busy).toBe(false);

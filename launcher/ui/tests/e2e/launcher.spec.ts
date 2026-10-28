@@ -482,3 +482,59 @@ test("国际服切换同步启动方式、公告来源和专属功能", async ({
   await page.locator('[data-page="home"]').click();
   await expect(page.locator(".game-records__capsule")).toHaveCount(0);
 });
+
+test("任务授权控制手动执行, 全部关闭并在当天重新授权", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto("/#settings");
+  await settingsCategory(page, "account");
+  const action = page.locator("#attendance-action");
+  await action.click();
+  const dialog = page.getByRole("dialog");
+  await dialog.locator("#attendance-phone").fill("13800138000");
+  await dialog.locator("#attendance-password").fill("preview-password");
+  await dialog.locator("#attendance-login").click();
+  await expect(dialog.getByRole("status")).toHaveText("账号已添加.");
+  await dialog.getByRole("button", { name: "关闭弹窗" }).click();
+  for (const key of [
+    "communitySign",
+    "roleSign",
+    "browsePosts",
+    "likePosts",
+    "sharePosts",
+    "cloudDuration",
+  ]) {
+    await page.locator(`#attendance-task-${key}`).uncheck({ force: true });
+    await expect(page.locator("#settings-form")).toHaveAttribute(
+      "data-save-state",
+      "saved",
+    );
+  }
+  await expect(action).toHaveText("请先授权任务");
+  await expect(action).toBeDisabled();
+  await page.locator("#attendance-task-sharePosts").check({ force: true });
+  await expect(page.locator("#settings-form")).toHaveAttribute(
+    "data-save-state",
+    "saved",
+  );
+  await action.click();
+  await expect(action).toHaveText("今日已签到");
+  await page.locator("#attendance-manage").click();
+  const taskResults = dialog.getByRole("list", { name: "已完成任务" });
+  await expect(taskResults.locator("li")).toHaveText(["社区杂活"]);
+  await taskResults
+    .getByRole("button", { name: "社区杂活", exact: true })
+    .hover();
+  await expect(page.getByRole("tooltip")).toContainText("分享帖子");
+  await expect(page.getByRole("tooltip")).not.toContainText("点赞帖子");
+  await dialog.getByRole("button", { name: "关闭弹窗" }).click();
+  await page.locator("#attendance-task-roleSign").check({ force: true });
+  await expect(page.locator("#settings-form")).toHaveAttribute(
+    "data-save-state",
+    "saved",
+  );
+  await expect(action).toHaveText("立即签到");
+  await action.click();
+  await expect(action).toHaveText("今日已签到");
+  expect(errors).toEqual([]);
+});

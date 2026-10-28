@@ -86,17 +86,60 @@ pub enum Trigger {
     Daily,
     Manual,
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TaskPermissions {
+    pub community_sign: bool,
+    pub role_sign: bool,
+    pub browse_posts: bool,
+    pub like_posts: bool,
+    pub share_posts: bool,
+    pub cloud_duration: bool,
+}
+impl Default for TaskPermissions {
+    fn default() -> Self {
+        Self {
+            community_sign: true,
+            role_sign: true,
+            browse_posts: true,
+            like_posts: true,
+            share_posts: true,
+            cloud_duration: true,
+        }
+    }
+}
+impl TaskPermissions {
+    fn coin_enabled(&self) -> bool {
+        self.community_sign || self.browse_posts || self.like_posts || self.share_posts
+    }
+    fn any(&self) -> bool {
+        self.coin_enabled() || self.role_sign || self.cloud_duration
+    }
+    fn allows(&self, label: &str) -> bool {
+        match label {
+            "社区签到" | "BBS 金币签到" => self.community_sign,
+            "浏览帖子" => self.browse_posts,
+            "点赞帖子" => self.like_posts,
+            "分享帖子" => self.share_posts,
+            "云异环时长" => self.cloud_duration,
+            "今日金币" | "金币任务" => self.coin_enabled(),
+            _ => self.role_sign && (label.starts_with("角色 ") || label == "获取异环角色"),
+        }
+    }
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Preferences {
     pub trigger: Trigger,
     pub time: String,
+    pub tasks: TaskPermissions,
 }
 impl Default for Preferences {
     fn default() -> Self {
         Self {
             trigger: Trigger::Off,
             time: "08:00".into(),
+            tasks: TaskPermissions::default(),
         }
     }
 }
@@ -182,7 +225,7 @@ pub struct Report {
     pub steps: Vec<Step>,
 }
 impl Report {
-    fn coin_complete(&self) -> bool {
+    fn coin_complete(&self, tasks: &TaskPermissions) -> bool {
         [
             "BBS 金币签到",
             "浏览帖子",
@@ -191,13 +234,28 @@ impl Report {
             "今日金币",
         ]
         .iter()
+        .filter(|label| tasks.allows(label))
         .all(|label| {
             self.steps
                 .iter()
                 .any(|step| step.optional && step.label == *label && step.ok)
         }) && !self.steps.iter().any(|step| {
-            step.optional && step.label != "云异环时长" && step.label != "附加任务准备" && !step.ok
+            step.optional && tasks.allows(&step.label) && step.label != "云异环时长" && !step.ok
         })
+    }
+
+    fn core_complete(&self, tasks: &TaskPermissions) -> bool {
+        (!tasks.community_sign || self.steps.iter().any(|s| s.label == "社区签到" && s.ok))
+            && (!tasks.role_sign
+                || self
+                    .steps
+                    .iter()
+                    .any(|s| s.label.starts_with("角色 ") && s.ok))
+            && self
+                .steps
+                .iter()
+                .filter(|s| !s.optional && tasks.allows(&s.label))
+                .all(|s| s.ok)
     }
 
     fn cloud_complete(&self) -> bool {
@@ -237,12 +295,17 @@ impl AccountStatus {
             game_record_error: None,
         }
     }
-    fn tasks_complete(&self) -> bool {
-        self.signed_today
-            && self
-                .last_report
-                .as_ref()
-                .is_some_and(|report| report.coin_complete() && report.cloud_complete())
+    fn tasks_complete(&self, tasks: &TaskPermissions) -> bool {
+        if !tasks.any() {
+            return true;
+        }
+        self.last_report.as_ref().is_some_and(|report| {
+            china_day(report.at) == china_day(now())
+                && report.ok
+                && report.core_complete(tasks)
+                && report.coin_complete(tasks)
+                && (!tasks.cloud_duration || report.cloud_complete())
+        })
     }
 
     fn refresh_day(&mut self) {

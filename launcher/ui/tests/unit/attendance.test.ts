@@ -1,3 +1,4 @@
+import { defaultAttendanceTasks } from "../../src/core/attendanceTasks";
 import { mount, flushPromises, type VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type {
@@ -32,7 +33,14 @@ beforeEach(() => {
     running: false,
     error: "",
   });
-  status = { accounts: [], preferences: { trigger: "off", time: "08:00" } };
+  status = {
+    accounts: [],
+    preferences: {
+      trigger: "off",
+      time: "08:00",
+      tasks: { ...defaultAttendanceTasks },
+    },
+  };
   api.invoke.mockReset().mockImplementation(async (command, args) => {
     if (command === "save_settings") return bootstrap();
     if (command === "attendance_send_code") return "device-test";
@@ -46,6 +54,26 @@ beforeEach(() => {
       status.accounts.forEach((a) => {
         a.signedToday = true;
         a.failedToday = false;
+        a.lastReport = {
+          at: Math.floor(Date.now() / 1000),
+          ok: true,
+          steps: [
+            "社区签到",
+            "角色 测试角色",
+            "BBS 金币签到",
+            "浏览帖子",
+            "点赞帖子",
+            "分享帖子",
+            "今日金币",
+            "云异环时长",
+          ].map((label) => ({
+            label,
+            ok: true,
+            message: "完成",
+            kind: null,
+            optional: label !== "社区签到" && !label.startsWith("角色 "),
+          })),
+        };
       });
     return structuredClone(status);
   });
@@ -94,7 +122,11 @@ it("多账号添加、统一保存、签到和两次确认移除", async () => {
   c.attendanceForm.time = "20:30";
   await c.saveSettings();
   expect(api.invoke).toHaveBeenCalledWith("attendance_configure", {
-    preferences: { trigger: "daily", time: "20:30" },
+    preferences: {
+      trigger: "daily",
+      time: "20:30",
+      tasks: { ...defaultAttendanceTasks },
+    },
   });
   await click("#attendance-action");
   expect(wrapper.get("#attendance-action").text()).toBe("今日已签到");
@@ -287,7 +319,11 @@ it("开机时选项自动保存", async () => {
   expect(wrapper.text()).toContain("用户登录后执行一次");
   await flushPromises();
   expect(api.invoke).toHaveBeenCalledWith("attendance_configure", {
-    preferences: { trigger: "boot", time: "08:00" },
+    preferences: {
+      trigger: "boot",
+      time: "08:00",
+      tasks: { ...defaultAttendanceTasks },
+    },
   });
 });
 
@@ -298,7 +334,11 @@ it("签到开关修改立即自动保存偏好", async () => {
   await wrapper.get("#attendance-enabled").setValue(true);
   await flushPromises();
   expect(api.invoke).toHaveBeenCalledWith("attendance_configure", {
-    preferences: { trigger: "launch", time: "08:00" },
+    preferences: {
+      trigger: "launch",
+      time: "08:00",
+      tasks: { ...defaultAttendanceTasks },
+    },
   });
   expect(c.ui.saveState).toBe("saved");
 });
@@ -331,7 +371,7 @@ it("短信冷却在 60 秒结束, 关闭和卸载清理计时器", async () => {
   }
 });
 
-it("任务结果显示金币、时长和附加失败, 保持核心签到成功", async () => {
+it("任务结果显示金币、时长和附加失败, 保持核心签到成功并允许补做", async () => {
   status.accounts = [account("1")];
   status.accounts[0].signedToday = true;
   status.accounts[0].lastReport = {
@@ -364,7 +404,7 @@ it("任务结果显示金币、时长和附加失败, 保持核心签到成功",
     ],
   };
   await boot();
-  expect(wrapper.get("#attendance-action").text()).toBe("今日已签到");
+  expect(wrapper.get("#attendance-action").text()).toBe("立即签到");
   expect(wrapper.text()).not.toContain("110/150");
   await click("#attendance-manage");
   const report = el(".account-row__tasks");
@@ -495,4 +535,46 @@ it("核心失败原因跳过附加任务错误, 云时长跳过原因可查看",
   expect(el(".account-row__notes").textContent).toContain(
     "已跳过: 缺少老虎会话且未保存密码",
   );
+});
+
+it("六项任务授权自动保存, 轮询保留编辑值, 全部关闭时阻止执行", async () => {
+  status.accounts = [account("1")];
+  await boot();
+  for (const key of Object.keys(defaultAttendanceTasks)) {
+    await wrapper.get(`#attendance-task-${key}`).setValue(false);
+    await flushPromises();
+  }
+  await c.saveSettings(true);
+  expect(status.preferences.tasks).toEqual(
+    Object.fromEntries(
+      Object.keys(defaultAttendanceTasks).map((key) => [key, false]),
+    ),
+  );
+  expect(wrapper.get("#attendance-action").text()).toBe("请先授权任务");
+  expect((el("#attendance-action") as HTMLButtonElement).disabled).toBe(true);
+  c.attendanceForm.tasks.cloudDuration = true;
+  await c.loadAttendance();
+  expect(c.attendanceForm.tasks.cloudDuration).toBe(true);
+  await c.saveAttendancePreferences();
+  expect(status.preferences.tasks.cloudDuration).toBe(true);
+  expect(wrapper.get("#attendance-action").text()).toBe("立即签到");
+});
+
+it("手动执行前保存最新授权, 保存失败时不执行任务", async () => {
+  status.accounts = [account("1")];
+  await boot();
+  c.attendanceForm.tasks.sharePosts = false;
+  api.invoke.mockClear();
+  await c.runAttendance();
+  expect(api.invoke.mock.calls.map(([command]) => command)).toEqual([
+    "attendance_configure",
+    "attendance_run",
+  ]);
+  expect(status.preferences.tasks.sharePosts).toBe(false);
+  c.attendanceForm.tasks.likePosts = false;
+  api.invoke.mockClear();
+  api.invoke.mockRejectedValueOnce(new Error("授权保存失败"));
+  await c.runAttendance();
+  expect(api.invoke).not.toHaveBeenCalledWith("attendance_run");
+  expect(c.attendance.error).toBe("授权保存失败");
 });

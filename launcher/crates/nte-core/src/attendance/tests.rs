@@ -380,6 +380,7 @@ fn daily_configuration_updates_units_and_restores_preferences_on_failure() {
     let daily = Preferences {
         trigger: Trigger::Daily,
         time: "19:30".into(),
+        ..Preferences::default()
     };
     service
         .configure(daily.clone(), std::path::Path::new("/oddity"))
@@ -1193,7 +1194,7 @@ fn failed_optional_tasks_retry_without_repeating_completed_groups() {
         server.route(failed, r#"{"code":500,"message":"temporary error"}"#);
         let first = service.run(None).unwrap();
         assert!(first.accounts[0].signed_today);
-        assert!(!first.accounts[0].tasks_complete());
+        assert!(!first.accounts[0].tasks_complete(&TaskPermissions::default()));
         let sign_hits = server.hits("/apihub/api/signin");
         let coin_hits = server.hits("/apihub/api/getUserTasks");
         let cloud_hits = server.hits("/cloud/game/getUserInfo");
@@ -1203,7 +1204,7 @@ fn failed_optional_tasks_retry_without_repeating_completed_groups() {
             r#"{"code":0,"result":{"perDayFirstLoginGiveDuration":"15","remainedDuration":"120"}}"#,
         );
         let second = service.run(None).unwrap();
-        assert!(second.accounts[0].tasks_complete());
+        assert!(second.accounts[0].tasks_complete(&TaskPermissions::default()));
         assert_eq!(server.hits("/apihub/api/signin"), sign_hits);
         assert_eq!(
             server.hits("/apihub/api/getUserTasks"),
@@ -1230,12 +1231,167 @@ fn optional_retry_preparation_failure_preserves_successful_signin() {
     let failed = service.run(None).unwrap();
     assert!(failed.accounts[0].signed_today);
     assert!(failed.accounts[0].attention.is_none());
-    assert!(!failed.accounts[0].tasks_complete());
+    assert!(!failed.accounts[0].tasks_complete(&TaskPermissions::default()));
     vault.fail_save.store(false, Ordering::Relaxed);
     server.route(
         "/cloud/game/getUserInfo",
         r#"{"code":0,"result":{"perDayFirstLoginGiveDuration":"15","remainedDuration":"120"}}"#,
     );
-    assert!(service.run(None).unwrap().accounts[0].tasks_complete());
+    assert!(service.run(None).unwrap().accounts[0].tasks_complete(&TaskPermissions::default()));
     assert_eq!(server.hits("/apihub/api/getUserTasks"), 1);
+}
+
+#[test]
+fn task_permissions_gate_each_request_in_manual_and_automatic_runs() {
+    for (mask, automatic) in (0..64)
+        .flat_map(|mask| [None, Some(Trigger::Launch)].map(move |automatic| (mask, automatic)))
+    {
+        let (dir, server, _vault, service) = fixture();
+        service.login("13800138000", "secret", false).unwrap();
+        let tasks = TaskPermissions {
+            community_sign: mask & 1 != 0,
+            role_sign: mask & 2 != 0,
+            browse_posts: mask & 4 != 0,
+            like_posts: mask & 8 != 0,
+            share_posts: mask & 16 != 0,
+            cloud_duration: mask & 32 != 0,
+        };
+        server.route(
+            "/apihub/api/getUserTasks",
+            r#"{"code":0,"data":{"task_list1":[
+            {"code":"signin_c","completeTimes":0,"limitTimes":1},
+            {"code":"browse_post_c","completeTimes":4,"limitTimes":5},
+            {"code":"like_post_c","completeTimes":4,"limitTimes":5},
+            {"code":"share","completeTimes":0,"limitTimes":1}]}}"#,
+        );
+        server.route(
+            "/bbs/api/getRecommendPostList",
+            r#"{"code":0,"data":[{"postId":"post-1","selfOperation":{"liked":false}}]}"#,
+        );
+        server.route(
+            "/bbs/api/getPostFull",
+            r#"{"code":0,"data":{"postId":"post-1","selfOperation":{"liked":false}}}"#,
+        );
+        server.route("/bbs/api/post/like", r#"{"code":0}"#);
+        server.route("/bbs/api/post/share", r#"{"code":0}"#);
+        service.set_tasks(tasks);
+        service.set_trigger(Trigger::Launch);
+        let status = service.run(automatic).unwrap();
+        assert_eq!(status.preferences.tasks, tasks);
+        assert_eq!(
+            serde_json::from_str::<Status>(&dir.read_text("state.json"))
+                .unwrap()
+                .preferences
+                .tasks,
+            tasks
+        );
+        let requests = server.targets().len();
+        assert_eq!(
+            server.hits("/apihub/api/signin"),
+            usize::from(tasks.community_sign) * 2,
+            "mask {mask}"
+        );
+        assert_eq!(
+            server.hits("/usercenter/api/v2/getGameRoles"),
+            usize::from(tasks.role_sign),
+            "mask {mask}"
+        );
+        assert_eq!(
+            server.hits("/apihub/awapi/sign"),
+            usize::from(tasks.role_sign) * 2,
+            "mask {mask}"
+        );
+        assert_eq!(
+            server.hits("/bbs/api/getPostFull"),
+            usize::from(tasks.browse_posts),
+            "mask {mask}"
+        );
+        assert_eq!(
+            server.hits("/bbs/api/post/like"),
+            usize::from(tasks.like_posts),
+            "mask {mask}"
+        );
+        assert_eq!(
+            server.hits("/bbs/api/post/share"),
+            usize::from(tasks.share_posts),
+            "mask {mask}"
+        );
+        assert_eq!(
+            server.hits("/cloud/game/getUserInfo"),
+            usize::from(tasks.cloud_duration),
+            "mask {mask}"
+        );
+        assert_eq!(
+            server.hits("/apihub/api/getUserTasks"),
+            usize::from(tasks.coin_enabled()),
+            "mask {mask}"
+        );
+        assert!(status.accounts[0].tasks_complete(&tasks), "mask {mask}");
+        service.run(None).unwrap();
+        service.run(Some(Trigger::Launch)).unwrap();
+        assert_eq!(server.targets().len(), requests, "mask {mask}");
+        if mask == 0 {
+            assert_eq!(server.hits("/usercenter/api/refreshToken"), 0);
+            assert!(status.accounts[0].last_report.is_none());
+        }
+    }
+}
+
+#[test]
+fn newly_authorized_tasks_run_after_an_earlier_success_today() {
+    let (_dir, server, _vault, service) = fixture();
+    service.login("13800138000", "secret", false).unwrap();
+    service.set_tasks(TaskPermissions {
+        role_sign: false,
+        cloud_duration: false,
+        ..TaskPermissions::default()
+    });
+    assert!(service.run(None).unwrap().accounts[0].signed_today);
+    assert_eq!(server.hits("/apihub/awapi/sign"), 0);
+    assert_eq!(server.hits("/cloud/game/getUserInfo"), 0);
+    service.set_tasks(TaskPermissions::default());
+    let status = service.run(None).unwrap();
+    assert!(status.accounts[0].tasks_complete(&TaskPermissions::default()));
+    assert_eq!(server.hits("/apihub/awapi/sign"), 2);
+    assert_eq!(server.hits("/cloud/game/getUserInfo"), 1);
+    assert_eq!(server.hits("/apihub/api/signin"), 1);
+}
+
+#[test]
+fn legacy_preferences_keep_current_tasks_and_invalid_permissions_are_rejected() {
+    let preferences: Preferences =
+        serde_json::from_str(r#"{"trigger":"launch","time":"09:00"}"#).unwrap();
+    assert_eq!(preferences.tasks, TaskPermissions::default());
+    assert!(serde_json::from_str::<Preferences>(r#"{"tasks":{"likePosts":"false"}}"#).is_err());
+}
+
+#[test]
+fn disabling_failed_core_task_updates_completion_without_repeating_cloud_claim() {
+    let (_dir, server, _vault, service) = fixture();
+    service.login("13800138000", "secret", false).unwrap();
+    let tasks = TaskPermissions {
+        community_sign: true,
+        role_sign: false,
+        browse_posts: false,
+        like_posts: false,
+        share_posts: false,
+        cloud_duration: true,
+    };
+    service.set_tasks(tasks);
+    server.route("/apihub/api/signin", r#"{"code":500}"#);
+    assert!(!service.run(None).unwrap().accounts[0].signed_today);
+    service.set_tasks(TaskPermissions {
+        community_sign: false,
+        ..tasks
+    });
+    let status = service.run(None).unwrap();
+    assert!(status.accounts[0].signed_today);
+    assert_eq!(server.hits("/cloud/game/getUserInfo"), 1);
+    assert!(status.accounts[0]
+        .last_report
+        .as_ref()
+        .unwrap()
+        .steps
+        .iter()
+        .all(|s| s.label == "云异环时长"));
 }
