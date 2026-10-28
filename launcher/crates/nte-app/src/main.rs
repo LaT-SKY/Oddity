@@ -36,6 +36,7 @@ mod attendance_commands;
 mod background_server;
 mod download_commands;
 mod environment_commands;
+mod game_mode_commands;
 mod log_commands;
 mod native_session;
 
@@ -1269,6 +1270,10 @@ fn save_settings(
 ) -> Result<Bootstrap, String> {
     let guard = downloads.inner.lock().map_err(|error| error.to_string())?;
     let mut next = settings;
+    next.game_mode
+        .gamescope
+        .validate()
+        .map_err(|error| error.to_string())?;
     if !matches!(
         next.launch_mode.as_str(),
         "official" | "background" | "direct"
@@ -1690,7 +1695,12 @@ fn launch_impl_with_profile(
                 "{}.log",
                 settings.distribution.client_exe().trim_end_matches(".exe")
             ));
-        Some(NativeSession::prepare(&log_dir, &native_log, profile)?)
+        Some(NativeSession::prepare(
+            &log_dir,
+            &native_log,
+            profile,
+            settings.game_mode.gamescope.enabled,
+        )?)
     } else {
         None
     };
@@ -1750,7 +1760,11 @@ fn launch_impl_with_profile(
         }
     }
 
-    let mut cmd = Command::new(&umu);
+    let mut cmd = settings
+        .game_mode
+        .gamescope
+        .command(&umu, settings.game_mode.overlay)
+        .map_err(|error| error.to_string())?;
     cmd.arg(&exe).args(&args);
     cmd.env("WINEPREFIX", &prefix)
         .env("PROTONPATH", &proton.root)
@@ -2331,6 +2345,10 @@ fn main() {
             launch_official,
             game_status,
             game_mode_status,
+            game_mode_commands::game_mode_gpu_info,
+            game_mode_commands::game_mode_gpu_apply,
+            game_mode_commands::game_mode_tuning_info,
+            game_mode_commands::game_mode_tuning_apply,
             close_game,
             win_minimize,
             win_toggle_maximize,

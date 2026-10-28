@@ -26,7 +26,8 @@
   color: var(--faint);
 }
 
-.page.settings-page {
+.page.settings-page,
+.page.game-mode-page {
   padding: 28px;
   overflow: hidden;
 }
@@ -94,6 +95,8 @@
   flex-direction: column;
   gap: 4px;
   min-width: 0;
+  min-height: 0;
+  overflow: auto hidden;
 }
 .settings-category > svg,
 .settings-category > span:not(.settings-category__focus) {
@@ -241,7 +244,8 @@
   }
 }
 @container secondary (max-width: 560px) {
-  .page.settings-page {
+  .page.settings-page,
+  .page.game-mode-page {
     padding: 22px 18px;
   }
   .settings-workspace {

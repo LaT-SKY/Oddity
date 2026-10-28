@@ -49,6 +49,7 @@ pub struct NativeSession {
     native_log: PathBuf,
     fresh_log: FreshLog,
     profile: ClickProfile,
+    gamescope: bool,
     token: String,
     closing: AtomicBool,
     finished: AtomicBool,
@@ -73,6 +74,7 @@ impl NativeSession {
         log_dir: &Path,
         native_log: &Path,
         profile: ClickProfile,
+        gamescope: bool,
     ) -> Result<Arc<Self>, String> {
         let fresh_log = FreshLog::capture(native_log)
             .map_err(|error| format!("读取官方启动器日志快照失败: {error}"))?;
@@ -108,6 +110,7 @@ impl NativeSession {
             native_log: native_log.to_path_buf(),
             fresh_log,
             profile,
+            gamescope,
             token,
             closing: AtomicBool::new(false),
             finished: AtomicBool::new(false),
@@ -229,10 +232,9 @@ impl NativeSession {
                     Err("官方后台会话已结束, 但未确认游戏正常启动及退出.".into())
                 };
             }
-            let child_exited = child
+            let child_exit = child
                 .try_wait()
-                .map_err(|error| format!("读取后台包装进程状态失败: {error}"))?
-                .is_some();
+                .map_err(|error| format!("读取后台包装进程状态失败: {error}"))?;
             if status.game_started {
                 phase = Phase::Running;
             }
@@ -258,13 +260,20 @@ impl NativeSession {
                         if seen.elapsed() > self.timeouts.cleanup_total {
                             return Err("游戏已退出, 官方后台会话未按时完成清理.".into());
                         }
-                    } else if child_exited
+                    } else if child_exit.is_some()
                         && !self.game_alive()?
                         && !self
                             .owned_processes()?
                             .iter()
                             .any(|process| process.kind.is_native())
                     {
+                        // 关闭 Gamescope 窗口会同时结束助手, 此时以包装进程和本轮进程的退出确认结束.
+                        if self.gamescope
+                            && child_exit.is_some_and(|exit| exit.success())
+                            && status.error().is_none()
+                        {
+                            return Ok(());
+                        }
                         return Err("官方后台会话提前退出, 未确认游戏退出状态.".into());
                     }
                 }
@@ -279,7 +288,7 @@ impl NativeSession {
                 }
                 .into());
             }
-            if child_exited
+            if child_exit.is_some()
                 && status.stage == SessionStage::Starting
                 && self.owned_processes()?.is_empty()
             {
@@ -597,6 +606,7 @@ mod tests {
                 x: 1120,
                 y: 636,
             },
+            false,
         )
         .unwrap();
         Arc::get_mut(&mut session).unwrap().timeouts = Timeouts {
@@ -701,6 +711,80 @@ time.sleep(60)
         assert!(session.signal.exists() && session.cancel.exists());
         assert_eq!(fs::metadata(&session.status).unwrap().mode() & 0o777, 0o600);
         session.close().unwrap();
+    }
+
+    #[test]
+    fn gamescope_window_close_confirms_exit_without_a_final_helper_record() {
+        let directory = TempDir::new("native-session-gamescope-close");
+        let mut session = session(&directory);
+        Arc::get_mut(&mut session).unwrap().gamescope = true;
+        let game_image = directory.join("HTGame.exe");
+        let native_image = directory.join("NTEGame.exe");
+        for image in [&game_image, &native_image] {
+            std::os::unix::fs::symlink("/bin/sleep", image).unwrap();
+        }
+        let closed = directory.join("window-closed");
+        let body = format!(
+            r#"native=subprocess.Popen([{native_image:?},'60'])
+game=subprocess.Popen([{game_image:?},'60'])
+record('HELPER_STARTED windows_pid=8')
+record('GAME_STARTED windows_pid=12')
+while not os.path.exists({closed:?}): time.sleep(0.01)
+for process in [game,native]:
+    process.terminate()
+    process.wait()
+"#
+        );
+        let mut child = fake_wrapper(&directory, &session, &body);
+        wait_until(|| session.game_alive().unwrap());
+        let monitored = Arc::clone(&session);
+        let monitor = thread::spawn(move || {
+            let result = monitored.monitor(&mut child);
+            assert!(child.try_wait().unwrap().is_some());
+            result
+        });
+        thread::sleep(Duration::from_millis(100));
+        assert!(!session.finished());
+        assert!(!session.cancel.exists());
+        fs::write(closed, "").unwrap();
+        monitor.join().unwrap().unwrap();
+        assert!(session.finished());
+        assert!(session.owned_processes().unwrap().is_empty());
+        assert!(!session.read_status().unwrap().game_exited);
+    }
+
+    #[test]
+    fn gamescope_exit_does_not_hide_startup_errors_crashes_or_other_wrapper_failures() {
+        for (gamescope, events, exit) in [
+            (false, "GAME_STARTED windows_pid=12", "raise SystemExit(0)"),
+            (true, "HELPER_STARTED windows_pid=8", "raise SystemExit(0)"),
+            (true, "GAME_STARTED windows_pid=12", "raise SystemExit(1)"),
+            (
+                true,
+                "GAME_STARTED windows_pid=12",
+                "os.kill(os.getpid(),9)",
+            ),
+            (
+                true,
+                "GAME_STARTED windows_pid=12\\nERR helper failed",
+                "raise SystemExit(0)",
+            ),
+        ] {
+            let directory = TempDir::new("native-session-gamescope-failure");
+            let mut session = session(&directory);
+            Arc::get_mut(&mut session).unwrap().gamescope = gamescope;
+            let mut child = fake_wrapper(
+                &directory,
+                &session,
+                &format!("record('{events}')\n{exit}\n"),
+            );
+            assert!(
+                session.monitor(&mut child).is_err(),
+                "{gamescope}: {events}, {exit}"
+            );
+            assert!(session.finished());
+            assert!(child.try_wait().unwrap().is_some());
+        }
     }
 
     #[test]

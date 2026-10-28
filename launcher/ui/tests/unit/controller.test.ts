@@ -1,3 +1,4 @@
+import { defaultGamescope } from "../../src/core/gameMode";
 import { defaultAttendanceTasks } from "../../src/core/attendanceTasks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
@@ -584,6 +585,7 @@ describe("启动与设置", () => {
       inhibit: true,
       notifications: false,
       overlay: true,
+      gamescope: { ...defaultGamescope },
     });
     c.queueSettingsSave(0);
     await flushPromises();
@@ -594,6 +596,7 @@ describe("启动与设置", () => {
           inhibit: true,
           notifications: false,
           overlay: true,
+          gamescope: { ...defaultGamescope },
         },
       }),
     });
@@ -604,6 +607,7 @@ describe("启动与设置", () => {
       inhibit: true,
       notifications: false,
       overlay: true,
+      gamescope: { ...defaultGamescope },
     });
   });
 

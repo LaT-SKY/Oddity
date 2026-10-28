@@ -8,6 +8,11 @@ use serde::{Deserialize, Serialize};
 use zbus::blocking::{connection::Builder, Connection, Proxy};
 use zbus::zvariant::{OwnedObjectPath, Value};
 
+mod config;
+pub mod gamescope;
+pub mod gpu;
+pub mod tuning;
+
 const PORTAL: &str = "org.freedesktop.portal.Desktop";
 const PORTAL_PATH: &str = "/org/freedesktop/portal/desktop";
 const GAMEMODE: &str = "com.feralinteractive.GameMode";
@@ -22,6 +27,7 @@ pub struct Options {
     pub inhibit: bool,
     pub notifications: bool,
     pub overlay: bool,
+    pub gamescope: gamescope::Options,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +37,7 @@ pub enum Feature {
     Inhibit,
     Notifications,
     Overlay,
+    Gamescope,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,6 +74,16 @@ pub fn probe() -> Vec<Status> {
     probe_on(bus.as_ref().ok())
 }
 
+pub fn ensure_idle() -> anyhow::Result<()> {
+    let bus = connection()?;
+    let status: i32 = Proxy::new(&bus, GAMEMODE, GAMEMODE_PATH, GAMEMODE)?
+        .call("QueryStatus", &(std::process::id() as i32))?;
+    if status != 0 {
+        anyhow::bail!("请先退出所有使用 GameMode 的游戏");
+    }
+    Ok(())
+}
+
 fn probe_on(bus: Option<&Connection>) -> Vec<Status> {
     let performance = bus.is_some_and(|bus| {
         Proxy::new(bus, GAMEMODE, GAMEMODE_PATH, GAMEMODE)
@@ -83,14 +100,7 @@ fn probe_on(bus: Option<&Connection>) -> Vec<Status> {
             .and_then(|proxy| proxy.call::<_, _, Vec<String>>("GetCapabilities", &()))
             .is_ok_and(|caps| caps.iter().any(|cap| cap == "inhibitions"))
     });
-    let overlay = std::env::var_os("PATH").is_some_and(|paths| {
-        use std::os::unix::fs::PermissionsExt;
-        std::env::split_paths(&paths).any(|path| {
-            path.join("mangohud")
-                .metadata()
-                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
-        })
-    });
+    let overlay = executable("mangohud").is_some();
     [
         (
             Feature::Performance,
@@ -116,6 +126,12 @@ fn probe_on(bus: Option<&Connection>) -> Vec<Status> {
             "已找到 MangoHud, 游戏内显示需运行环境支持",
             "未找到 MangoHud, 请安装 MangoHud",
         ),
+        (
+            Feature::Gamescope,
+            executable("gamescope").is_some(),
+            "已找到 Gamescope",
+            "未找到 Gamescope",
+        ),
     ]
     .into_iter()
     .map(|(id, available, yes, no)| Status {
@@ -129,6 +145,16 @@ fn probe_on(bus: Option<&Connection>) -> Vec<Status> {
         detail: if available { yes } else { no }.into(),
     })
     .collect()
+}
+
+pub(crate) fn executable(name: &str) -> Option<std::path::PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    std::env::split_paths(&std::env::var_os("PATH")?)
+        .map(|path| path.join(name))
+        .find(|path| {
+            path.metadata()
+                .is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0)
+        })
 }
 
 #[derive(Debug)]
@@ -165,6 +191,7 @@ impl Session {
                 Feature::Inhibit => options.inhibit,
                 Feature::Notifications => options.notifications,
                 Feature::Overlay => options.overlay,
+                Feature::Gamescope => options.gamescope.enabled,
             };
             if !enabled {
                 status.state = Effect::Disabled;
@@ -174,13 +201,20 @@ impl Session {
                 status.detail = "等待游戏进程".into();
             }
         }
-        if options.overlay && session.available(Feature::Overlay) {
+        if options.overlay && session.available(Feature::Overlay) && !options.gamescope.enabled {
             // NTE 使用 Vulkan 转译, 仅向本轮启动链传递浮层选项.
             command.env("MANGOHUD", "1");
             session.set(
                 Feature::Overlay,
                 Effect::Requested,
                 "已传入启动环境, 请在游戏画面中确认浮层",
+            );
+        }
+        if options.gamescope.enabled && session.available(Feature::Gamescope) {
+            session.set(
+                Feature::Gamescope,
+                Effect::Requested,
+                "已配置 Gamescope 启动参数",
             );
         }
         if options.inhibit && session.available(Feature::Inhibit) {
@@ -518,6 +552,7 @@ mod tests {
                     inhibit: true,
                     notifications: true,
                     overlay: false,
+                    ..Default::default()
                 },
                 &mut Command::new("false"),
                 Some(self.client.clone()),
@@ -551,6 +586,51 @@ mod tests {
         );
         let saved = serde_json::to_value(&partial).unwrap();
         assert_eq!(saved["gameMode"]["inhibit"], true);
+    }
+
+    #[test]
+    fn mangohud_and_gamemode_can_be_enabled_together() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut bus = Bus::new();
+        let dir = crate::testing::TempDir::new("gamemode-mangohud");
+        let executable = dir.write("mangohud", "#!/bin/sh\nexec \"$@\"\n");
+        std::fs::set_permissions(executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+        bus._env.set("PATH", dir.path());
+        let mut command = Command::new("umu-run");
+        let mut session = Session::start_on(
+            &Options {
+                performance: true,
+                overlay: true,
+                ..Default::default()
+            },
+            &mut command,
+            Some(bus.client.clone()),
+        );
+        assert!(command
+            .get_envs()
+            .any(|(key, value)| key == "MANGOHUD" && value == Some(std::ffi::OsStr::new("1"))));
+        let pid = std::process::id();
+        session.update_game_processes(&[pid]);
+        assert_eq!(session.status[0].state, Effect::Active);
+        assert_eq!(session.status[3].state, Effect::Requested);
+        session.release();
+        let calls = bus.calls.lock().unwrap();
+        assert_eq!(calls.registered, [(pid as i32, pid as i32)]);
+        assert_eq!(calls.unregistered, calls.registered);
+        drop(calls);
+        let mut disabled = Session::start_on(
+            &Options {
+                overlay: true,
+                ..Default::default()
+            },
+            &mut command,
+            Some(bus.client.clone()),
+        );
+        disabled.update_game_processes(&[pid]);
+        assert_eq!(disabled.status[0].state, Effect::Disabled);
+        assert_eq!(disabled.status[3].state, Effect::Requested);
+        disabled.release();
+        assert_eq!(bus.calls.lock().unwrap().registered.len(), 1);
     }
 
     #[test]
@@ -632,6 +712,7 @@ mod tests {
                 inhibit: true,
                 notifications: true,
                 overlay: false,
+                ..Default::default()
             },
             &mut Command::new("true"),
             None,

@@ -1,3 +1,4 @@
+import { defaultGamescope } from "./gameMode";
 import { defaultAttendanceTasks } from "./attendanceTasks";
 import { distributions } from "./distribution";
 import { APP_VERSION } from "./version";
@@ -172,6 +173,7 @@ const mock: Bootstrap = {
       inhibit: false,
       notifications: false,
       overlay: false,
+      gamescope: { ...defaultGamescope },
     },
     language: "zh-CN",
     reduceMotion: false,
@@ -743,10 +745,35 @@ async function previewInvoke(
         log: "",
         startedAt: previewGame.startedAt,
       };
+    case "game_mode_tuning_info":
+      return { pinCores: null, parkCores: null, renice: null, ioprio: null };
+    case "game_mode_tuning_apply":
+      throw new Error("请在原生启动器中应用 GameMode 配置");
+    case "game_mode_gpu_info":
+      return {
+        config: {
+          enabled: false,
+          device: 0,
+          vendor: "nvidia",
+          coreOffset: -1,
+          memoryOffset: -1,
+          powerMode: -1,
+          amdLevel: "auto",
+        },
+        devices: [],
+      };
+    case "game_mode_gpu_apply":
+      throw new Error("请在原生启动器中应用 GPU 配置");
     case "game_mode_status":
       return {
         capabilities: (
-          ["performance", "inhibit", "notifications", "overlay"] as const
+          [
+            "performance",
+            "inhibit",
+            "notifications",
+            "overlay",
+            "gamescope",
+          ] as const
         ).map((id) => ({
           id,
           available: false,

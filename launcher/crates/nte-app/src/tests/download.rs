@@ -312,6 +312,7 @@ fn commands_reject_overlapping_tasks_and_running_games() {
             x: 1120,
             y: 636,
         },
+        false,
     )
     .unwrap();
     fixture.app.state::<AppState>().game.lock().unwrap().session = Some(crate::GameSession {

@@ -2,6 +2,29 @@ use super::*;
 use crate::*;
 use std::time::Instant;
 
+#[test]
+fn gamescope_preserves_the_umu_handoff_and_environment() {
+    let fixture = LaunchFixture::new("gamescope-launch");
+    let options_log = fixture.dir.join("gamescope-args");
+    write_script(&fixture.dir.join("bin"), "gamescope", &format!(
+        "#!/bin/sh\nwhile [ \"$1\" != -- ]; do printf '%s\\n' \"$1\" >> '{}'; shift; done\nshift\nexec \"$@\"\n", options_log.display()
+    ));
+    let mut settings = fixture.settings("direct");
+    settings.game_mode.gamescope = nte_core::game_mode::gamescope::Options {
+        enabled: true,
+        game_width: 1280,
+        game_height: 720,
+        fps: 60,
+        ..Default::default()
+    };
+    let invocation = launch_impl(&settings).unwrap();
+    let dump = fixture.dump();
+    assert!(dump.contains("HTGame.exe") && dump.contains("WINEPREFIX="));
+    let options = std::fs::read_to_string(options_log).unwrap();
+    assert!(options.contains("-w\n1280\n-h\n720\n-r\n60\n"));
+    fixture.stop(invocation);
+}
+
 /// 一次完整的启动环境：安装目录、prefix、Proton、假 umu-run。
 struct LaunchFixture {
     dir: TempDir,

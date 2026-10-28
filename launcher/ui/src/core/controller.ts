@@ -1,3 +1,4 @@
+import { defaultGamescope } from "./gameMode";
 import { defaultAttendanceTasks } from "./attendanceTasks";
 import { computed, nextTick, reactive, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -328,6 +329,7 @@ export const form = reactive({
     inhibit: false,
     notifications: false,
     overlay: false,
+    gamescope: { ...defaultGamescope },
   },
   theme: "light",
   heroMedia: "video",
@@ -1064,6 +1066,7 @@ function applyBootstrap(
       inhibit: false,
       notifications: false,
       overlay: false,
+      gamescope: { ...defaultGamescope },
     },
     settings.gameMode,
   );
@@ -1497,7 +1500,7 @@ function currentSettings(): Settings {
     activeEnvironment: state.bootstrap?.settings.activeEnvironment ?? null,
     stableEnvironment: state.bootstrap?.settings.stableEnvironment ?? null,
     launchMode,
-    gameMode: { ...form.gameMode },
+    gameMode: { ...form.gameMode, gamescope: { ...form.gameMode.gamescope } },
     language: "zh-CN",
     reduceMotion: form.reduceMotion,
     stackBulletins: form.stackBulletins,

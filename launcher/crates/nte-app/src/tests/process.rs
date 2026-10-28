@@ -21,7 +21,7 @@ fn game_mode_status_reports_capabilities_and_releases_the_finished_session() {
     });
     let idle = tauri::async_runtime::block_on(game_mode_status(app.state())).unwrap();
     assert!(idle.session.is_none());
-    assert_eq!(idle.capabilities.len(), 4);
+    assert_eq!(idle.capabilities.len(), 5);
     assert!(!idle.capabilities[0].available);
     assert!(idle.capabilities[3].available);
 
