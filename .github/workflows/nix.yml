@@ -57,16 +57,15 @@ jobs:
             experimental-features = nix-command flakes
             connect-timeout = 15
             stalled-download-timeout = 60
-            download-attempts = 3
-            http2 = false
 
       - name: 配置 Cachix
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        # 拉取项目缓存时, 单个 250 MiB 的 pnpm 依赖对象在 runner 上会退化为
+        # 数十 KB/s, 曾把 45 分钟作业预算耗尽; PR 改为本地重建这部分依赖
+        if: github.event_name != 'pull_request'
         uses: cachix/cachix-action@v17
         with:
           name: oddity
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-          skipPush: ${{ github.event_name == 'pull_request' }}
 
       - name: 检查 Flake
         timeout-minutes: 10
