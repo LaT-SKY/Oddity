@@ -167,6 +167,12 @@ const mock: Bootstrap = {
     activeEnvironment: null,
     stableEnvironment: null,
     launchMode: "background",
+    gameMode: {
+      performance: false,
+      inhibit: false,
+      notifications: false,
+      overlay: false,
+    },
     language: "zh-CN",
     reduceMotion: false,
     stackBulletins: false,
@@ -732,6 +738,18 @@ async function previewInvoke(
         prefix: mock.prefix,
         log: "",
         startedAt: previewGame.startedAt,
+      };
+    case "game_mode_status":
+      return {
+        capabilities: (
+          ["performance", "inhibit", "notifications", "overlay"] as const
+        ).map((id) => ({
+          id,
+          available: false,
+          state: "unavailable" as const,
+          detail: "浏览器预览无法检测系统能力, 请在原生启动器中检测",
+        })),
+        session: null,
       };
     case "game_status":
       return previewGameStatus();

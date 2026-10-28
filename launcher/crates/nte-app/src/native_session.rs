@@ -289,6 +289,15 @@ impl NativeSession {
         }
     }
 
+    pub(crate) fn game_pids(&self) -> Result<Vec<u32>, String> {
+        Ok(self
+            .owned_processes()?
+            .iter()
+            .filter(|process| process.kind == ProcessKind::Game)
+            .map(|process| process.pid as u32)
+            .collect())
+    }
+
     pub(crate) fn game_alive(&self) -> Result<bool, String> {
         Ok(self
             .owned_processes()?
@@ -748,6 +757,9 @@ record('SESSION_EXITED code=0')
         );
         let mut child = fake_wrapper(&directory, &session, &body);
         wait_until(|| session.game_alive().unwrap());
+        let game_pids = session.game_pids().unwrap();
+        assert_eq!(game_pids.len(), 1);
+        assert_ne!(game_pids[0], child.id());
         let monitored = Arc::clone(&session);
         let monitor = thread::spawn(move || monitored.monitor(&mut child));
         thread::sleep(Duration::from_millis(200));
@@ -757,6 +769,7 @@ record('SESSION_EXITED code=0')
         monitor.join().unwrap().unwrap();
         assert!(session.finished());
         assert!(!session.game_alive().unwrap());
+        assert!(session.game_pids().unwrap().is_empty());
     }
 
     #[test]

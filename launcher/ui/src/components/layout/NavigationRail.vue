@@ -7,6 +7,7 @@ import { navigationScrubbing } from "../../composables/navigationGesture";
 const items = [
   { page: "home", label: "启动", icon: "play" },
   { page: "update", label: "更新", icon: "download-simple" },
+  { page: "game-mode", label: "游戏模式", icon: "game-controller" },
   { page: "bulletin", label: "公告", icon: "newspaper-clipping" },
   { page: "settings", label: "设置", icon: "gear-six" },
 ] as const;

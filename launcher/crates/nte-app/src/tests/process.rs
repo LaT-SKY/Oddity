@@ -3,6 +3,63 @@ use crate::*;
 use std::time::Instant;
 
 #[test]
+fn game_mode_status_reports_capabilities_and_releases_the_finished_session() {
+    use nte_core::game_mode::{Effect, Options, Session};
+
+    let mut env = EnvGuard::new();
+    let dir = super::TempDir::new("game-mode-status");
+    env.set(
+        "DBUS_SESSION_BUS_ADDRESS",
+        "unix:path=/nonexistent/oddity-test-bus",
+    );
+    env.set("PATH", dir.path());
+    super::write_script(dir.path(), "mangohud", "#!/bin/sh\nexit 0\n");
+    let app = tauri::test::mock_app();
+    app.manage(AppState {
+        settings: Mutex::new(Settings::default()),
+        game: Mutex::new(GameTracker::default()),
+    });
+    let idle = tauri::async_runtime::block_on(game_mode_status(app.state())).unwrap();
+    assert!(idle.session.is_none());
+    assert_eq!(idle.capabilities.len(), 4);
+    assert!(!idle.capabilities[0].available);
+    assert!(idle.capabilities[3].available);
+
+    let mut command = Command::new("true");
+    let mode = Arc::new(Mutex::new(Session::start(
+        &Options {
+            overlay: true,
+            ..Default::default()
+        },
+        &mut command,
+    )));
+    assert!(command
+        .get_envs()
+        .any(|(key, value)| key == "MANGOHUD" && value == Some(std::ffi::OsStr::new("1"))));
+    let session = GameSession {
+        id: 1,
+        pid: 0,
+        pgid: 0,
+        exe: "game.exe".into(),
+        started_at: 0,
+        log: String::new(),
+        closing: false,
+        exit_notified: false,
+        game_alive: Arc::new(AtomicBool::new(false)),
+        _install_lock: None,
+        _prefix_lock: None,
+        background: None,
+        game_mode: Some(mode.clone()),
+    };
+    app.state::<AppState>().game.lock().unwrap().session = Some(session.clone());
+    let running = tauri::async_runtime::block_on(game_mode_status(app.state())).unwrap();
+    assert_eq!(running.session.unwrap()[3].state, Effect::Requested);
+    mode.lock().unwrap().release();
+    let finished = tauri::async_runtime::block_on(game_mode_status(app.state())).unwrap();
+    assert_eq!(finished.session.unwrap()[3].state, Effect::Finished);
+}
+
+#[test]
 fn now_millis_is_a_wall_clock_timestamp() {
     assert!(now_millis() > 1_600_000_000_000);
 }
@@ -31,6 +88,7 @@ fn game_status_reflects_the_session() {
         game_alive: Arc::new(AtomicBool::new(false)),
         _install_lock: None,
         _prefix_lock: None,
+        game_mode: None,
         background: None,
     };
     let status = GameStatus::from_session(Some(&session));

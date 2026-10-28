@@ -575,6 +575,36 @@ describe("启动与设置", () => {
     expect(c.ui.saveState).toBe("saved");
   });
 
+  it("游戏模式选项通过统一保存队列持久化并从后端恢复", async () => {
+    const c = await boot();
+    Object.assign(c.form.gameMode, {
+      performance: true,
+      inhibit: true,
+      notifications: false,
+      overlay: true,
+    });
+    c.queueSettingsSave(0);
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("save_settings", {
+      settings: expect.objectContaining({
+        gameMode: {
+          performance: true,
+          inhibit: true,
+          notifications: false,
+          overlay: true,
+        },
+      }),
+    });
+    expect(c.ui.saveState).toBe("saved");
+    await c.redetect();
+    expect(c.form.gameMode).toEqual({
+      performance: true,
+      inhibit: true,
+      notifications: false,
+      overlay: true,
+    });
+  });
+
   it("下载写入期间锁住地区和安装目录, 其他设置仍可修改", async () => {
     const c = await boot();
     backend.downloadHandler({
@@ -1364,7 +1394,9 @@ describe("导航和窗口交互", () => {
     key("2", { ctrlKey: true, metaKey: true });
     key("0", { ctrlKey: true });
     expect(c.state.page).toBe("home");
-    key("4", { ctrlKey: true });
+    key("3", { ctrlKey: true });
+    expect(c.state.page).toBe("game-mode");
+    key("5", { ctrlKey: true });
     expect(c.state.page).toBe("settings");
     backend.invoke.mockClear();
     key("s", { ctrlKey: true });

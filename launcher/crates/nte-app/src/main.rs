@@ -70,6 +70,7 @@ struct GameSession {
     _install_lock: Option<Arc<nte_core::install_lock::InstallLock>>,
     _prefix_lock: Option<Arc<nte_core::environment::PrefixLock>>,
     background: Option<Arc<NativeSession>>,
+    game_mode: Option<Arc<Mutex<nte_core::game_mode::Session>>>,
 }
 
 /// A validated Proton installation. umu-launcher expects `PROTONPATH` to be
@@ -200,6 +201,7 @@ struct LaunchInvocation {
     child: Child,
     pgid: i32,
     background: Option<Arc<NativeSession>>,
+    game_mode: Option<Arc<Mutex<nte_core::game_mode::Session>>>,
 }
 
 fn now_millis() -> u64 {
@@ -418,6 +420,11 @@ fn game_main_process_alive(root_pid: u32) -> bool {
 }
 
 fn finish_game_early(app: &AppHandle, session: &GameSession) {
+    if let Some(mode) = &session.game_mode {
+        if let Ok(mut mode) = mode.lock() {
+            mode.release();
+        }
+    }
     let cleared = {
         let state = app.state::<AppState>();
         let mut tracker = match state.game.lock() {
@@ -459,6 +466,17 @@ fn watch_game_exit(
                     .background
                     .as_ref()
                     .is_some_and(|background| background.game_alive().unwrap_or(true));
+            if let Some(mode) = &session.game_mode {
+                let mut pids: Vec<_> = watch.known.keys().copied().collect();
+                if let Some(background) = &session.background {
+                    if let Ok(background_pids) = background.game_pids() {
+                        pids.extend(background_pids);
+                    }
+                }
+                if let Ok(mut mode) = mode.lock() {
+                    mode.update_game_processes(&pids);
+                }
+            }
             alive.store(running, Ordering::Release);
             if running {
                 seen = true;
@@ -499,6 +517,11 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
             result
         };
         done.store(true, Ordering::Release);
+        if let Some(mode) = &session.game_mode {
+            if let Ok(mut mode) = mode.lock() {
+                mode.release();
+            }
+        }
 
         if child.try_wait().ok().flatten().is_none() {
             thread::spawn(move || {
@@ -1782,6 +1805,10 @@ fn launch_impl_with_profile(
         .stderr(Stdio::from(log))
         .current_dir(install_dir);
     cmd.process_group(0);
+    let game_mode = Arc::new(Mutex::new(nte_core::game_mode::Session::start(
+        &settings.game_mode,
+        &mut cmd,
+    )));
     let mut child = cmd.spawn().map_err(|e| format!("启动游戏失败：{e}"))?;
     let pid = child.id();
     let pgid = i32::try_from(pid).map_err(|_| "游戏进程 ID 超出范围".to_string())?;
@@ -1835,6 +1862,7 @@ fn launch_impl_with_profile(
         child,
         pgid,
         background,
+        game_mode: Some(game_mode),
     })
 }
 
@@ -1911,6 +1939,7 @@ async fn launch_official(
             _install_lock: Some(Arc::clone(&invocation.install_lock)),
             _prefix_lock: Some(Arc::clone(&invocation.prefix_lock)),
             background: invocation.background.clone(),
+            game_mode: invocation.game_mode.clone(),
         };
         tracker.session = Some(session.clone());
         session
@@ -1919,6 +1948,39 @@ async fn launch_official(
     emit_game_status(&app, &state);
     spawn_game_monitor(app, invocation.child, session);
     Ok(invocation.result)
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GameModeStatus {
+    capabilities: Vec<nte_core::game_mode::Status>,
+    session: Option<Vec<nte_core::game_mode::Status>>,
+}
+
+#[tauri::command]
+async fn game_mode_status(state: State<'_, AppState>) -> Result<GameModeStatus, String> {
+    let mode = state
+        .game
+        .lock()
+        .map_err(|error| error.to_string())?
+        .session
+        .as_ref()
+        .and_then(|session| session.game_mode.clone());
+    tauri::async_runtime::spawn_blocking(move || {
+        let session = mode
+            .map(|mode| {
+                mode.lock()
+                    .map(|mode| mode.status())
+                    .map_err(|error| error.to_string())
+            })
+            .transpose()?;
+        Ok(GameModeStatus {
+            capabilities: nte_core::game_mode::probe(),
+            session,
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
@@ -2268,6 +2330,7 @@ fn main() {
             open_url,
             launch_official,
             game_status,
+            game_mode_status,
             close_game,
             win_minimize,
             win_toggle_maximize,

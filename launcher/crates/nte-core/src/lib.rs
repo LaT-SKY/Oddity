@@ -12,6 +12,7 @@ pub mod distribution;
 pub mod environment;
 pub mod error;
 pub mod game;
+pub mod game_mode;
 pub mod install;
 pub mod install_lock;
 pub mod launch;

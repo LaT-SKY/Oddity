@@ -13,6 +13,12 @@ export const settings: Settings = {
   activeEnvironment: null,
   stableEnvironment: null,
   launchMode: "background",
+  gameMode: {
+    performance: false,
+    inhibit: false,
+    notifications: false,
+    overlay: false,
+  },
   language: "zh-CN",
   reduceMotion: true,
   stackBulletins: false,

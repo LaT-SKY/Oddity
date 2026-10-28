@@ -323,6 +323,12 @@ export const form = reactive({
   globalInstallRoot: "",
   distribution: "cn" as "cn" | "global",
   launchMode: "background",
+  gameMode: {
+    performance: false,
+    inhibit: false,
+    notifications: false,
+    overlay: false,
+  },
   theme: "light",
   heroMedia: "video",
   reduceMotion: false,
@@ -1038,6 +1044,16 @@ function applyBootstrap(
     "";
   form.distribution = settings.distribution || "cn";
   form.launchMode = settings.launchMode || "background";
+  Object.assign(
+    form.gameMode,
+    {
+      performance: false,
+      inhibit: false,
+      notifications: false,
+      overlay: false,
+    },
+    settings.gameMode,
+  );
 
   form.stackBulletins = settings.stackBulletins;
   applyReduceMotion(Boolean(settings.reduceMotion));
@@ -1468,6 +1484,7 @@ function currentSettings(): Settings {
     activeEnvironment: state.bootstrap?.settings.activeEnvironment ?? null,
     stableEnvironment: state.bootstrap?.settings.stableEnvironment ?? null,
     launchMode,
+    gameMode: { ...form.gameMode },
     language: "zh-CN",
     reduceMotion: form.reduceMotion,
     stackBulletins: form.stackBulletins,
@@ -1728,7 +1745,7 @@ export async function openUrl(url: string) {
 
 function hashPage() {
   const value = window.location.hash.replace(/^#/, "");
-  return ["home", "update", "bulletin", "settings"].includes(value)
+  return ["home", "update", "game-mode", "bulletin", "settings"].includes(value)
     ? value
     : "home";
 }
@@ -1758,7 +1775,10 @@ export function openSettings(category: SettingsCategory) {
 }
 
 export function showPage(name: string | undefined, syncHash = true) {
-  if (!name || !["home", "update", "bulletin", "settings"].includes(name))
+  if (
+    !name ||
+    !["home", "update", "game-mode", "bulletin", "settings"].includes(name)
+  )
     return;
   const changed = state.page !== name;
   state.page = name;
@@ -1859,10 +1879,10 @@ function bindInteractions() {
 
   onDocument("keydown", (event) => {
     if (!event.ctrlKey || event.altKey || event.metaKey) return;
-    const index = ["1", "2", "3", "4"].indexOf(event.key);
+    const index = ["1", "2", "3", "4", "5"].indexOf(event.key);
     if (index >= 0) {
       event.preventDefault();
-      showPage(["home", "update", "bulletin", "settings"][index]);
+      showPage(["home", "update", "game-mode", "bulletin", "settings"][index]);
     }
   });
 

@@ -62,6 +62,30 @@ export interface AttendanceStatus {
   accounts: AttendanceAccount[];
   preferences: AttendancePreferences;
 }
+export interface GameModeOptions {
+  performance: boolean;
+  inhibit: boolean;
+  notifications: boolean;
+  overlay: boolean;
+}
+export interface GameModeFeatureStatus {
+  id: keyof GameModeOptions;
+  available: boolean;
+  state:
+    | "ready"
+    | "unavailable"
+    | "disabled"
+    | "waiting"
+    | "active"
+    | "requested"
+    | "error"
+    | "finished";
+  detail: string;
+}
+export interface GameModeStatus {
+  capabilities: GameModeFeatureStatus[];
+  session: GameModeFeatureStatus[] | null;
+}
 export interface Settings {
   installRoot: string | null;
   globalInstallRoot: string | null;
@@ -70,6 +94,7 @@ export interface Settings {
   activeEnvironment: string | null;
   stableEnvironment: string | null;
   launchMode: string;
+  gameMode: GameModeOptions;
   language: string;
   reduceMotion: boolean;
   stackBulletins: boolean;
@@ -241,6 +266,7 @@ export interface Commands {
   open_url: null;
   launch_official: LaunchResult;
   game_status: GameStatus;
+  game_mode_status: GameModeStatus;
   game_download_status: DownloadStatus;
   game_download_start: DownloadStatus;
   game_download_cancel: DownloadStatus;
@@ -288,6 +314,7 @@ export interface CommandArgs {
   open_url: { url: string };
   launch_official: undefined;
   game_status: undefined;
+  game_mode_status: undefined;
   game_download_status: undefined;
   game_download_start: { mode: "check" | "apply"; full: boolean };
   game_download_cancel: undefined;

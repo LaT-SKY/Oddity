@@ -17,6 +17,7 @@ import HeroMedia from "./components/HeroMedia.vue";
 import HomePage from "./pages/HomePage.vue";
 import UpdatePage from "./pages/UpdatePage.vue";
 import BulletinPage from "./pages/BulletinPage.vue";
+import GameModePage from "./pages/GameModePage.vue";
 import SettingsPage from "./pages/SettingsPage.vue";
 import IconSprite from "./components/icons/IconSprite.vue";
 const scene = useTemplateRef<HTMLElement>("scene");
@@ -103,6 +104,7 @@ onBeforeUnmount(() => {
         </motion.button>
         <main ref="content" class="main">
           <UpdatePage />
+          <GameModePage />
           <BulletinPage />
           <SettingsPage />
         </main>

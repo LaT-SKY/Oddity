@@ -17,7 +17,12 @@ depends=(
   'desktop-file-utils'
   'xdg-utils'
 )
-optdepends=('umu-launcher: run the game through Proton')
+optdepends=(
+  'umu-launcher: run the game through Proton'
+  'gamemode: optimize game processes in Game Mode'
+  'mangohud: show the optional performance overlay'
+  'xdg-desktop-portal: request idle and suspend inhibition'
+)
 provides=('oddity')
 conflicts=('oddity')
 options=('!strip' '!debug')

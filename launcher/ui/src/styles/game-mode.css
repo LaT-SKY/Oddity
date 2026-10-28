@@ -1,0 +1,44 @@
+/* 与更新、公告保持相同的标题位置和内容滚动边界. */
+.page.game-mode-page {
+  overflow: hidden;
+  padding: 28px;
+}
+.game-mode-head {
+  flex: none;
+}
+.game-mode-content {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-24);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden auto;
+  padding: 3px 8px 12px 3px;
+  scrollbar-width: none;
+}
+.game-mode-content::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.game-mode-content .setting-group__head {
+  margin-bottom: 4px;
+}
+.game-mode-content .setting-row {
+  flex: none;
+  gap: 12px 20px;
+  min-height: 84px;
+}
+.game-mode-content .setting-row.is-unavailable {
+  opacity: 0.45;
+}
+.game-mode-content .is-unavailable .control-switch {
+  opacity: 1;
+}
+.game-mode-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: 1.65;
+}

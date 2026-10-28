@@ -52,6 +52,17 @@ chmod +x ./oddity-*.AppImage
 
 Nix 和 Gentoo 用户分别参阅 [Nix 指南](nix.md)和 [Gentoo 指南](gentoo.md).
 
+## 可选的游戏模式功能
+
+主导航中的“游戏模式”页面提供独立选项, 默认关闭, 修改后在下次启动游戏时应用:
+
+- GameMode: 需要系统提供 GameMode 服务. Oddity 为本轮识别到的游戏进程注册优化请求, 游戏退出后释放.
+- 防止空闲休眠: 需要桌面支持 XDG Inhibit Portal, 并安装对应桌面的 Portal 后端. 实际空闲和自动挂起行为由桌面决定.
+- 屏蔽通知: 当前支持提供临时抑制接口的 Plasma 通知服务, 保留用户原有的勿扰设置.
+- 性能浮层: 需要安装 MangoHud, 并在所选 Proton/umu 环境中支持 Vulkan 浮层.
+
+不可用项会整行置灰并提示所缺依赖或桌面支持情况. 最小化到托盘时保持请求; 彻底退出 Oddity 会释放由启动器持有的桌面请求.
+
 ## 准备游戏环境
 
 Oddity 通过 `umu-run` 调用 Proton. 开始前需要安装 `umu-run` 和 Proton, 再在设置中创建运行环境.
