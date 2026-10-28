@@ -213,6 +213,10 @@ export interface DownloadStatus {
   stage: string;
   remoteVersion: string;
   pendingFiles: number;
+  /** 检查时安装目录所在文件系统的可用空间, 读取失败时为 null. */
+  diskAvailableBytes: number | null;
+  /** 按当前资源计划估算的额外空间需求. */
+  diskRequiredBytes: number;
   error: string;
 }
 export type BulletinKind = "bilibili" | "x" | "preview" | "maintenance";

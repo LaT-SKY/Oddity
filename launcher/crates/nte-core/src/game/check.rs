@@ -125,8 +125,35 @@ impl UpdatePlan {
     pub fn total_bytes(&self) -> u64 {
         self.items.iter().map(|i| i.download_size).sum()
     }
+
+    /// 下载与安装过程额外占用的磁盘空间.
+    ///
+    /// 补丁链会逐步生成完整文件, 下一步开始时上一步的产物仍然存在,
+    /// 因此按相邻两步的产物大小之和估算峰值; 补丁文件本身已计入下载量.
+    pub fn required_disk_bytes(&self) -> u64 {
+        let patch_workspace = self
+            .items
+            .iter()
+            .map(patch_chain_workspace)
+            .max()
+            .unwrap_or(0);
+        self.total_bytes().saturating_add(patch_workspace)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
+    }
+}
+
+fn patch_chain_workspace(item: &UpdateItem) -> u64 {
+    match item.patches.as_slice() {
+        [] => 0,
+        [patch] => patch.new_size,
+        patches => patches
+            .windows(2)
+            .map(|step| step[0].new_size.saturating_add(step[1].new_size))
+            .max()
+            .unwrap_or(0),
     }
 }
 
@@ -1258,6 +1285,7 @@ mod tests {
         assert_eq!(patch.new_size, 200);
         assert_eq!(plan.items[0].download_size, 50);
         assert_eq!(plan.total_bytes(), 50);
+        assert_eq!(plan.required_disk_bytes(), 250);
 
         // 补丁版本号与远端 hash 不符则不使用
         let plan = check_bundle(
@@ -1271,6 +1299,7 @@ mod tests {
         .expect("check");
         assert!(plan.items[0].patches.is_empty());
         assert_eq!(plan.items[0].download_size, 200);
+        assert_eq!(plan.required_disk_bytes(), 200);
 
         // 补丁体积不小于整包时直接下载整包
         let plan = check_bundle(
@@ -1387,6 +1416,8 @@ mod tests {
         assert_eq!(plan.items[0].patches[1].old_md5, mid_md5);
         assert_eq!(plan.items[0].patches[1].new_md5, new_md5);
         assert_eq!(plan.total_bytes(), 70);
+        // 第二步开始时, 第一步生成的 200 字节中间产物仍在暂存目录.
+        assert_eq!(plan.required_disk_bytes(), 70 + 200 + 300);
 
         // 直达补丁更便宜时只走一步；同一对内容有多条边时取最小补丁
         let plan = check_bundle(
@@ -1461,6 +1492,35 @@ mod tests {
         .expect("check");
         assert!(plan.items[0].patches.is_empty());
         assert_eq!(plan.items[0].download_size, 300);
+    }
+
+    #[test]
+    fn disk_budget_uses_the_largest_adjacent_patch_outputs() {
+        let step = |old_size, new_size| PatchRef {
+            md5: "aa".repeat(16),
+            size: 20,
+            old_md5: "bb".repeat(16),
+            old_size,
+            new_md5: "cc".repeat(16),
+            new_size,
+        };
+        let item = UpdateItem {
+            path: "data/a.bin".into(),
+            size: 300,
+            md5: "dd".repeat(16),
+            reason: UpdateReason::Size,
+            kind: UpdateKind::Res {
+                res: res("data/a.bin", &"dd".repeat(16), 300),
+            },
+            patches: vec![step(0, 120), step(120, 500), step(500, 300)],
+            download_size: 60,
+        };
+        let plan = UpdatePlan {
+            items: vec![item],
+            ..Default::default()
+        };
+        // 120 + 500 与 500 + 300 中, 后者才是峰值.
+        assert_eq!(plan.required_disk_bytes(), 60 + 800);
     }
 
     #[test]

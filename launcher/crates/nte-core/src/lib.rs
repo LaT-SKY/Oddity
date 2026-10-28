@@ -8,6 +8,7 @@ pub mod attendance;
 pub mod background;
 pub mod bulletin;
 pub mod config;
+pub mod disk;
 pub mod distribution;
 pub mod environment;
 pub mod error;

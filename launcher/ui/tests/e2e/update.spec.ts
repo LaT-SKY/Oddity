@@ -6,11 +6,17 @@ test("更新摘要、暂停继续与窄面板布局", async ({ page }) => {
   await page.goto("/#update");
   const update = page.locator("#page-update");
   const primary = page.locator("#game-download-primary");
+  const budget = update.locator(".disk-budget");
   await expect(primary).toHaveText("检查通过");
+  await expect(budget).toHaveCount(0);
   await update.getByRole("button", { name: "完整校验", exact: true }).click();
   await expect(primary).toHaveText("更新游戏");
   await expect(update.locator("progress")).toHaveCount(0);
+  await expect(budget).toContainText("预计需要 17.2 MiB");
+  await expect(budget).toContainText("可用 256 GiB");
+  await expect(budget).not.toHaveClass(/is-short/);
   await primary.click();
+  await expect(budget).toHaveCount(0);
   await update.getByRole("button", { name: "暂停下载", exact: true }).click();
   await expect(
     update.getByRole("heading", { name: "下载已暂停" }),

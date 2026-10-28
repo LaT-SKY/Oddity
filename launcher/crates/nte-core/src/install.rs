@@ -18,6 +18,15 @@ impl LauncherPlan {
     pub fn file_count(&self) -> usize {
         self.files.len()
     }
+
+    /// 下载、解压与写盘期间需要预留的空间.
+    ///
+    /// 每个文件先落为 ZIP 临时文件, 再解压到目标位置; 极端情况下两者的
+    /// 大小同时计入可用空间预算.
+    pub fn required_disk_bytes(&self) -> u64 {
+        let extracted: u64 = self.files.iter().map(|file| file.size).sum();
+        self.download_bytes.saturating_add(extracted)
+    }
 }
 
 fn mirror_url(url: &str, distribution: Distribution) -> String {
@@ -187,6 +196,7 @@ mod tests {
             assert_eq!(plan.root, dir.join(distribution.launcher_dir()));
             assert_eq!(plan.file_count(), 1);
             assert_eq!(plan.download_bytes, 100);
+            assert_eq!(plan.required_disk_bytes(), 104);
             assert_eq!(plan.version, "1.0");
             assert_eq!(plan.zip_bases[0], server.url("/launcher"));
             dir.write(

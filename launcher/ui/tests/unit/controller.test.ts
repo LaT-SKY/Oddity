@@ -111,6 +111,8 @@ beforeEach(() => {
     stage: "",
     remoteVersion: "",
     pendingFiles: 0,
+    diskAvailableBytes: 1024 * 1024 * 1024,
+    diskRequiredBytes: 0,
     error: "",
   };
   backend.startStatus = structuredClone(backend.downloadStatus);
@@ -751,6 +753,91 @@ describe("下载大小显示", () => {
     expect(c.formatSize(1536)).toBe("1.5 KiB");
     expect(c.formatSize(330 * 1024 * 1024)).toBe("330 MiB");
     expect(c.formatSize(3.4 * 1024 * 1024 * 1024)).toBe("3.4 GiB");
+  });
+
+  it("检查后展示空间需求并标出缺口", async () => {
+    const c = await boot();
+    await c.showPage("update");
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      pendingFiles: 2,
+      totalFiles: 2,
+      diskAvailableBytes: 800 * 1024 * 1024,
+      diskRequiredBytes: 1024 * 1024 * 1024,
+    });
+    await nextTick();
+    expect(c.diskBudget.value).toEqual({
+      availableText: "800 MiB",
+      requiredText: "1.0 GiB",
+      shortfallText: "224 MiB",
+      insufficient: true,
+      percent: 100,
+    });
+    expect(document.body.textContent).toContain("预计需要 1.0 GiB");
+    expect(document.body.textContent).toContain("可用 800 MiB");
+    expect(document.body.textContent).toContain("还差 224 MiB");
+    expect(document.body.textContent).toContain("清理磁盘空间或更换安装目录");
+  });
+
+  it("空间充足时按占用比例展示且不提示缺口", async () => {
+    const c = await boot();
+    await c.showPage("update");
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      pendingFiles: 1,
+      totalFiles: 1,
+      diskAvailableBytes: 2 * 1024 * 1024 * 1024,
+      diskRequiredBytes: 512 * 1024 * 1024,
+    });
+    await nextTick();
+    expect(c.diskBudget.value).toMatchObject({
+      insufficient: false,
+      percent: 25,
+    });
+    expect(document.body.textContent).not.toContain("还差");
+    expect(document.body.textContent).not.toContain(
+      "清理磁盘空间或更换安装目录",
+    );
+  });
+
+  it("空间读取失败或没有待处理资源时不展示预算", async () => {
+    const c = await boot();
+    await c.showPage("update");
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      pendingFiles: 1,
+      diskAvailableBytes: null,
+      diskRequiredBytes: 100,
+    });
+    await nextTick();
+    expect(c.diskBudget.value).toBeNull();
+
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      pendingFiles: 1,
+      diskAvailableBytes: 0,
+      diskRequiredBytes: 100,
+    });
+    await nextTick();
+    expect(c.diskBudget.value).toMatchObject({
+      insufficient: true,
+      percent: 100,
+      shortfallText: "100 B",
+    });
+
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "ready",
+      pendingFiles: 0,
+      diskAvailableBytes: 100,
+      diskRequiredBytes: 0,
+    });
+    await nextTick();
+    expect(c.diskBudget.value).toBeNull();
   });
 });
 

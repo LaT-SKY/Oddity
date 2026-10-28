@@ -163,11 +163,16 @@ fn installs_from_an_empty_directory_for_both_regions() {
     for distribution in [Distribution::Cn, Distribution::Global] {
         let fixture = Fixture::new(distribution, false);
         fixture.run("check", false, true).unwrap();
-        assert_eq!(fixture.status().phase, "needs-install");
-        assert!(!fixture.status().installed);
+        let launcher_disk = fixture.plan(true).required_disk_bytes();
+        let status = fixture.status();
+        assert_eq!(status.phase, "needs-install");
+        assert!(!status.installed);
+        assert_eq!(status.disk_required_bytes, launcher_disk);
+        assert!(status.disk_available_bytes.is_some_and(|bytes| bytes > 0));
         fixture.run("apply", false, true).unwrap();
         let status = fixture.status();
         assert_eq!(status.phase, "ready");
+        assert!(status.disk_required_bytes > launcher_disk);
         assert_eq!(status.pending_files, 0);
         assert_eq!(status.completed_files, status.total_files);
         assert!(status.current_file.is_empty());

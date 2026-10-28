@@ -464,6 +464,23 @@ export function formatSize(bytes: number): string {
   return `${value.toFixed(digits)} ${units[unit]}`;
 }
 
+export const diskBudget = computed(() => {
+  const status = state.download;
+  const available = status?.diskAvailableBytes ?? null;
+  const required = status?.diskRequiredBytes ?? 0;
+  if (available === null || required <= 0) return null;
+  const shortfall = Math.max(0, required - available);
+  const percent =
+    available > 0 ? Math.min(100, (required / available) * 100) : 100;
+  return {
+    availableText: formatSize(available),
+    requiredText: formatSize(required),
+    shortfallText: formatSize(shortfall),
+    insufficient: shortfall > 0,
+    percent,
+  };
+});
+
 const DOWNLOAD_STAGE_LABELS: Record<string, string> = {
   download: "下载",
   patch: "应用补丁",
