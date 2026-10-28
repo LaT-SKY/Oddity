@@ -29,6 +29,8 @@ static ESCAPED_FIELDS: LazyLock<Regex> = LazyLock::new(|| {
     ))
     .unwrap()
 });
+static URL_USERINFO: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)^(https?://)[^/?#]*@").unwrap());
 static URL_KEY: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(&format!(r"(?ix)^(?:{FIELD_NAMES})$")).unwrap());
 static FIELDS: LazyLock<Regex> = LazyLock::new(|| {
@@ -80,8 +82,12 @@ impl Redactor {
         let text = FIELDS.replace_all(&text, |caps: &Captures<'_>| {
             // URL 参数有明确分隔符, 普通未引用字段则完整移除至空白处.
             if let Some(url) = caps.name("url") {
-                let Some((base, query)) = url.as_str().split_once('?') else {
-                    return url.as_str().to_owned();
+                let url = URL_USERINFO.replace(url.as_str(), |userinfo: &Captures<'_>| {
+                    self.counts.credentials += 1;
+                    format!("{}[凭据已移除]@", &userinfo[1])
+                });
+                let Some((base, query)) = url.split_once('?') else {
+                    return url.into_owned();
                 };
                 let mut output = format!("{base}?");
                 for (index, parameter) in query.split('&').enumerate() {

@@ -504,4 +504,38 @@ mod tests {
             .unwrap()
             .contains("secret"));
     }
+
+    #[test]
+    fn exported_archive_removes_url_userinfo_with_and_without_queries() {
+        let dir = TempDir::new("url-userinfo");
+        dir.write(
+            "logs/test.log",
+            concat!(
+            "https://alice:plain-secret@example.test/path\n",
+            "http://bob:query-secret@example.test/path?file=keep&token=url-secret&other=value\n",
+            "https://alice:encoded%2Dsecret@[2001:db8::1]:8443/path\n",
+            "https://user-only@example.test/path\n",
+            "https://example.test/path/user@example.test?file=keep\n",
+        ),
+        );
+        let mut prepared = PreparedLogs::with_home(&dir.join("logs"), None, None).unwrap();
+        let output = prepared.save(dir.path()).unwrap();
+        let mut zip = zip::ZipArchive::new(File::open(output).unwrap()).unwrap();
+        let mut text = String::new();
+        zip.by_name("test.log")
+            .unwrap()
+            .read_to_string(&mut text)
+            .unwrap();
+        assert!(!text.contains("secret"), "URL 凭据未从归档移除");
+        for username in ["alice", "bob", "user-only"] {
+            assert!(!text.contains(username), "URL 用户信息未从归档移除");
+        }
+        assert!(text.contains("@example.test/path?file=keep&token=[凭据已移除]&other=value"));
+        assert!(text.contains("@[2001:db8::1]:8443/path"));
+        assert!(text.contains("https://example.test/path/user@example.test?file=keep"));
+        assert_eq!(prepared.preview.redactions.credentials, 5);
+        assert!(!serde_json::to_string(&prepared.preview)
+            .unwrap()
+            .contains("secret"));
+    }
 }
