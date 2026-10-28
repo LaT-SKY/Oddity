@@ -505,19 +505,15 @@ export const downloadView = computed(() => {
         Math.round((status.completedFiles / status.totalFiles) * 100),
       )
     : 0;
+  // 进度按下载体积推进, 避免不同大小的文件在阶段切换时让百分比来回跳动.
+  const byteProgress = totalBytes
+    ? Math.min(99, Math.round((downloadedBytes / totalBytes) * 100))
+    : fileProgress;
   const stageText = DOWNLOAD_STAGE_LABELS[status?.stage || ""] || "";
   const launcherScope = phase === "needs-install" || phase === "launcher";
   return {
     title: titles[phase],
-    progress:
-      phase === "ready"
-        ? 100
-        : Math.min(
-            99,
-            status?.stage === "download" && totalBytes > 0
-              ? Math.round((downloadedBytes / totalBytes) * 100)
-              : fileProgress,
-          ),
+    progress: phase === "ready" ? 100 : byteProgress,
     downloadedText:
       totalBytes > 0 && downloadedBytes <= totalBytes
         ? `${formatSize(downloadedBytes)} / ${formatSize(totalBytes)}`
