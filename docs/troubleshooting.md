@@ -1,6 +1,6 @@
 # 排障指南
 
-先在 **设置** 页底部查看 **运行环境**, 点击顶部的 **重新检测** 可以刷新检测结果. 下面按现象分类.
+先打开 **设置 → 诊断与维护** 查看 **运行诊断**, 点击设置页右上角的 **重新检测** 刷新. 下面按现象分类.
 
 | 现象                       | 先检查         |
 |--------------------------|-------------|
@@ -21,7 +21,7 @@ ls /path/to/Proton/proton /path/to/Proton/toolmanifest.vdf
 ls -d ~/.local/share/oddity/environments/环境ID/prefix/drive_c
 ```
 
-请将示例中的 Proton 路径和 prefix 路径替换为实际路径. 三项都存在时, 再往下看具体现象.
+请将示例中的 Proton 路径和 prefix 路径替换为实际路径. prefix 由 Oddity 管理, 不需要手动创建; 首次启动前这一项可能还不存在, 完成一次启动后再检查. 三项都存在时, 再往下看具体现象.
 
 ## 启动器
 
@@ -44,15 +44,24 @@ ls -d ~/.local/share/oddity/environments/环境ID/prefix/drive_c
 
 ### Wine prefix 尚未初始化
 
-请先按[安装指南](install.md#wine-prefix)在设置中创建运行环境. 首次启动时由 Proton 初始化前缀. 若环境目录损坏或被移除, 请创建新环境后切换使用.
+请先按[安装指南](install.md#proton-运行环境)在 **设置 → 运行环境** 中创建 Proton 运行环境. 不需要手动设置 Wine prefix, 创建环境后由 Oddity 管理. 首次启动时由 Proton 初始化前缀. 若环境目录损坏或被移除, 请创建新环境后切换使用.
+
+### 使用应急模式
+
+主界面无法打开或无法操作时, 可以先用应急模式启动 Oddity:
+
+1. 从应用菜单打开 **Oddity 应急恢复**, 或运行 `oddity --recovery`; AppImage 运行 `./oddity-*.AppImage --recovery`.
+2. 在应急窗口点击 **兼容启动**.
+
+![Oddity 应急恢复](assets/oddity-recovery.png)
+
+> 实际运行截图, 诊断内容以本机环境为准.
+
+兼容启动只影响本次运行, 使用静态背景和保守渲染设置. 若仍无法显示, 可以在同一窗口刷新诊断, 导出诊断包或恢复界面设置; 恢复前退出主程序, 原设置会备份. 应急窗口不依赖 WebKit, 也可以直接运行 `oddity-recovery`.
 
 ### 窗口黑屏, 花屏或闪退
 
-主界面无法操作时, 从应用菜单打开 **Oddity 应急恢复**, 尝试 **兼容启动**; 仍有问题可导出诊断包或恢复设置. 恢复前退出主程序, 原设置会备份.
-
-也可运行 `oddity-recovery`; AppImage 加上 `--recovery`.
-
-可以从终端尝试软件渲染开关:
+先按上一节尝试应急模式. 也可以从终端尝试软件渲染开关:
 
 ```bash
 NTE_SOFTWARE_RENDER=1 oddity
@@ -83,7 +92,7 @@ sudo dnf install gstreamer1-plugins-good
 sudo zypper install gstreamer-plugins-good
 ```
 
-如果只是视频无法播放, 界面仍可操作, 也可以在 **设置 → 主页主视觉** 中选择 **静态照片** 临时规避.
+如果只是视频无法播放, 界面仍可操作, 也可以在 **设置 → 外观与交互 → 主页主视觉** 中选择 **静态照片** 临时规避.
 
 Debian, Arch 和 Gentoo 安装包会声明该依赖; AppImage, RPM 和源码构建不保证自带该插件, 需要结合系统环境确认. Nix 包已包含插件.
 
@@ -103,7 +112,7 @@ Debian, Arch 和 Gentoo 安装包会声明该依赖; AppImage, RPM 和源码构�
 2. 若日志提示运行配置不可写, 优先检查游戏目录中 `GameLauncher.config` 和 `patchersdk_serverlist` 的权限.
 3. 若日志提示找不到可用服务器, 优先检查游戏目录的权限.
 4. 若后台启动失败或提示组件版本尚未验证, 切换 **前台启动** 查看官方窗口.
-5. 若怀疑文件损坏, 在 **更新** 页执行 **完整校验**, 再修复资源.
+5. 若怀疑文件损坏, 在 **更新** 中执行 **完整校验**, 再修复资源.
 
 ### 下载中断或校验失败
 
@@ -119,7 +128,7 @@ Debian, Arch 和 Gentoo 安装包会声明该依赖; AppImage, RPM 和源码构�
 
 ### 导出日志
 
-在 **设置 → 日志 → 导出日志** 中选择保存目录, Oddity 会把启动及后台会话日志打包为 ZIP.
+在 **设置 → 诊断与维护 → 导出日志** 中选择保存目录, Oddity 会把启动及后台会话日志打包为 ZIP.
 
 提交日志前请移除账号, 手机号, 令牌和不希望公开的本机路径.
 
@@ -138,7 +147,7 @@ Debian, Arch 和 Gentoo 安装包会声明该依赖; AppImage, RPM 和源码构�
 
 配置和数据目录分别跟随 `XDG_CONFIG_HOME`, `XDG_DATA_HOME`.
 
-Wine prefix 由所选运行环境决定. 设置页会显示当前 prefix 的实际位置.
+Wine prefix 由所选运行环境决定. 运行环境页会显示当前 prefix 的实际位置.
 
 ### 命令行诊断
 
@@ -147,11 +156,12 @@ Wine prefix 由所选运行环境决定. 设置页会显示当前 prefix 的实�
 | 命令                                            | 用途               |
 |-----------------------------------------------|------------------|
 | `nte-cli recovery diagnose`                    | 检查 Oddity 环境, 无需游戏目录. |
+| `nte-cli recovery start-compatible`            | 以兼容模式启动 Oddity.   |
 | `nte-cli doctor --root <启动器目录>`               | 显示启动器配置和运行环境.    |
 | `nte-cli game-check --root <启动器目录> --full`    | 完整检查游戏资源.        |
 | `nte-cli game-apply --root <启动器目录> --dry-run` | 预览更新计划, 不写入游戏文件. |
 
-示例中的 `<启动器目录>` 请替换为实际路径. 以上命令只读取配置或预览更新, 不会写入游戏文件.
+示例中的 `<启动器目录>` 请替换为实际路径. 除 `start-compatible` 会启动兼容模式外, 以上命令只读取配置或预览更新, 不会写入游戏文件.
 
 ## 提交问题
 

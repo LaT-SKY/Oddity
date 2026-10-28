@@ -32,6 +32,6 @@ environment.systemPackages = [ oddity.packages.x86_64-linux.default ];
 
 ## 游戏环境
 
-Nix 包会提供 `umu-run`, `xdg-utils` 和 GStreamer 插件. Proton, Wine prefix 和游戏目录仍需按[安装指南](install.md#准备游戏环境)准备.
+Nix 包会提供 `umu-run`, `xdg-utils` 和 GStreamer 插件. Proton 和游戏目录仍需按[安装指南](install.md#准备游戏环境)准备; Wine prefix 由 Oddity 的运行环境管理.
 
-首次安装游戏资源后, 在设置中选择该区服的安装目录即可启动.
+首次安装游戏资源后, 在 **设置 → 游戏与启动** 中选择该区服的安装目录即可启动.

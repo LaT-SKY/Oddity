@@ -22,4 +22,4 @@ pkexec emerge --ask games-util/umu-launcher
 
 ## 游戏环境
 
-Proton, Wine prefix 和游戏目录仍需按[安装指南](install.md#准备游戏环境)准备.
+Proton 和游戏目录仍需按[安装指南](install.md#准备游戏环境)准备; Wine prefix 由 Oddity 的运行环境管理.
