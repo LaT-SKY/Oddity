@@ -1,8 +1,8 @@
+import { pauseClock } from "./clock";
 import { test, expect } from "@playwright/test";
 
 test("公告加载骨架与刷新保留内容", async ({ page }) => {
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  await pauseClock(page);
   await page.goto("/#bulletin");
   const panel = page.locator("#page-bulletin");
   await expect(panel.locator(".bulletin-skeleton")).toBeAttached();
@@ -212,8 +212,7 @@ test("同来源公告按需堆叠, 展开与收回保持连续布局", async ({ 
     })
     .toBeLessThan(0.5);
   // 以一帧为间隔检查分类切换, 防止新卡片从零高度裁开配图。
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  await pauseClock(page);
   await panel.getByRole("tab", { name: "官方动态", exact: true }).click();
   for (let frame = 0; frame < 24; frame++) {
     await page.clock.runFor(16);
