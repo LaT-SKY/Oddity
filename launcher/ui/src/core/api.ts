@@ -360,6 +360,8 @@ const mockDownload: DownloadStatus = {
   stage: "",
   remoteVersion: "",
   pendingFiles: 0,
+  diskAvailableBytes: 256 * 1024 ** 3,
+  diskRequiredBytes: 0,
   error: "",
 };
 
@@ -662,6 +664,7 @@ async function previewInvoke(
           stage: "",
           remoteVersion: "",
           pendingFiles: 0,
+          diskRequiredBytes: 0,
           error: "",
           distribution: mock.settings.distribution,
           installRoot: mock.installRoot,
@@ -689,6 +692,7 @@ async function previewInvoke(
         stage: mode === "check" ? "" : "download",
         remoteVersion: "1.4.17",
         pendingFiles: 2,
+        diskRequiredBytes: 18_000_000,
         error: "",
       });
       if (mode === "apply") {

@@ -11,6 +11,7 @@ use anyhow::{bail, Context, Result};
 use md5::{Digest, Md5};
 use serde::{Deserialize, Serialize};
 
+use crate::disk;
 use crate::distribution::Distribution;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,7 +223,7 @@ pub fn create(
             protons: RefCell::new(vec![ProtonPin::capture(source_proton)?, pin.clone()]),
         };
         let required = context.size(&source)?;
-        if available_space(&root)? < required {
+        if disk::available_bytes(&root)? < required {
             bail!(
                 "复制 prefix 的可用空间不足, 至少需要 {} MiB",
                 required.div_ceil(1024 * 1024)
@@ -452,17 +453,6 @@ fn normalize(path: &Path) -> PathBuf {
         }
     }
     result
-}
-
-fn available_space(path: &Path) -> Result<u64> {
-    use std::os::unix::ffi::OsStrExt;
-    let path = std::ffi::CString::new(path.as_os_str().as_bytes())?;
-    let mut stat = std::mem::MaybeUninit::<libc::statvfs>::uninit();
-    if unsafe { libc::statvfs(path.as_ptr(), stat.as_mut_ptr()) } != 0 {
-        return Err(std::io::Error::last_os_error()).context("读取可用磁盘空间失败");
-    }
-    let stat = unsafe { stat.assume_init() };
-    Ok(stat.f_bavail.saturating_mul(stat.f_frsize))
 }
 
 #[cfg(test)]

@@ -125,6 +125,22 @@ impl UpdatePlan {
     pub fn total_bytes(&self) -> u64 {
         self.items.iter().map(|i| i.download_size).sum()
     }
+
+    /// 下载与安装过程额外占用的磁盘空间.
+    ///
+    /// 下载文件最终会替换目标位置; 补丁应用会在暂存目录生成一个完整文件,
+    /// 且同一时间只处理一个补丁链, 因此只需预留最大的补丁产物.
+    pub fn required_disk_bytes(&self) -> u64 {
+        let patch_workspace = self
+            .items
+            .iter()
+            .filter(|item| item.has_patch())
+            .map(|item| item.size)
+            .max()
+            .unwrap_or(0);
+        self.total_bytes().saturating_add(patch_workspace)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
@@ -1258,6 +1274,7 @@ mod tests {
         assert_eq!(patch.new_size, 200);
         assert_eq!(plan.items[0].download_size, 50);
         assert_eq!(plan.total_bytes(), 50);
+        assert_eq!(plan.required_disk_bytes(), 250);
 
         // 补丁版本号与远端 hash 不符则不使用
         let plan = check_bundle(
@@ -1271,6 +1288,7 @@ mod tests {
         .expect("check");
         assert!(plan.items[0].patches.is_empty());
         assert_eq!(plan.items[0].download_size, 200);
+        assert_eq!(plan.required_disk_bytes(), 200);
 
         // 补丁体积不小于整包时直接下载整包
         let plan = check_bundle(
