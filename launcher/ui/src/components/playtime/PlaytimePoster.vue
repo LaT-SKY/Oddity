@@ -180,33 +180,42 @@ function drawPoster(
   const font =
     '"Space Grotesk", "Noto Sans CJK SC", "Noto Sans SC", sans-serif';
 
-  ctx.fillStyle = "#080d13";
+  const heroHeight = 600;
+  ctx.fillStyle = "#0b1016";
   ctx.fillRect(0, 0, width, height);
   if (wallpaper) {
-    drawImageCover(ctx, wallpaper, width, height, 0.62, 0.46);
-    const overlay = ctx.createLinearGradient(0, 0, 0, height);
-    overlay.addColorStop(0, "rgba(5, 9, 14, 0.18)");
-    overlay.addColorStop(0.3, "rgba(5, 9, 14, 0.26)");
-    overlay.addColorStop(0.48, "rgba(5, 9, 14, 0.56)");
-    overlay.addColorStop(0.64, "rgba(7, 12, 18, 0.9)");
-    overlay.addColorStop(1, "rgba(7, 12, 18, 0.99)");
-    ctx.fillStyle = overlay;
-    ctx.fillRect(0, 0, width, height);
-    const side = ctx.createLinearGradient(0, 0, width * 0.7, 0);
-    side.addColorStop(0, "rgba(5, 9, 14, 0.34)");
-    side.addColorStop(1, "rgba(5, 9, 14, 0)");
+    drawImageCover(ctx, wallpaper, width, heroHeight);
+    const topShade = ctx.createLinearGradient(0, 0, 0, 180);
+    topShade.addColorStop(0, "rgba(4, 8, 12, 0.52)");
+    topShade.addColorStop(1, "rgba(4, 8, 12, 0)");
+    ctx.fillStyle = topShade;
+    ctx.fillRect(0, 0, width, 180);
+    const side = ctx.createLinearGradient(0, 0, width * 0.78, 0);
+    side.addColorStop(0, "rgba(4, 8, 12, 0.74)");
+    side.addColorStop(0.58, "rgba(4, 8, 12, 0.36)");
+    side.addColorStop(1, "rgba(4, 8, 12, 0)");
     ctx.fillStyle = side;
-    ctx.fillRect(0, 0, width * 0.7, height);
+    ctx.fillRect(0, 0, width * 0.78, heroHeight);
+    const fade = ctx.createLinearGradient(0, heroHeight - 150, 0, heroHeight);
+    fade.addColorStop(0, "rgba(11, 16, 22, 0)");
+    fade.addColorStop(0.68, "rgba(11, 16, 22, 0.82)");
+    fade.addColorStop(1, "#0b1016");
+    ctx.fillStyle = fade;
+    ctx.fillRect(0, heroHeight - 150, width, 150);
   } else {
-    const glow = ctx.createRadialGradient(880, 120, 20, 880, 120, 700);
+    const glow = ctx.createRadialGradient(820, 120, 20, 820, 120, 760);
     glow.addColorStop(0, "rgba(89, 121, 151, 0.34)");
-    glow.addColorStop(1, "rgba(16, 21, 28, 0)");
+    glow.addColorStop(1, "rgba(11, 16, 22, 0)");
     ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, width, heroHeight);
   }
 
   ctx.textBaseline = "alphabetic";
-  ctx.fillStyle = "#d5e0ec";
+  ctx.save();
+  ctx.shadowColor = "rgba(0, 0, 0, 0.48)";
+  ctx.shadowBlur = 20;
+  ctx.shadowOffsetY = 2;
+  ctx.fillStyle = "#f2f6fb";
   ctx.font = `600 22px ${font}`;
   ctx.fillText("O D D I T Y", padding, 92);
   ctx.fillStyle = "#8294a7";
@@ -228,6 +237,7 @@ function drawPoster(
   ctx.fillStyle = "#edf2f8";
   ctx.font = `600 76px ${font}`;
   ctx.fillText(formatPlaytime(stats.totalMs), padding, 426);
+  ctx.restore();
 
   const metrics = [
     { label: "游玩天数", value: `${stats.daysPlayed} 天` },
@@ -236,7 +246,7 @@ function drawPoster(
     { label: "单次最长", value: formatPlaytime(stats.longestSessionMs) },
     { label: "游玩场次", value: `${stats.sessionCount} 次` },
   ];
-  roundedRect(ctx, padding, 486, contentWidth, 118, 16);
+  roundedRect(ctx, padding, 630, contentWidth, 104, 16);
   ctx.fillStyle = "rgba(5, 11, 17, 0.42)";
   ctx.fill();
   ctx.strokeStyle = "rgba(227, 236, 248, 0.12)";
@@ -247,30 +257,30 @@ function drawPoster(
     const x = padding + metricWidth * index;
     ctx.fillStyle = "#9cabbc";
     ctx.font = `500 20px ${font}`;
-    ctx.fillText(metric.label, x, 528);
+    ctx.fillText(metric.label, x, 668);
     ctx.fillStyle = "#f2f6fb";
     ctx.font = `600 26px ${font}`;
-    ctx.fillText(metric.value, x, 572);
+    ctx.fillText(metric.value, x, 708);
   });
 
-  roundedRect(ctx, padding, 640, contentWidth, 252, 16);
+  roundedRect(ctx, padding, 760, contentWidth, 240, 16);
   ctx.fillStyle = "rgba(5, 11, 17, 0.46)";
   ctx.fill();
   ctx.strokeStyle = "rgba(227, 236, 248, 0.12)";
   ctx.stroke();
   ctx.fillStyle = "#edf2f8";
   ctx.font = `600 24px ${font}`;
-  ctx.fillText("最近 12 个月", padding + 28, 682);
+  ctx.fillText("最近 12 个月", padding + 28, 800);
   ctx.fillStyle = "#b3c0cf";
   ctx.font = `500 20px ${font}`;
   ctx.textAlign = "right";
-  ctx.fillText(`已游玩 ${heatmapDays(stats)} 天`, width - padding - 28, 682);
+  ctx.fillText(`已游玩 ${heatmapDays(stats)} 天`, width - padding - 28, 800);
   ctx.textAlign = "left";
 
   const cell = 13;
   const gap = 4;
   const gridX = padding + 34;
-  const gridY = 736;
+  const gridY = 850;
   const weekdays = ["一", "", "三", "", "五", "", "日"];
   ctx.font = `500 14px ${font}`;
   ctx.textAlign = "center";
@@ -299,23 +309,23 @@ function drawPoster(
 
   ctx.fillStyle = "#edf2f8";
   ctx.font = `600 24px ${font}`;
-  ctx.fillText("月度时长", padding, 930);
-  drawMonthlyChart(ctx, stats, padding, 948, contentWidth, 270, font);
+  ctx.fillText("月度时长", padding, 1035);
+  drawMonthlyChart(ctx, stats, padding, 1053, contentWidth, 250, font);
 
   ctx.strokeStyle = "rgba(227, 236, 248, 0.14)";
   ctx.beginPath();
-  ctx.moveTo(padding, 1265);
-  ctx.lineTo(width - padding, 1265);
+  ctx.moveTo(padding, 1335);
+  ctx.lineTo(width - padding, 1335);
   ctx.stroke();
   ctx.fillStyle = "#d5e0ec";
   ctx.font = `600 20px ${font}`;
-  ctx.fillText("Oddity", padding, 1315);
+  ctx.fillText("Oddity", padding, 1380);
   ctx.fillStyle = "#8294a7";
   ctx.textAlign = "right";
   ctx.fillText(
     `${new Date().getFullYear()}.${pad(new Date().getMonth() + 1)}.${pad(new Date().getDate())}`,
     width - padding,
-    1315,
+    1380,
   );
   ctx.textAlign = "left";
 
