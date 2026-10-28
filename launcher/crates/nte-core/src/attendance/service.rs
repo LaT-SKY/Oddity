@@ -407,10 +407,16 @@ impl<V: Vault> Service<V> {
         let status = {
             let _lock = self.lock(automatic.is_some())?;
             let mut status = self.status_locked()?;
+            if !status.preferences.tasks.any() {
+                return Ok(status);
+            }
             if let Some(trigger) = automatic {
                 if matches!(trigger, Trigger::Off | Trigger::Manual)
                     || status.preferences.trigger != trigger
-                    || status.accounts.iter().all(AccountStatus::tasks_complete)
+                    || status
+                        .accounts
+                        .iter()
+                        .all(|a| a.tasks_complete(&status.preferences.tasks))
                 {
                     return Ok(status);
                 }
@@ -433,8 +439,9 @@ impl<V: Vault> Service<V> {
             self.write(&status)?;
             status
         };
+        let tasks = &status.preferences.tasks;
         for current in &status.accounts {
-            if current.tasks_complete()
+            if current.tasks_complete(tasks)
                 || current.attention.as_ref().is_some_and(Failure::needs_login)
             {
                 continue;
@@ -444,8 +451,10 @@ impl<V: Vault> Service<V> {
                 .as_ref()
                 .filter(|report| china_day(report.at) == china_day(now()))
                 .cloned();
-            let signed = previous.as_ref().is_some_and(|report| report.ok);
-            let coin_complete = previous.as_ref().is_some_and(Report::coin_complete);
+            let signed = previous
+                .as_ref()
+                .is_some_and(|report| report.ok && report.core_complete(tasks));
+            let coin_complete = previous.as_ref().is_some_and(|r| r.coin_complete(tasks));
             let cloud_complete = previous.as_ref().is_some_and(Report::cloud_complete);
             let result = (|| -> Result<Vec<Step>> {
                 let (mut account, session) = self.prepare_session(&current.id)?;
@@ -456,13 +465,36 @@ impl<V: Vault> Service<V> {
                         .unwrap()
                         .steps
                         .iter()
-                        .filter(|step| !step.optional)
+                        .filter(|step| !step.optional && tasks.allows(&step.label))
                         .cloned()
                         .collect()
                 } else {
-                    self.client.sign(&account, &session.access)
+                    let mut pending = *tasks;
+                    if let Some(report) = &previous {
+                        pending.community_sign &=
+                            !report.steps.iter().any(|s| s.label == "社区签到" && s.ok);
+                        pending.role_sign &= !report.core_complete(&TaskPermissions {
+                            community_sign: false,
+                            ..*tasks
+                        });
+                    }
+                    let mut steps = self.client.sign(&account, &session.access, &pending);
+                    if let Some(report) = &previous {
+                        steps.extend(
+                            report
+                                .steps
+                                .iter()
+                                .filter(|s| {
+                                    !s.optional
+                                        && tasks.allows(&s.label)
+                                        && !pending.allows(&s.label)
+                                })
+                                .cloned(),
+                        );
+                    }
+                    steps
                 };
-                if coin_complete {
+                if tasks.coin_enabled() && coin_complete {
                     steps.extend(
                         previous
                             .as_ref()
@@ -471,18 +503,22 @@ impl<V: Vault> Service<V> {
                             .iter()
                             .filter(|step| {
                                 step.optional
+                                    && tasks.allows(&step.label)
                                     && step.label != "云异环时长"
                                     && step.label != "附加任务准备"
                             })
                             .cloned(),
                     );
-                } else if !steps.iter().any(|s| {
-                    s.kind
-                        .is_some_and(|k| matches!(k, FailureKind::Auth | FailureKind::Verification))
-                }) {
-                    steps.extend(self.client.coin_tasks(&account, &session.access));
+                } else if tasks.coin_enabled()
+                    && !steps.iter().any(|s| {
+                        s.kind.is_some_and(|k| {
+                            matches!(k, FailureKind::Auth | FailureKind::Verification)
+                        })
+                    })
+                {
+                    steps.extend(self.client.coin_tasks(&account, &session.access, tasks));
                 }
-                if cloud_complete {
+                if tasks.cloud_duration && cloud_complete {
                     steps.extend(
                         previous
                             .as_ref()
@@ -492,7 +528,7 @@ impl<V: Vault> Service<V> {
                             .filter(|step| step.label == "云异环时长")
                             .cloned(),
                     );
-                } else {
+                } else if tasks.cloud_duration {
                     steps.push(self.cloud_duration(&mut account));
                 }
                 Ok(steps)
@@ -509,8 +545,12 @@ impl<V: Vault> Service<V> {
             });
             let report = Report {
                 at: now(),
-                ok: steps.iter().any(|s| !s.optional)
-                    && steps.iter().filter(|s| !s.optional).all(|s| s.ok),
+                ok: !steps.is_empty()
+                    && if tasks.community_sign || tasks.role_sign {
+                        steps.iter().filter(|s| !s.optional).all(|s| s.ok)
+                    } else {
+                        steps.iter().all(|s| s.ok)
+                    },
                 steps,
             };
             let _lock = self.lock(true)?;
@@ -546,6 +586,12 @@ impl<V: Vault> Service<V> {
             vault,
             client: Client::new(base, base).without_delays(),
         }
+    }
+    pub(super) fn set_tasks(&self, tasks: TaskPermissions) {
+        let _lock = self.lock(false).unwrap();
+        let mut status = self.status_locked().unwrap();
+        status.preferences.tasks = tasks;
+        self.write(&status).unwrap();
     }
     pub(super) fn set_trigger(&self, trigger: Trigger) {
         let _lock = self.lock(false).unwrap();

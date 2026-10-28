@@ -1,5 +1,5 @@
 //! 请求配置与签名参考仍在维护的 taygedo-auto-attendance, 许可见 THIRD_PARTY.md。
-use super::{id, now, Account, Failure, FailureKind, GameRecord, Result, Step};
+use super::{id, now, Account, Failure, FailureKind, GameRecord, Result, Step, TaskPermissions};
 use base64::Engine;
 use cipher::{BlockCipherEncrypt, KeyInit};
 use md5::{Digest, Md5};
@@ -496,16 +496,27 @@ impl Client {
             laohu_user: account.laohu_user_id.clone(),
         })
     }
-    pub(super) fn sign(&self, account: &Account, access: &str) -> Vec<Step> {
-        let result = self
-            .native(
-                "/apihub/api/signin",
-                account,
-                access,
-                Some(form(&[("communityId", "1")])),
-            )
-            .and_then(|v| if already(&v) { Ok(()) } else { check(&v) });
-        let mut steps = vec![Step::from_result("社区签到", result)];
+    pub(super) fn sign(
+        &self,
+        account: &Account,
+        access: &str,
+        tasks: &TaskPermissions,
+    ) -> Vec<Step> {
+        let mut steps = Vec::new();
+        if tasks.community_sign {
+            let result = self
+                .native(
+                    "/apihub/api/signin",
+                    account,
+                    access,
+                    Some(form(&[("communityId", "1")])),
+                )
+                .and_then(|v| if already(&v) { Ok(()) } else { check(&v) });
+            steps.push(Step::from_result("社区签到", result));
+        }
+        if !tasks.role_sign {
+            return steps;
+        }
         if steps
             .iter()
             .any(|s| matches!(s.kind, Some(FailureKind::Auth | FailureKind::Verification)))

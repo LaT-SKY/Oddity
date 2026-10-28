@@ -224,6 +224,7 @@ mod tests {
         let p = Preferences {
             trigger: Trigger::Daily,
             time: "20:30".into(),
+            ..Preferences::default()
         };
         let (s, t) = units(exe, cfg, &p).unwrap();
         assert!(s.contains("oddity%%$$"));

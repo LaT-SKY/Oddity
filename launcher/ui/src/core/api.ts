@@ -1,3 +1,4 @@
+import { defaultAttendanceTasks } from "./attendanceTasks";
 import { distributions } from "./distribution";
 import { APP_VERSION } from "./version";
 import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
@@ -296,7 +297,11 @@ function previewGameStatus() {
 
 const previewAttendance: AttendanceStatus = {
   accounts: [],
-  preferences: { trigger: "off", time: "08:00" },
+  preferences: {
+    trigger: "off",
+    time: "08:00",
+    tasks: { ...defaultAttendanceTasks },
+  },
 };
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -447,11 +452,10 @@ async function previewInvoke(
     case "attendance_run":
       if (!previewAttendance.accounts.length)
         throw new Error("请先登录塔吉多账号");
+      if (!Object.values(previewAttendance.preferences.tasks).some(Boolean))
+        return clone(previewAttendance);
       for (const account of previewAttendance.accounts) {
-        if (
-          account.signedToday ||
-          ["auth", "verification"].includes(account.attention?.kind ?? "")
-        )
+        if (["auth", "verification"].includes(account.attention?.kind ?? ""))
           continue;
         account.signedToday = true;
         account.failedToday = false;
@@ -492,7 +496,22 @@ async function previewInvoke(
               kind: null,
               optional: true,
             },
-          ],
+          ].filter((step) => {
+            const tasks = previewAttendance.preferences.tasks;
+            if (step.label === "社区签到" || step.label === "BBS 金币签到")
+              return tasks.communitySign;
+            if (step.label.startsWith("角色 ")) return tasks.roleSign;
+            if (step.label === "浏览帖子") return tasks.browsePosts;
+            if (step.label === "点赞帖子") return tasks.likePosts;
+            if (step.label === "分享帖子") return tasks.sharePosts;
+            if (step.label === "云异环时长") return tasks.cloudDuration;
+            return (
+              tasks.communitySign ||
+              tasks.browsePosts ||
+              tasks.likePosts ||
+              tasks.sharePosts
+            );
+          }),
         };
       }
       return clone(previewAttendance);
@@ -502,7 +521,11 @@ async function previewInvoke(
           account.id !== (args as CommandArgs["attendance_logout"]).accountId,
       );
       if (!previewAttendance.accounts.length)
-        previewAttendance.preferences = { trigger: "off", time: "08:00" };
+        previewAttendance.preferences = {
+          trigger: "off",
+          time: "08:00",
+          tasks: { ...defaultAttendanceTasks },
+        };
       return clone(previewAttendance);
     case "launcher_background":
       return { video: null, image: null };

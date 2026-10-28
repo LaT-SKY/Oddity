@@ -1,3 +1,4 @@
+import { defaultAttendanceTasks } from "./attendanceTasks";
 import { computed, nextTick, reactive, ref } from "vue";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type {
@@ -79,6 +80,7 @@ export const attendanceForm = reactive({
   enabled: false,
   trigger: "launch" as Exclude<AttendanceTrigger, "off">,
   time: "08:00",
+  tasks: { ...defaultAttendanceTasks },
 });
 export const gameRecords = reactive({
   loading: false,
@@ -124,6 +126,7 @@ export function syncAttendance(next: AttendanceStatus, syncForm = true) {
     attendanceForm.trigger =
       next.preferences.trigger === "off" ? "launch" : next.preferences.trigger;
     attendanceForm.time = next.preferences.time;
+    attendanceForm.tasks = { ...next.preferences.tasks };
   }
 }
 export async function refreshGameRecords(force = false) {
@@ -278,6 +281,7 @@ export function logoutAttendance(accountId: string) {
 }
 export async function runAttendance() {
   try {
+    await saveAttendancePreferences();
     await attendanceAction(
       async () => {
         attendance.running = true;
@@ -298,6 +302,7 @@ function attendancePreferences() {
   return {
     trigger: attendanceForm.enabled ? attendanceForm.trigger : ("off" as const),
     time: attendanceForm.time,
+    tasks: { ...attendanceForm.tasks },
   };
 }
 export async function saveAttendancePreferences() {
@@ -306,7 +311,8 @@ export async function saveAttendancePreferences() {
   const current = attendance.status.preferences;
   if (
     current.trigger === preferences.trigger &&
-    current.time === preferences.time
+    current.time === preferences.time &&
+    JSON.stringify(current.tasks) === JSON.stringify(preferences.tasks)
   )
     return;
   await attendanceAction(() => invoke("attendance_configure", { preferences }));
@@ -1562,7 +1568,9 @@ async function persistCurrentSettings(
     attendance.loaded &&
     savedPreferences &&
     (savedPreferences.trigger !== preferences.trigger ||
-      savedPreferences.time !== preferences.time),
+      savedPreferences.time !== preferences.time ||
+      JSON.stringify(savedPreferences.tasks) !==
+        JSON.stringify(preferences.tasks)),
   );
   if (!changed && !preferencesChanged) return true;
 

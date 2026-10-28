@@ -1,3 +1,4 @@
+import { defaultAttendanceTasks } from "../../src/core/attendanceTasks";
 import { mount, flushPromises, type VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type {
@@ -50,7 +51,11 @@ beforeEach(() => {
   });
   status = {
     accounts: [account("1"), account("2")],
-    preferences: { trigger: "off", time: "08:00" },
+    preferences: {
+      trigger: "off",
+      time: "08:00",
+      tasks: { ...defaultAttendanceTasks },
+    },
   };
   api.invoke.mockReset().mockImplementation(async (command) => {
     if (command === "attendance_refresh_game_records")

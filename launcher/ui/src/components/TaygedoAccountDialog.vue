@@ -21,7 +21,15 @@ function skipped(step: TaskResult) {
 }
 function completed(account: AttendanceAccount) {
   const steps = account.lastReport?.steps ?? [];
-  const chores = ["BBS 金币签到", "浏览帖子", "点赞帖子", "分享帖子"];
+  const permissions = attendance.status!.preferences.tasks;
+  const chores = [
+    ["BBS 金币签到", permissions.communitySign],
+    ["浏览帖子", permissions.browsePosts],
+    ["点赞帖子", permissions.likePosts],
+    ["分享帖子", permissions.sharePosts],
+  ]
+    .filter(([, enabled]) => enabled)
+    .map(([label]) => label);
   return [
     {
       label: "社区签到",
@@ -50,6 +58,7 @@ function completed(account: AttendanceAccount) {
   ]
     .filter(
       (group) =>
+        group.tasks.length > 0 &&
         group.tasks.length >= group.minimum &&
         group.tasks.every((step) => step.ok && !skipped(step)),
     )

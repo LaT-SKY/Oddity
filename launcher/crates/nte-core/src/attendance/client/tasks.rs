@@ -143,33 +143,53 @@ impl Client {
             .ok_or_else(|| protocol("帖子详情格式无效"))
     }
 
-    fn coin_actions(&self, account: &Account, access: &str, steps: &mut Vec<Step>) -> Result<()> {
+    fn coin_actions(
+        &self,
+        account: &Account,
+        access: &str,
+        steps: &mut Vec<Step>,
+        permissions: &TaskPermissions,
+    ) -> Result<()> {
         let tasks = self.tasks(account, access)?;
         let bbs = remaining(&tasks, "signin_c", 1);
-        if bbs > 0 {
-            let result = self
-                .native(
-                    "/apihub/api/signin",
-                    account,
-                    access,
-                    Some(form(&[("communityId", "2")])),
-                )
-                .and_then(|v| if already(&v) { Ok(()) } else { check(&v) });
-            steps.push(match result {
-                Ok(()) => progress("BBS 金币签到", 1, bbs, None),
-                Err(error) => Step::optional_failure("BBS 金币签到", error),
-            });
-            if steps.last().is_some_and(|s| {
-                matches!(s.kind, Some(FailureKind::Auth | FailureKind::Verification))
-            }) {
-                return Ok(());
+        if permissions.community_sign {
+            if bbs > 0 {
+                let result = self
+                    .native(
+                        "/apihub/api/signin",
+                        account,
+                        access,
+                        Some(form(&[("communityId", "2")])),
+                    )
+                    .and_then(|v| if already(&v) { Ok(()) } else { check(&v) });
+                steps.push(match result {
+                    Ok(()) => progress("BBS 金币签到", 1, bbs, None),
+                    Err(error) => Step::optional_failure("BBS 金币签到", error),
+                });
+                if steps.last().is_some_and(|s| {
+                    matches!(s.kind, Some(FailureKind::Auth | FailureKind::Verification))
+                }) {
+                    return Ok(());
+                }
+            } else {
+                steps.push(progress("BBS 金币签到", 0, 0, None));
             }
-        } else {
-            steps.push(progress("BBS 金币签到", 0, 0, None));
         }
-        let browse = remaining(&tasks, "browse_post_c", 5);
-        let like = remaining(&tasks, "like_post_c", 5);
-        let share = remaining(&tasks, "share", 1);
+        let browse = if permissions.browse_posts {
+            remaining(&tasks, "browse_post_c", 5)
+        } else {
+            0
+        };
+        let like = if permissions.like_posts {
+            remaining(&tasks, "like_post_c", 5)
+        } else {
+            0
+        };
+        let share = if permissions.share_posts {
+            remaining(&tasks, "share", 1)
+        } else {
+            0
+        };
         let posts = if browse + like + share > 0 {
             self.posts(account, access)?
         } else {
@@ -270,9 +290,14 @@ impl Client {
         Ok(())
     }
 
-    pub(in crate::attendance) fn coin_tasks(&self, account: &Account, access: &str) -> Vec<Step> {
+    pub(in crate::attendance) fn coin_tasks(
+        &self,
+        account: &Account,
+        access: &str,
+        permissions: &TaskPermissions,
+    ) -> Vec<Step> {
         let mut steps = Vec::new();
-        if let Err(e) = self.coin_actions(account, access, &mut steps) {
+        if let Err(e) = self.coin_actions(account, access, &mut steps, permissions) {
             steps.push(Step::optional_failure("金币任务", e));
         }
         let state = (|| -> Result<String> {
@@ -284,6 +309,7 @@ impl Client {
             Ok(message) => Step::optional("今日金币", true, message, None),
             Err(e) => Step::optional_failure("今日金币", e),
         });
+        steps.retain(|step| permissions.allows(&step.label));
         steps
     }
 
@@ -424,7 +450,10 @@ mod tests {
             laohu_user_id: "user".into(),
         };
         let client = Client::new(&base, &base).without_delays();
-        assert!(client.coin_tasks(&account, "access").iter().all(|s| s.ok));
+        assert!(client
+            .coin_tasks(&account, "access", &TaskPermissions::default())
+            .iter()
+            .all(|s| s.ok));
         assert_eq!(
             client.cloud_duration(&account).unwrap().message,
             "本次赠送 15 分钟, 剩余 120 分钟"
