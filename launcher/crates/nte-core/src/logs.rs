@@ -315,7 +315,7 @@ mod tests {
             "signature",
             "13900139000",
         ] {
-            assert!(!output.contains(secret), "leaked fixture: {secret}");
+            assert!(!output.contains(secret), "leaked redaction fixture");
         }
         assert!(output.contains("手机号[手机号已移除]"));
         for kept in [
