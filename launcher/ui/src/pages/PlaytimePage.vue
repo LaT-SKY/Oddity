@@ -78,7 +78,10 @@ function stopTimer() {
   timer = undefined;
 }
 watch(
-  () => state.page === "records" && Boolean(stats.value.active),
+  () =>
+    state.game === "running" &&
+    state.page === "records" &&
+    Boolean(stats.value.active),
   (running) => (running ? startTimer() : stopTimer()),
   { immediate: true },
 );

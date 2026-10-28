@@ -330,17 +330,17 @@ export const playtime = reactive({
 let playtimeRequest = 0;
 const PLAYTIME_RECENT_MS = 5 * 60 * 1000;
 
-export async function loadPlaytime(): Promise<boolean> {
+export async function loadPlaytime(): Promise<PlaytimeHistory | null> {
   const epoch = generation;
   const request = ++playtimeRequest;
   playtime.loading = true;
   try {
     const next = await invoke("playtime_history");
-    if (epoch !== generation || request !== playtimeRequest) return false;
+    if (epoch !== generation || request !== playtimeRequest) return null;
     playtime.history = next;
     playtime.loaded = true;
     playtime.error = "";
-    return true;
+    return next;
   } catch (cause) {
     if (epoch === generation && request === playtimeRequest) {
       playtime.error =
@@ -348,7 +348,7 @@ export async function loadPlaytime(): Promise<boolean> {
           ? String(cause.message)
           : String(cause);
     }
-    return false;
+    return null;
   } finally {
     if (epoch === generation && request === playtimeRequest)
       playtime.loading = false;
@@ -356,8 +356,8 @@ export async function loadPlaytime(): Promise<boolean> {
 }
 
 async function announcePlaytimeExit(fallback: string) {
-  const loaded = await loadPlaytime();
-  const last = loaded ? latestSession(playtime.history) : null;
+  const history = await loadPlaytime();
+  const last = history ? latestSession(history) : null;
   const recent = Boolean(
     last && Date.now() - last.endedAt < PLAYTIME_RECENT_MS,
   );

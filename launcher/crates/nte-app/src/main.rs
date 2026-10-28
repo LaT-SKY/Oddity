@@ -466,6 +466,7 @@ fn watch_game_exit<R: tauri::Runtime>(
         let mut watch = GameProcessWatch::new(session.pid);
         let playtime = app.try_state::<playtime_commands::Playtime>();
         let mut playtime_started = false;
+        let mut start_retry_at = Instant::now();
         let mut last_touch = Instant::now();
         while !done.load(Ordering::Acquire) {
             let game_running = watch.alive();
@@ -487,18 +488,27 @@ fn watch_game_exit<R: tauri::Runtime>(
                     }
                 }
             }
-            if game_running && !playtime_started {
-                if let Some(playtime) = &playtime {
-                    if let Err(error) = playtime.start(
+            if game_running && !playtime_started && Instant::now() >= start_retry_at {
+                let started = if let Some(playtime) = &playtime {
+                    match playtime.start(
                         playtime_commands::now_millis(),
                         &session.mode,
                         session.distribution.as_str(),
                     ) {
-                        eprintln!("开始记录游玩时长失败: {error}");
+                        Ok(()) => true,
+                        Err(error) => {
+                            eprintln!("开始记录游玩时长失败: {error}");
+                            start_retry_at = Instant::now() + Duration::from_secs(30);
+                            false
+                        }
                     }
+                } else {
+                    true
+                };
+                if started {
+                    playtime_started = true;
+                    last_touch = Instant::now();
                 }
-                playtime_started = true;
-                last_touch = Instant::now();
             } else if playtime_started && !game_running {
                 if let Some(playtime) = &playtime {
                     if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
@@ -2081,6 +2091,11 @@ async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameSt
                 if !session_alive(session) {
                     tracker.session = None;
                     drop(tracker);
+                    if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
+                        if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
+                            eprintln!("结束游玩记录失败: {error}");
+                        }
+                    }
                     let status = GameStatus::idle();
                     let _ = app.emit("game-state", status.clone());
                     return Ok(status);

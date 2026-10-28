@@ -2,6 +2,7 @@
 //!
 //! 只保存原始时间戳和启动方式, 日历聚合留给界面按本地时区完成.
 use std::fs;
+use std::io::{BufWriter, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -48,7 +49,7 @@ pub struct PlaytimeHistory {
     pub active: Option<ActivePlaytime>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 struct PlaytimeData {
     version: u32,
@@ -66,7 +67,7 @@ impl Default for PlaytimeData {
     }
 }
 
-/// 游玩记录文件. 所有写操作先更新内存, 再用同目录临时文件原子替换.
+/// 游玩记录文件. 写操作先写同目录临时文件, 成功后再替换内存和正式文件.
 pub struct PlaytimeStore {
     path: PathBuf,
     data: PlaytimeData,
@@ -100,83 +101,85 @@ impl PlaytimeStore {
         if started_at <= 0 {
             return Err(Error::Parse("游玩记录开始时间无效".into()));
         }
-        if let Some(active) = self.data.active.take() {
-            self.push_session(
+        let mut next = self.data.clone();
+        if let Some(active) = next.active.take() {
+            next.push_session(
                 active.started_at,
                 active.last_seen_at,
                 &active.mode,
                 &active.distribution,
             );
         }
-        self.data.active = Some(ActivePlaytime {
+        next.active = Some(ActivePlaytime {
             started_at,
             last_seen_at: started_at,
             mode: mode.to_string(),
             distribution: distribution.to_string(),
         });
-        self.save()
+        self.commit(next)
     }
 
     /// 游戏运行期间更新心跳. 时间回拨时保持原值, 避免会话被截短.
     pub fn touch(&mut self, now: i64) -> Result<()> {
-        let Some(active) = self.data.active.as_mut() else {
+        let mut next = self.data.clone();
+        let Some(active) = next.active.as_mut() else {
             return Ok(());
         };
         if now <= active.last_seen_at {
             return Ok(());
         }
         active.last_seen_at = now;
-        self.save()
+        self.commit(next)
     }
 
     /// 游戏退出. 以调用时间和最后一次心跳中较晚者作为结束时间.
     pub fn finish(&mut self, now: i64) -> Result<()> {
-        let Some(active) = self.data.active.take() else {
+        let mut next = self.data.clone();
+        let Some(active) = next.active.take() else {
             return Ok(());
         };
-        self.push_session(
+        next.push_session(
             active.started_at,
             now.max(active.last_seen_at),
             &active.mode,
             &active.distribution,
         );
-        self.save()
+        self.commit(next)
     }
 
     /// 启动时收束上次异常退出留下的活动会话.
     pub fn recover(&mut self) -> Result<()> {
-        let Some(active) = self.data.active.take() else {
+        let mut next = self.data.clone();
+        let Some(active) = next.active.take() else {
             return Ok(());
         };
-        self.push_session(
+        next.push_session(
             active.started_at,
             active.last_seen_at,
             &active.mode,
             &active.distribution,
         );
-        self.save()
+        self.commit(next)
     }
 
-    fn push_session(&mut self, started_at: i64, ended_at: i64, mode: &str, distribution: &str) {
-        if ended_at - started_at < MIN_SESSION_MS {
-            return;
-        }
-        self.data.sessions.push(PlaytimeSession {
-            started_at,
-            ended_at,
-            mode: mode.to_string(),
-            distribution: distribution.to_string(),
-        });
-        self.data.sessions.sort_by_key(|session| session.started_at);
+    /// 先落盘候选状态, 成功后才替换内存中的记录.
+    fn commit(&mut self, mut data: PlaytimeData) -> Result<()> {
+        data.normalize();
+        self.save_data(&data)?;
+        self.data = data;
+        Ok(())
     }
 
-    fn save(&self) -> Result<()> {
+    fn save_data(&self, data: &PlaytimeData) -> Result<()> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent)?;
         }
         let temp = TemporaryFile::new(&self.path)?;
-        serde_json::to_writer_pretty(&temp.file, &self.data)
+        let mut writer = BufWriter::new(&temp.file);
+        serde_json::to_writer_pretty(&mut writer, data)
             .map_err(|error| Error::Parse(format!("写入游玩记录失败: {error}")))?;
+        writer.flush()?;
+        drop(writer);
         temp.file
             .set_permissions(fs::Permissions::from_mode(0o600))?;
         temp.commit(&self.path, &|| false)
@@ -184,6 +187,19 @@ impl PlaytimeStore {
 }
 
 impl PlaytimeData {
+    fn push_session(&mut self, started_at: i64, ended_at: i64, mode: &str, distribution: &str) {
+        if ended_at - started_at < MIN_SESSION_MS {
+            return;
+        }
+        self.sessions.push(PlaytimeSession {
+            started_at,
+            ended_at,
+            mode: mode.to_string(),
+            distribution: distribution.to_string(),
+        });
+        self.sessions.sort_by_key(|session| session.started_at);
+    }
+
     fn normalize(&mut self) {
         self.version = FORMAT_VERSION;
         self.sessions
@@ -326,6 +342,16 @@ mod tests {
         store.recover().unwrap();
         assert_eq!(store.history(), PlaytimeHistory::default());
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn failed_save_does_not_expose_unpersisted_state() {
+        let dir = TempDir::new("playtime-save-failure");
+        let parent = dir.join("blocked");
+        fs::write(&parent, b"file").unwrap();
+        let mut store = PlaytimeStore::load(parent.join("playtime.json"));
+        assert!(store.start(1_000_000, "background", "cn").is_err());
+        assert_eq!(store.history(), PlaytimeHistory::default());
     }
 
     #[test]

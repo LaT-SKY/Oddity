@@ -375,6 +375,9 @@ fn tracks_playtime_while_the_game_process_is_alive() {
         ),
         "游戏进程退出后应结束计时"
     );
-    assert!(!alive.load(Ordering::Acquire));
+    assert!(
+        wait_until(|| !alive.load(Ordering::Acquire), Duration::from_secs(3)),
+        "游戏进程退出后应清除存活状态"
+    );
     done.store(true, Ordering::Release);
 }
