@@ -170,23 +170,23 @@ function leave() {
 }
 .playtime-heatmap__cell.is-level-1,
 .playtime-heatmap__legend .is-level-1 {
-  background: color-mix(in srgb, var(--signal-strong) 18%, transparent);
+  background: var(--heat-1);
 }
 .playtime-heatmap__cell.is-level-2,
 .playtime-heatmap__legend .is-level-2 {
-  background: color-mix(in srgb, var(--signal-strong) 34%, transparent);
+  background: var(--heat-2);
 }
 .playtime-heatmap__cell.is-level-3,
 .playtime-heatmap__legend .is-level-3 {
-  background: color-mix(in srgb, var(--signal-strong) 54%, transparent);
+  background: var(--heat-3);
 }
 .playtime-heatmap__cell.is-level-4,
 .playtime-heatmap__legend .is-level-4 {
-  background: color-mix(in srgb, var(--signal-strong) 76%, transparent);
+  background: var(--heat-4);
 }
 .playtime-heatmap__cell.is-level-5,
 .playtime-heatmap__legend .is-level-5 {
-  background: var(--signal-strong);
+  background: var(--heat-5);
 }
 .playtime-heatmap__cell.is-future {
   background: transparent;
