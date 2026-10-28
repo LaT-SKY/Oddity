@@ -470,4 +470,38 @@ mod tests {
             .unwrap()
             .contains("secret"));
     }
+
+    #[test]
+    fn exported_archive_removes_delimiter_credentials_and_preserves_url_parameters() {
+        let dir = TempDir::new("delimiter-credentials");
+        let values = [
+            "&leading-secret",
+            "part&middle-secret",
+            ";leading-secret",
+            "{leading-secret}",
+            "[leading-secret]",
+            ",leading-secret",
+        ];
+        let mut input = values
+            .iter()
+            .map(|value| format!("password: {value}\n"))
+            .collect::<String>();
+        input.push_str("url=https://example.test/?token=query-secret&file=keep&password=other-secret\nerror=503\n");
+        dir.write("logs/test.log", input);
+        let mut prepared = PreparedLogs::with_home(&dir.join("logs"), None, None).unwrap();
+        let output = prepared.save(dir.path()).unwrap();
+        let mut zip = zip::ZipArchive::new(File::open(output).unwrap()).unwrap();
+        let mut text = String::new();
+        zip.by_name("test.log")
+            .unwrap()
+            .read_to_string(&mut text)
+            .unwrap();
+        assert!(!text.contains("secret"), "导出包残留凭据");
+        assert!(text.contains("&file=keep&"));
+        assert!(text.contains("error=503"));
+        assert_eq!(prepared.preview.redactions.credentials, values.len() + 2);
+        assert!(!serde_json::to_string(&prepared.preview)
+            .unwrap()
+            .contains("secret"));
+    }
 }

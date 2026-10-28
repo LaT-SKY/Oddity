@@ -29,9 +29,11 @@ static ESCAPED_FIELDS: LazyLock<Regex> = LazyLock::new(|| {
     ))
     .unwrap()
 });
+static URL_KEY: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(&format!(r"(?ix)^(?:{FIELD_NAMES})$")).unwrap());
 static FIELDS: LazyLock<Regex> = LazyLock::new(|| {
     // 正在写入的末行可能缺少结束引号, 仍移除已经写出的凭据.
-    Regex::new(&format!(r#"(?ix)(\b(?:{FIELD_NAMES})\b["']?[\x20\t]*[:=][\x20\t]*)(?:"(?:\\.|[^"\\\r\n])*\\?"?|'(?:\\.|[^'\\\r\n])*\\?'?|[^\s,;&"'{{}}\[\]]+)"#)).unwrap()
+    Regex::new(&format!(r#"(?ix)(?P<url>https?://[^\s"'<>]+)|(?P<prefix>\b(?:{FIELD_NAMES})\b["']?[\x20\t]*[:=][\x20\t]*)(?P<value>"(?:\\.|[^"\\\r\n])*\\?"?|'(?:\\.|[^'\\\r\n])*\\?'?|\S+)"#)).unwrap()
 });
 pub(super) static PENDING_FIELD: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(&format!(
@@ -76,8 +78,34 @@ impl Redactor {
             format!("{}[凭据已移除]", &caps[1])
         });
         let text = FIELDS.replace_all(&text, |caps: &Captures<'_>| {
+            // URL 参数有明确分隔符, 普通未引用字段则完整移除至空白处.
+            if let Some(url) = caps.name("url") {
+                let Some((base, query)) = url.as_str().split_once('?') else {
+                    return url.as_str().to_owned();
+                };
+                let mut output = format!("{base}?");
+                for (index, parameter) in query.split('&').enumerate() {
+                    if index > 0 {
+                        output.push('&');
+                    }
+                    if let Some((key, _)) = parameter
+                        .split_once('=')
+                        .filter(|(key, _)| URL_KEY.is_match(key))
+                    {
+                        self.counts.credentials += 1;
+                        output.push_str(key);
+                        output.push_str("=[凭据已移除]");
+                    } else {
+                        output.push_str(parameter);
+                    }
+                }
+                return output;
+            }
+            if &caps["value"] == "[凭据已移除]" {
+                return caps[0].to_owned();
+            }
             self.counts.credentials += 1;
-            format!("{}[凭据已移除]", &caps[1])
+            format!("{}[凭据已移除]", &caps["prefix"])
         });
         let mut text = JWT
             .replace_all(&text, |_: &Captures<'_>| {
