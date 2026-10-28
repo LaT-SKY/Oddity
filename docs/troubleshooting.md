@@ -143,6 +143,7 @@ Debian, Arch 和 Gentoo 安装包会声明该依赖; AppImage, RPM 和源码构�
 | 设置          | `~/.config/oddity/settings.json`                |
 | 签到状态        | `~/.config/oddity/taygedo/state.json`           |
 | 日志目录        | `~/.local/share/oddity/logs/`                   |
+| 游玩记录        | `~/.local/share/oddity/playtime.json`          |
 | 启动日志        | `~/.local/share/oddity/logs/environments/<环境 ID>/nte-app-launch.log` |
 | 辅助日志        | `~/.local/share/oddity/logs/environments/<环境 ID>/helper-window.log`  |
 | Wine prefix | `~/.local/share/oddity/environments/<环境 ID>/prefix`                  |

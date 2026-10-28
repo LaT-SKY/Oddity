@@ -77,7 +77,7 @@ test("导航、更新、设置、快捷键与启动关闭流程", async ({ page 
   await expect(page.locator("#update-state-title")).toHaveText("已是最新");
   await page.locator('[data-page="bulletin"]').click();
   await expect(page.locator("#page-bulletin")).toBeVisible();
-  await page.keyboard.press("Control+5");
+  await page.keyboard.press("Control+6");
   await expect(page.locator("#page-settings")).toBeVisible();
   await expect(page.locator(".check-row")).toHaveCount(6);
   await page.locator("#set-theme-trigger").click();

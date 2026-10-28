@@ -43,6 +43,8 @@ fn game_mode_status_reports_capabilities_and_releases_the_finished_session() {
         exe: "game.exe".into(),
         started_at: 0,
         log: String::new(),
+        mode: "background".into(),
+        distribution: Distribution::Cn,
         closing: false,
         exit_notified: false,
         game_alive: Arc::new(AtomicBool::new(false)),
@@ -83,6 +85,8 @@ fn game_status_reflects_the_session() {
         exe: "/game/HTGame.exe".to_string(),
         started_at: 99,
         log: "/tmp/launch.log".to_string(),
+        mode: "official".into(),
+        distribution: Distribution::Global,
         closing: true,
         exit_notified: false,
         game_alive: Arc::new(AtomicBool::new(false)),
@@ -306,4 +310,71 @@ fn reparented_game_remains_tracked_until_it_exits() {
     terminate_process_group(root as i32).unwrap();
     waiter.join().unwrap().unwrap();
     assert!(!watch.alive());
+}
+
+#[test]
+fn tracks_playtime_while_the_game_process_is_alive() {
+    use crate::playtime_commands::Playtime;
+    use tauri::Manager;
+
+    let _env = EnvGuard::new();
+    let dir = super::TempDir::new("playtime-process");
+    let app = tauri::test::mock_app();
+    app.manage(Playtime::load(dir.path()));
+    app.manage(AppState {
+        settings: Mutex::new(Settings::default()),
+        game: Mutex::new(GameTracker::default()),
+    });
+    let mut child = Command::new("bash")
+        .arg("-c")
+        .arg("exec -a HTGame.exe sleep 30")
+        .process_group(0)
+        .spawn()
+        .expect("spawn game process");
+    let root = child.id();
+    let pgid = i32::try_from(root).expect("pid fits i32");
+    let session = GameSession {
+        id: 1,
+        pid: root,
+        pgid,
+        exe: "HTGame.exe".into(),
+        started_at: 0,
+        log: String::new(),
+        mode: "background".into(),
+        distribution: Distribution::Cn,
+        closing: false,
+        exit_notified: false,
+        game_alive: Arc::new(AtomicBool::new(true)),
+        _install_lock: None,
+        _prefix_lock: None,
+        background: None,
+        game_mode: None,
+    };
+    let done = Arc::new(AtomicBool::new(false));
+    let alive = Arc::new(AtomicBool::new(true));
+    watch_game_exit(
+        app.handle().clone(),
+        session,
+        Arc::clone(&done),
+        Arc::clone(&alive),
+    );
+    assert!(
+        wait_until(
+            || app.state::<Playtime>().history().unwrap().active.is_some(),
+            Duration::from_secs(3)
+        ),
+        "游戏进程出现后应开始计时"
+    );
+    let waiter = thread::spawn(move || child.wait());
+    terminate_process_group(pgid).expect("terminate game process");
+    let _ = waiter.join().expect("join game process");
+    assert!(
+        wait_until(
+            || app.state::<Playtime>().history().unwrap().active.is_none(),
+            Duration::from_secs(3)
+        ),
+        "游戏进程退出后应结束计时"
+    );
+    assert!(!alive.load(Ordering::Acquire));
+    done.store(true, Ordering::Release);
 }

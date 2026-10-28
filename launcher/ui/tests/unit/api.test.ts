@@ -257,6 +257,15 @@ describe("浏览器命令桥接", () => {
       closing: false,
       pid: 0,
     });
+    const playtime = await invoke("playtime_history");
+    expect(playtime.sessions.length).toBeGreaterThan(0);
+    expect(playtime.active).toBeNull();
+    expect(
+      await invoke("playtime_export_poster", {
+        destination: "/tmp/poster.png",
+        data: "preview",
+      }),
+    ).toBe("/tmp/poster.png");
     expect(await invoke("open_url", { url: "https://example.com" })).toBeNull();
     for (const command of [
       "win_minimize",

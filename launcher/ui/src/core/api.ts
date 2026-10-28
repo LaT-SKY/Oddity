@@ -14,6 +14,8 @@ import type {
   CommandArgs,
   PreviewPaths,
   BulletinFeed,
+  PlaytimeHistory,
+  PlaytimeSession,
   AttendanceStatus,
   AttendancePreferences,
 } from "../types/launcher";
@@ -301,6 +303,51 @@ const previewGame = {
 
 function previewGameStatus() {
   return clone(previewGame);
+}
+
+function previewSessions(): PlaytimeSession[] {
+  const sessions: PlaytimeSession[] = [];
+  const now = new Date();
+  for (let offset = 11; offset >= 0; offset -= 1) {
+    const month = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    const count = 2 + ((offset * 3) % 4);
+    for (let index = 0; index < count; index += 1) {
+      const day = 3 + ((offset * 5 + index * 6) % 22);
+      const startedAt = new Date(
+        month.getFullYear(),
+        month.getMonth(),
+        day,
+        19 + (index % 3),
+        (index * 17) % 60,
+      ).getTime();
+      const endedAt =
+        startedAt + (35 + ((offset * 11 + index * 23) % 150)) * 60_000;
+      if (endedAt > Date.now()) continue;
+      sessions.push({
+        startedAt,
+        endedAt,
+        mode: index % 3 ? "background" : "official",
+        distribution: "cn",
+      });
+    }
+  }
+  return sessions.sort((left, right) => left.startedAt - right.startedAt);
+}
+
+const previewPlaytime = previewSessions();
+
+function previewHistory(): PlaytimeHistory {
+  return {
+    sessions: clone(previewPlaytime),
+    active: previewGame.running
+      ? {
+          startedAt: previewGame.startedAt,
+          lastSeenAt: Date.now(),
+          mode: "background",
+          distribution: "cn",
+        }
+      : null,
+  };
 }
 
 const previewAttendance: AttendanceStatus = {
@@ -784,12 +831,24 @@ async function previewInvoke(
       };
     case "game_status":
       return previewGameStatus();
+    case "playtime_history":
+      return previewHistory();
+    case "playtime_export_poster": {
+      const { destination } = args as CommandArgs["playtime_export_poster"];
+      return destination;
+    }
     case "close_game":
       previewGame.closing = true;
       await delay(850);
       previewGame.running = false;
       previewGame.closing = false;
       previewGame.pid = 0;
+      previewPlaytime.push({
+        startedAt: Date.now() - 90 * 60_000,
+        endedAt: Date.now(),
+        mode: "background",
+        distribution: "cn",
+      });
       return previewGameStatus();
     case "win_minimize":
     case "win_toggle_maximize":

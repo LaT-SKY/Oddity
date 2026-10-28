@@ -133,6 +133,22 @@ export interface Settings {
   minimizeToTrayOnClose: boolean;
   showLauncherAfterGameExit: boolean;
 }
+export interface PlaytimeSession {
+  startedAt: number;
+  endedAt: number;
+  mode: string;
+  distribution: "cn" | "global";
+}
+export interface ActivePlaytime {
+  startedAt: number;
+  lastSeenAt: number;
+  mode: string;
+  distribution: "cn" | "global";
+}
+export interface PlaytimeHistory {
+  sessions: PlaytimeSession[];
+  active: ActivePlaytime | null;
+}
 export interface ProtonPin {
   path: string;
   identity: string;
@@ -300,6 +316,8 @@ export interface Commands {
   open_url: null;
   launch_official: LaunchResult;
   game_status: GameStatus;
+  playtime_history: PlaytimeHistory;
+  playtime_export_poster: string;
   game_mode_status: GameModeStatus;
   game_mode_gpu_info: GpuInfo;
   game_mode_tuning_info: GameModeTuning;
@@ -352,6 +370,8 @@ export interface CommandArgs {
   open_url: { url: string };
   launch_official: undefined;
   game_status: undefined;
+  playtime_history: undefined;
+  playtime_export_poster: { destination: string; data: string };
   game_mode_status: undefined;
   game_mode_gpu_info: undefined;
   game_mode_tuning_info: undefined;

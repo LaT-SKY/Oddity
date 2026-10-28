@@ -11,6 +11,7 @@ import type {
   GameStatus,
   DownloadStatus,
   LauncherBackgroundMedia,
+  PlaytimeHistory,
   Settings,
 } from "../../src/types/launcher";
 
@@ -28,6 +29,7 @@ const backend = vi.hoisted(() => ({
   data: {} as Bootstrap,
   result: {} as CheckResult,
   status: {} as GameStatus,
+  playtimeHistory: { sessions: [], active: null } as PlaytimeHistory,
   background: { video: null, image: null } as LauncherBackgroundMedia,
   isMaximized: vi.fn(),
   onResized: vi.fn(),
@@ -90,6 +92,7 @@ beforeEach(() => {
   backend.data = bootstrap();
   backend.result = check();
   backend.status = session();
+  backend.playtimeHistory = { sessions: [], active: null };
   backend.background = { video: null, image: null };
   backend.downloadStatus = {
     mode: "check",
@@ -143,6 +146,8 @@ beforeEach(() => {
             return structuredClone(backend.result);
           case "game_status":
             return structuredClone(backend.status);
+          case "playtime_history":
+            return structuredClone(backend.playtimeHistory);
           case "game_download_status":
             return structuredClone(backend.downloadStatus);
           case "game_download_start": {
@@ -1405,7 +1410,31 @@ describe("游戏会话", () => {
     backend.handler(session());
     expect(c.state.game).toBe("idle");
     await nextTick();
+    await flushPromises();
     expect(noticeMessage()).toBe("游戏已退出。");
+  });
+
+  it("游戏退出后读取本次时长并提示查看记录", async () => {
+    const c = await boot();
+    const endedAt = Date.now() - 1_000;
+    backend.playtimeHistory = {
+      sessions: [
+        {
+          startedAt: endedAt - 2 * 60 * 60_000,
+          endedAt,
+          mode: "background",
+          distribution: "cn",
+        },
+      ],
+      active: null,
+    };
+    backend.handler(session({ running: true, pid: 123 }));
+    backend.handler(session());
+    await flushPromises();
+    expect(c.state.game).toBe("idle");
+    expect(c.playtime.recent).toBe(true);
+    expect(c.playtime.history?.sessions).toHaveLength(1);
+    expect(noticeMessage()).toBe("游戏已退出 · 本次游玩 2 小时");
   });
 
   it("进程在反馈期间退出时不收起窗口", async () => {
@@ -1515,6 +1544,8 @@ describe("导航和窗口交互", () => {
     key("3", { ctrlKey: true });
     expect(c.state.page).toBe("game-mode");
     key("5", { ctrlKey: true });
+    expect(c.state.page).toBe("records");
+    key("6", { ctrlKey: true });
     expect(c.state.page).toBe("settings");
     backend.invoke.mockClear();
     key("s", { ctrlKey: true });
