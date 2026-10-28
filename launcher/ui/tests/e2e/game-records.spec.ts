@@ -1,3 +1,4 @@
+import { pauseClock } from "./clock";
 import { settingsCategory } from "./settings-helpers";
 import { test, expect, type Page } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
@@ -190,8 +191,7 @@ test("胶囊开合、账号切换、双向无滚动和移除同步", async ({ pa
 });
 
 test("玩家圆形收束、展开归位、快速开合与减少动态效果", async ({ page }) => {
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  await pauseClock(page);
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/");
   await page.clock.runFor(1500);

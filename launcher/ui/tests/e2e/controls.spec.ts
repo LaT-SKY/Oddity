@@ -1,3 +1,4 @@
+import { pauseClock } from "./clock";
 import { settingsCategory } from "./settings-helpers";
 import { test, expect } from "@playwright/test";
 
@@ -60,8 +61,7 @@ test("分段控件保持键盘焦点, 登录表单跟随选择切换", async ({ 
 });
 
 test("登录字段横向交接、弹窗高度连续变化与快速切换", async ({ page }) => {
-  await page.clock.install();
-  await page.clock.pauseAt(new Date());
+  await pauseClock(page);
   await page.goto("/#settings");
   await page.clock.runFor(1500);
   await settingsCategory(page, "account");

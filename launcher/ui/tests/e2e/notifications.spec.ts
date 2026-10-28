@@ -1,3 +1,4 @@
+import { pauseClock } from "./clock";
 import { settingsCategory } from "./settings-helpers";
 import { test, expect } from "@playwright/test";
 
@@ -90,9 +91,7 @@ test("减少动效、重复通知合并与键盘阅读", async ({ page }) => {
 test("圆球、正方形过冲与矩形归位", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   // 评测机负载抖动会跳过中间帧, 固定时钟后逐帧推进动画。
-  const now = new Date();
-  await page.clock.install({ time: now });
-  await page.clock.pauseAt(now);
+  await pauseClock(page);
   await page.goto("/");
   await page.clock.runFor(2500);
   const stack = page.locator(".notification-stack");
