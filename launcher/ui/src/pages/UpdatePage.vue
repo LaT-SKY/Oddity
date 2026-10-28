@@ -19,6 +19,7 @@ import {
   checkUpdate,
   updateView,
   formatSize,
+  diskBudget,
   queueSettingsSave,
   settingsPathsLocked,
 } from "../core/controller";
@@ -237,6 +238,14 @@ const showProgress = computed(
 const transferActive = computed(
   () => downloading.value || phase.value === "cancelled",
 );
+const budgetVisible = computed(
+  () =>
+    diskBudget.value !== null &&
+    statusMatches.value &&
+    !stale.value &&
+    !active.value &&
+    Boolean(state.download?.pendingFiles || state.download?.unverifiedFiles),
+);
 </script>
 
 <template>
@@ -299,6 +308,38 @@ const transferActive = computed(
             </div>
           </div>
         </BaseView>
+        <div
+          v-if="budgetVisible && diskBudget"
+          class="disk-budget"
+          :class="{ 'is-short': diskBudget.insufficient }"
+        >
+          <div class="disk-budget__head">
+            <span class="disk-budget__label">
+              <svg class="icon" aria-hidden="true">
+                <use href="#i-hard-drives" />
+              </svg>
+              磁盘空间
+            </span>
+            <span class="disk-budget__amounts">
+              <span title="包含下载文件与应用补丁所需的临时空间"
+                >预计需要 <strong>{{ diskBudget.requiredText }}</strong></span
+              >
+              <span>可用 {{ diskBudget.availableText }}</span>
+              <span v-if="diskBudget.insufficient" class="disk-budget__short"
+                >还差 {{ diskBudget.shortfallText }}</span
+              >
+            </span>
+          </div>
+          <div class="disk-budget__track" aria-hidden="true">
+            <span
+              class="disk-budget__fill"
+              :style="{ width: diskBudget.percent + '%' }"
+            />
+          </div>
+          <p v-if="diskBudget.insufficient" class="disk-budget__hint">
+            清理磁盘空间或更换安装目录后重新检查.
+          </p>
+        </div>
         <AnimatePresence :initial="false">
           <motion.div
             v-if="showProgress && state.download"

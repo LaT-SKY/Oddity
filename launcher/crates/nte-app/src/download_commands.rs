@@ -9,7 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use nte_core::config::LauncherConfig;
 use nte_core::game::check::CheckOptions;
 use nte_core::game::download::ApplyOptions;
-use nte_core::{game, install, update};
+use nte_core::{disk, game, install, update};
 
 use crate::{game_exe_for, selected_install_root, session_alive, AppState, Settings};
 
@@ -37,6 +37,10 @@ pub struct DownloadStatus {
     stage: String,
     remote_version: String,
     pending_files: usize,
+    /// 检查时安装目录所在文件系统的可用字节, 读取失败时为空.
+    disk_available_bytes: Option<u64>,
+    /// 当前计划预计额外占用的字节.
+    disk_required_bytes: u64,
     error: String,
 }
 
@@ -63,6 +67,8 @@ impl Default for DownloadStatus {
             stage: String::new(),
             remote_version: String::new(),
             pending_files: 0,
+            disk_available_bytes: None,
+            disk_required_bytes: 0,
             error: String::new(),
         }
     }
@@ -118,6 +124,17 @@ fn publish_bytes<R: Runtime>(app: &AppHandle<R>, bytes: u64) {
     let _ = app.emit("game-download-state", status);
 }
 
+fn refresh_disk_available(status: &mut DownloadStatus) {
+    status.disk_available_bytes = disk::available_bytes(Path::new(&status.install_root)).ok();
+}
+
+fn publish_cancelled<R: Runtime>(app: &AppHandle<R>) {
+    publish(app, |status| {
+        refresh_disk_available(status);
+        status.phase = "cancelled".into();
+    });
+}
+
 fn check_game<R: Runtime>(
     app: &AppHandle<R>,
     settings: &Settings,
@@ -146,6 +163,8 @@ fn check_game<R: Runtime>(
         .map(|item| item.download_size)
         .sum();
     let total_bytes = plan.total_bytes();
+    let disk_available_bytes = disk::available_bytes(root).ok();
+    let disk_required_bytes = plan.required_disk_bytes();
     publish(app, |status| {
         status.distribution = settings.distribution.as_str().into();
         status.remote_version = plan.remote_version.clone();
@@ -157,6 +176,8 @@ fn check_game<R: Runtime>(
         status.patch_bytes = patch_bytes;
         status.full_files = plan.items.len().saturating_sub(patch_files);
         status.full_bytes = total_bytes.saturating_sub(patch_bytes);
+        status.disk_available_bytes = disk_available_bytes;
+        status.disk_required_bytes = disk_required_bytes;
     });
     Ok(plan)
 }
@@ -251,7 +272,7 @@ fn install_launcher_files<R: Runtime>(
         return Err(error);
     }
     if cancel.load(Ordering::Relaxed) {
-        publish(app, |status| status.phase = "cancelled".into());
+        publish_cancelled(app);
         return Ok(());
     }
     Ok(())
@@ -266,7 +287,7 @@ fn run_plan<R: Runtime>(
     launcher_plan: install::LauncherPlan,
 ) -> Result<(), String> {
     if cancel.load(Ordering::Relaxed) {
-        publish(app, |status| status.phase = "cancelled".into());
+        publish_cancelled(app);
         return Ok(());
     }
     publish(app, |status| {
@@ -281,6 +302,7 @@ fn run_plan<R: Runtime>(
         status.patch_bytes = 0;
         status.full_files = launcher_plan.file_count();
         status.full_bytes = launcher_plan.download_bytes;
+        status.disk_required_bytes = launcher_plan.required_disk_bytes();
         status.stage = "download".into();
         status.error.clear();
     });
@@ -293,7 +315,7 @@ fn run_plan<R: Runtime>(
         install_launcher_files(app, &launcher_plan, cancel)?;
     }
     if cancel.load(Ordering::Relaxed) {
-        publish(app, |status| status.phase = "cancelled".into());
+        publish_cancelled(app);
         return Ok(());
     }
     publish(app, |status| {
@@ -309,6 +331,7 @@ fn run_plan<R: Runtime>(
         status.patch_bytes = 0;
         status.full_files = 0;
         status.full_bytes = 0;
+        status.disk_required_bytes = 0;
         status.stage.clear();
     });
     let mut plan = check_game(app, settings, &launcher_plan.root, full, cancel)?;
@@ -318,7 +341,7 @@ fn run_plan<R: Runtime>(
         plan = check_game(app, settings, &launcher_plan.root, true, cancel)?;
     }
     if cancel.load(Ordering::Relaxed) {
-        publish(app, |status| status.phase = "cancelled".into());
+        publish_cancelled(app);
         return Ok(());
     }
     if plan.items.is_empty() && game_exe_for(&launcher_plan.root).is_none() {
@@ -397,7 +420,7 @@ fn run_plan<R: Runtime>(
         &|| cancel.load(Ordering::Relaxed),
     );
     if report.cancelled {
-        publish(app, |status| status.phase = "cancelled".into());
+        publish_cancelled(app);
         return Ok(());
     }
     if report.failed > 0 {
@@ -481,6 +504,7 @@ fn prepare_task(
             }
         }
         let install_root = selected_install_root(&settings);
+        let disk_available_bytes = disk::available_bytes(&install_root).ok();
         let installed = install_root
             .join(settings.distribution.launcher_dir())
             .join("UserData/Patcher/PatcherSDK/ResList.xml")
@@ -500,6 +524,7 @@ fn prepare_task(
             install_root,
             installed,
             full,
+            disk_available_bytes,
             ..DownloadStatus::default()
         };
         (inner.status.clone(), settings, full)
@@ -522,6 +547,7 @@ pub fn game_download_start<R: Runtime>(
         let result = run_task(&app, &settings, &mode, full, &cancel);
         if let Err(error) = result {
             publish(&app, |status| {
+                refresh_disk_available(status);
                 status.phase = if cancel.load(Ordering::Relaxed) {
                     "cancelled"
                 } else {
