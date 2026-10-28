@@ -175,7 +175,7 @@ function drawPoster(
   const ctx = context;
   const width = 1080;
   const height = 1440;
-  const padding = 72;
+  const padding = 96;
   const contentWidth = width - padding * 2;
   const font =
     '"Space Grotesk", "Noto Sans CJK SC", "Noto Sans SC", sans-serif';
@@ -278,7 +278,7 @@ function drawPoster(
   ctx.fillText(`已游玩 ${heatmapDays(stats)} 天`, width - padding - 28, 800);
   ctx.textAlign = "left";
 
-  const cell = 13;
+  const cell = 12;
   const gap = 4;
   const gridX = padding + 34;
   const gridY = 850;
