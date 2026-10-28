@@ -366,7 +366,7 @@ const budgetVisible = computed(
               <progress
                 :value="downloadView.progress"
                 max="100"
-                :aria-label="'资源处理进度 ' + downloadView.progress + '%'"
+                :aria-label="'资源下载进度 ' + downloadView.progress + '%'"
               />
               <div class="download-meter__track" aria-hidden="true">
                 <motion.div
