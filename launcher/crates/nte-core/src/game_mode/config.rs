@@ -58,8 +58,9 @@ pub(super) fn write(path: &Path, sections: &[Section<'_>]) -> Result<()> {
         }
         text = output.join("\n");
     }
-    if path.exists() {
-        fs::copy(path, path.with_extension("ini.oddity-backup"))?;
+    let backup = path.with_extension("ini.oddity-backup");
+    if path.exists() && !backup.exists() {
+        fs::copy(path, backup)?;
     }
     let mut temporary = crate::paths::TemporaryFile::new(path)?;
     temporary
@@ -68,4 +69,26 @@ pub(super) fn write(path: &Path, sections: &[Section<'_>]) -> Result<()> {
     writeln!(temporary.file, "{text}")?;
     temporary.commit(path, &|| false)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::TempDir;
+
+    #[test]
+    fn repeated_cpu_and_gpu_changes_preserve_the_first_backup() {
+        let dir = TempDir::new("gamemode-first-backup");
+        let original = "[general]\nrenice=0\n[gpu]\ngpu_device=1\n";
+        let path = dir.write("gamemode.ini", original);
+        let backup = path.with_extension("ini.oddity-backup");
+        write(&path, &[("general", vec![("renice", Some("10".into()))])]).unwrap();
+        write(&path, &[("gpu", vec![("gpu_device", Some("2".into()))])]).unwrap();
+        assert_eq!(fs::read_to_string(&backup).unwrap(), original);
+        let updated = fs::read_to_string(&path).unwrap();
+        assert!(updated.contains("renice=10") && updated.contains("gpu_device=2"));
+        fs::write(&backup, "preexisting backup").unwrap();
+        write(&path, &[("general", vec![("renice", None)])]).unwrap();
+        assert_eq!(fs::read_to_string(backup).unwrap(), "preexisting backup");
+    }
 }

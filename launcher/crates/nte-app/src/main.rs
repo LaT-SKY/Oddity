@@ -468,14 +468,16 @@ fn watch_game_exit(
                     .as_ref()
                     .is_some_and(|background| background.game_alive().unwrap_or(true));
             if let Some(mode) = &session.game_mode {
-                let mut pids: Vec<_> = watch.known.keys().copied().collect();
-                if let Some(background) = &session.background {
-                    if let Ok(background_pids) = background.game_pids() {
-                        pids.extend(background_pids);
-                    }
-                }
                 if let Ok(mut mode) = mode.lock() {
-                    mode.update_game_processes(&pids);
+                    if mode.needs_game_processes() {
+                        let mut pids: Vec<_> = watch.known.keys().copied().collect();
+                        if let Some(background) = &session.background {
+                            if let Ok(background_pids) = background.game_pids() {
+                                pids.extend(background_pids);
+                            }
+                        }
+                        mode.update_game_processes(&pids);
+                    }
                 }
             }
             alive.store(running, Ordering::Release);

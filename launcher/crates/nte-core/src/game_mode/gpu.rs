@@ -165,15 +165,9 @@ impl Config {
 
     fn apply_to(&self, path: &Path, devices: &[Device]) -> Result<()> {
         self.validate(devices)?;
-        let mut settings = vec![format!(
-            "apply_gpu_optimisations={}",
-            if self.enabled {
-                "accept-responsibility"
-            } else {
-                "0"
-            }
-        )];
+        let mut settings = Vec::new();
         if self.enabled {
+            settings.push("apply_gpu_optimisations=accept-responsibility".to_string());
             settings.push(format!("gpu_device={}", self.device));
             match self.vendor {
                 Vendor::Nvidia => settings.extend([
@@ -278,8 +272,13 @@ mod tests {
         );
         Config::default().apply_to(&path, &[]).unwrap();
         let disabled = fs::read_to_string(&path).unwrap();
-        assert!(disabled.contains("apply_gpu_optimisations=0"));
+        assert!(!disabled.contains("apply_gpu_optimisations="));
+        assert!(!parse(&disabled).unwrap().enabled);
         assert!(!disabled.contains("nv_core_clock_mhz_offset="));
+        assert_eq!(
+            fs::read_to_string(path.with_extension("ini.oddity-backup")).unwrap(),
+            original
+        );
     }
 
     #[test]

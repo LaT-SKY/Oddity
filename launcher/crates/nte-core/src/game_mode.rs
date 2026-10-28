@@ -216,6 +216,21 @@ impl Session {
                 Effect::Requested,
                 "已配置 Gamescope 启动参数",
             );
+            if options.overlay {
+                if executable("mangoapp").is_some() {
+                    session.set(
+                        Feature::Overlay,
+                        Effect::Requested,
+                        "已由 Gamescope 请求性能浮层",
+                    );
+                } else {
+                    session.set(
+                        Feature::Overlay,
+                        Effect::Error,
+                        "Gamescope 性能浮层需要 mangoapp",
+                    );
+                }
+            }
         }
         if options.inhibit && session.available(Feature::Inhibit) {
             let result = session
@@ -286,15 +301,7 @@ impl Session {
 
     /// 由应用传入本轮已经识别的游戏 PID, 不对启动器或共享 wineserver 注册优化.
     pub fn update_game_processes(&mut self, pids: &[u32]) {
-        if self.finished
-            || !self.status.iter().any(|status| {
-                status.id == Feature::Performance
-                    && matches!(
-                        status.state,
-                        Effect::Waiting | Effect::Active | Effect::Error
-                    )
-            })
-        {
+        if !self.needs_game_processes() {
             return;
         }
         for &pid in pids {
@@ -335,6 +342,17 @@ impl Session {
                 Err(error) => self.set(Feature::Performance, Effect::Error, &error),
             }
         }
+    }
+
+    pub fn needs_game_processes(&self) -> bool {
+        !self.finished
+            && self.status.iter().any(|status| {
+                status.id == Feature::Performance
+                    && matches!(
+                        status.state,
+                        Effect::Waiting | Effect::Active | Effect::Error
+                    )
+            })
     }
 
     pub fn release(&mut self) {
@@ -589,6 +607,53 @@ mod tests {
     }
 
     #[test]
+    fn gamescope_overlay_status_tracks_mangoapp_without_injecting_mangohud() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut env = crate::testing::EnvGuard::new();
+        let dir = crate::testing::TempDir::new("gamescope-overlay-status");
+        env.set("PATH", dir.path());
+        for name in ["gamescope", "mangohud"] {
+            let path = dir.write(name, "#!/bin/sh\nexit 0\n");
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let mut options = Options {
+            overlay: true,
+            gamescope: gamescope::Options {
+                enabled: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        for available in [false, true] {
+            if available {
+                let path = dir.write("mangoapp", "#!/bin/sh\nexit 0\n");
+                std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            }
+            let mut command = Command::new("umu-run");
+            let session = Session::start_on(&options, &mut command, None);
+            assert_eq!(session.status[4].state, Effect::Requested);
+            assert_eq!(
+                session.status[3].state,
+                if available {
+                    Effect::Requested
+                } else {
+                    Effect::Error
+                }
+            );
+            assert!(session.status[3].detail.contains(if available {
+                "Gamescope"
+            } else {
+                "mangoapp"
+            }));
+            assert!(!command.get_envs().any(|(key, _)| key == "MANGOHUD"));
+            assert!(!session.needs_game_processes());
+        }
+        options.overlay = false;
+        let session = Session::start_on(&options, &mut Command::new("umu-run"), None);
+        assert_eq!(session.status[3].state, Effect::Disabled);
+    }
+
+    #[test]
     fn mangohud_and_gamemode_can_be_enabled_together() {
         use std::os::unix::fs::PermissionsExt;
         let mut bus = Bus::new();
@@ -610,10 +675,12 @@ mod tests {
             .get_envs()
             .any(|(key, value)| key == "MANGOHUD" && value == Some(std::ffi::OsStr::new("1"))));
         let pid = std::process::id();
+        assert!(session.needs_game_processes());
         session.update_game_processes(&[pid]);
         assert_eq!(session.status[0].state, Effect::Active);
         assert_eq!(session.status[3].state, Effect::Requested);
         session.release();
+        assert!(!session.needs_game_processes());
         let calls = bus.calls.lock().unwrap();
         assert_eq!(calls.registered, [(pid as i32, pid as i32)]);
         assert_eq!(calls.unregistered, calls.registered);
@@ -627,6 +694,7 @@ mod tests {
             Some(bus.client.clone()),
         );
         disabled.update_game_processes(&[pid]);
+        assert!(!disabled.needs_game_processes());
         assert_eq!(disabled.status[0].state, Effect::Disabled);
         assert_eq!(disabled.status[3].state, Effect::Requested);
         disabled.release();
