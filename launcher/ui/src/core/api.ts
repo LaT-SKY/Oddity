@@ -713,7 +713,9 @@ async function previewInvoke(
       return clone(mockDownload);
     case "open_url":
       return null;
-    case "export_logs":
+    case "prepare_log_export":
+    case "save_log_export":
+    case "discard_log_export":
     case "open_directory":
       throw new Error("请在 Oddity 桌面应用中导出日志");
     case "launch_official":

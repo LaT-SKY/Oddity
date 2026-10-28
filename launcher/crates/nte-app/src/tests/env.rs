@@ -184,11 +184,12 @@ fn open_directory_uses_default_opener_and_reports_failures() {
 }
 
 #[test]
-fn launcher_builder_registers_native_dialogs() {
+fn launcher_builder_registers_native_dialogs_and_log_exports() {
     let app = launcher_builder::<tauri::test::MockRuntime>()
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
         .expect("launcher initialization");
     assert!(app
         .try_state::<tauri_plugin_dialog::Dialog<tauri::test::MockRuntime>>()
         .is_some());
+    assert!(app.try_state::<log_commands::LogExports>().is_some());
 }

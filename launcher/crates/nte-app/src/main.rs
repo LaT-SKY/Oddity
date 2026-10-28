@@ -36,6 +36,7 @@ mod attendance_commands;
 mod background_server;
 mod download_commands;
 mod environment_commands;
+mod log_commands;
 mod native_session;
 
 const APP_IDENTIFIER: &str = "io.github.oddity.Launcher";
@@ -600,17 +601,6 @@ fn data_base() -> PathBuf {
 
 fn data_dir() -> PathBuf {
     UserPaths::discover().data_dir()
-}
-
-#[tauri::command]
-async fn export_logs(destination: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        nte_core::logs::export_logs(&data_dir().join("logs"), Path::new(&destination))
-            .map(|path| path.display().to_string())
-            .map_err(|error| format!("{error:#}"))
-    })
-    .await
-    .map_err(|error| format!("日志导出任务失败: {error}"))?
 }
 
 fn legacy_data_dir() -> PathBuf {
@@ -2149,7 +2139,9 @@ fn install_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 
 fn launcher_builder<R: tauri::Runtime>() -> tauri::Builder<R> {
     let builder = tauri::Builder::<R>::new();
-    builder.plugin(tauri_plugin_dialog::init())
+    builder
+        .plugin(tauri_plugin_dialog::init())
+        .manage(log_commands::LogExports::default())
 }
 
 fn main() {
@@ -2269,7 +2261,9 @@ fn main() {
             environment_commands::environment_create,
             environment_commands::environment_action,
             save_settings,
-            export_logs,
+            log_commands::prepare_log_export,
+            log_commands::save_log_export,
+            log_commands::discard_log_export,
             open_directory,
             open_url,
             launch_official,

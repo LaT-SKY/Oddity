@@ -110,7 +110,7 @@ fn build_window() -> gtk::Window {
                     let directory = if chooser.run() == gtk::ResponseType::Accept { chooser.filename() } else { None };
                     chooser.close();
                     if let Some(directory) = directory {
-                        job(&controls, &output, move || Ok(format!("诊断包已保存: {}\n日志可能包含路径和账号信息, 分享前请检查.", recovery::export_diagnostics(&paths, &directory)?.display())));
+                        job(&controls, &output, move || Ok(format!("诊断包已保存: {}\n已自动移除可识别的主目录, 手机号和凭据, 分享前仍请检查.", recovery::export_diagnostics(&paths, &directory)?.display())));
                     }
                 }
                 "start" => job(&controls, &output, move || {
