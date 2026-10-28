@@ -18,6 +18,7 @@ const props = defineProps<{
 }>();
 
 const weekdays = ["一", "", "三", "", "五", "", "日"];
+const days = computed(() => props.heatmap.weeks.flat());
 const summary = computed(
   () =>
     `最近 12 个月游玩 ${formatPlaytime(props.totalMs)}, 已游玩 ${props.daysPlayed} 天`,
@@ -27,20 +28,35 @@ const { reduced } = useControlMotion();
 const hovered = ref<{ day: PlaytimeDay; x: number; y: number } | null>(null);
 let activeCell: HTMLElement | null = null;
 
-function enter(day: PlaytimeDay, event: MouseEvent) {
-  if (day.future) return;
-  const cell = event.currentTarget as HTMLElement | null;
-  if (!cell) return;
-  if (activeCell && activeCell !== cell)
+function enter(event: MouseEvent) {
+  const target = (event.target as Element | null)?.closest<HTMLElement>(
+    ".playtime-heatmap__cell",
+  );
+  if (!target) {
+    leave();
+    return;
+  }
+  if (target === activeCell) {
+    move(event);
+    return;
+  }
+  if (activeCell) {
     animate(
       activeCell,
       { scale: 1 },
       reduced.value ? { duration: 0 } : { duration: 0.12 },
     );
-  activeCell = cell;
-  cell.style.zIndex = "2";
+    activeCell.style.zIndex = "";
+  }
+  activeCell = null;
+  hovered.value = null;
+  const index = Number(target.dataset.index);
+  const day = Number.isInteger(index) ? days.value[index] : undefined;
+  if (!day || day.future) return;
+  activeCell = target;
+  target.style.zIndex = "2";
   animate(
-    cell,
+    target,
     { scale: 1.45 },
     reduced.value
       ? { duration: 0 }
@@ -80,7 +96,14 @@ function leave() {
         >{{ label.label }}</span
       >
     </div>
-    <div class="playtime-heatmap__grid" role="img" :aria-label="summary">
+    <div
+      class="playtime-heatmap__grid"
+      role="img"
+      :aria-label="summary"
+      @mouseover="enter"
+      @mousemove="move"
+      @mouseleave="leave"
+    >
       <span
         v-for="(day, index) in weekdays"
         :key="`weekday-${index}`"
@@ -96,10 +119,8 @@ function leave() {
           class="playtime-heatmap__cell"
           :class="[`is-level-${day.level}`, { 'is-future': day.future }]"
           :style="{ gridColumn: weekIndex + 2, gridRow: dayIndex + 1 }"
+          :data-index="weekIndex * 7 + dayIndex"
           aria-hidden="true"
-          @mouseenter="enter(day, $event)"
-          @mousemove="move"
-          @mouseleave="leave"
         />
       </template>
     </div>

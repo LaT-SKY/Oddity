@@ -22,14 +22,21 @@ import { useControlMotion } from "../composables/useControlMotion";
 
 const { surface } = useControlMotion();
 const now = ref(Date.now());
+const statsNow = ref(Date.now());
+const rendered = ref(state.page === "records");
 const posterOpen = ref(false);
 let timer: number | undefined;
+let unrenderTimer: number | undefined;
 const stats = computed(() =>
   buildPlaytimeStats(
     playtime.history ?? { sessions: [], active: null },
-    now.value,
+    statsNow.value,
   ),
 );
+const liveActiveMs = computed(() => {
+  const active = stats.value.active;
+  return active ? Math.max(0, now.value - active.startedAt) : 0;
+});
 const heatmapDays = computed(
   () =>
     stats.value.heatmap.weeks.flat().filter((day) => !day.future && day.ms > 0)
@@ -55,21 +62,46 @@ function openPoster() {
 }
 function refresh() {
   now.value = Date.now();
+  statsNow.value = Date.now();
   void loadPlaytime();
 }
 watch(
+  () => playtime.history,
+  () => {
+    statsNow.value = Date.now();
+  },
+);
+watch(
   () => state.page,
   (page) => {
-    if (page !== "records") return;
-    now.value = Date.now();
-    void loadPlaytime();
+    if (unrenderTimer !== undefined) {
+      window.clearTimeout(unrenderTimer);
+      unrenderTimer = undefined;
+    }
+    if (page === "records") {
+      rendered.value = true;
+      refresh();
+      return;
+    }
+    unrenderTimer = window.setTimeout(() => {
+      unrenderTimer = undefined;
+      if (state.page !== "records") {
+        rendered.value = false;
+        posterOpen.value = false;
+      }
+    }, 600);
   },
+  { immediate: true },
 );
 function startTimer() {
   if (timer !== undefined) return;
   now.value = Date.now();
+  statsNow.value = Date.now();
   timer = window.setInterval(() => {
-    now.value = Date.now();
+    const current = Date.now();
+    now.value = current;
+    // 热力图和汇总图不跟随秒级计时刷新, 避免每秒重算 371 个格子。
+    if (current - statsNow.value >= 30_000) statsNow.value = current;
   }, 1000);
 }
 function stopTimer() {
@@ -85,7 +117,10 @@ watch(
   (running) => (running ? startTimer() : stopTimer()),
   { immediate: true },
 );
-onBeforeUnmount(stopTimer);
+onBeforeUnmount(() => {
+  stopTimer();
+  if (unrenderTimer !== undefined) window.clearTimeout(unrenderTimer);
+});
 </script>
 
 <template>
@@ -121,77 +156,81 @@ onBeforeUnmount(stopTimer);
       </div>
     </header>
 
-    <div class="playtime-content">
-      <div v-if="playtime.error" class="playtime-error" role="status">
-        <span>{{ playtime.error }}</span>
-        <BaseButton variant="ghost" size="sm" @click="refresh">重试</BaseButton>
+    <template v-if="rendered">
+      <div class="playtime-content">
+        <div v-if="playtime.error" class="playtime-error" role="status">
+          <span>{{ playtime.error }}</span>
+          <BaseButton variant="ghost" size="sm" @click="refresh"
+            >重试</BaseButton
+          >
+        </div>
+
+        <section
+          v-if="stats.active && liveActiveMs > 0"
+          class="playtime-active"
+          aria-live="polite"
+        >
+          <span class="playtime-active__dot" aria-hidden="true"></span>
+          <span>正在游玩</span>
+          <strong>{{ formatClock(liveActiveMs) }}</strong>
+          <small>{{ playModeLabel(stats.active.mode) }}</small>
+        </section>
+
+        <section
+          v-if="hasRecords || playtime.loading"
+          class="playtime-summary panel"
+          aria-label="游玩统计"
+        >
+          <div
+            v-for="item in summary"
+            :key="item.label"
+            class="playtime-summary__item"
+          >
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </section>
+
+        <template v-if="hasRecords">
+          <section class="playtime-activity panel">
+            <header class="playtime-section-head">
+              <h3>最近 12 个月</h3>
+              <span>已游玩 {{ heatmapDays }} 天</span>
+            </header>
+            <PlaytimeHeatmap
+              :heatmap="stats.heatmap"
+              :days-played="heatmapDays"
+              :total-ms="heatmapTotal"
+              :theme="form.theme"
+            />
+          </section>
+
+          <section class="playtime-months panel">
+            <header class="playtime-section-head">
+              <h3>月度时长</h3>
+              <span>{{ stats.months.length }} 个月</span>
+            </header>
+            <PlaytimeMonthlyChart :months="stats.months" :theme="form.theme" />
+          </section>
+        </template>
+
+        <section v-else-if="empty" class="playtime-empty panel">
+          <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
+          <h3>还没有游玩记录</h3>
+          <p>通过 Oddity 启动游戏后, 这里会记录每次游玩时间.</p>
+          <BaseButton variant="ghost" @click="showPage('home')"
+            >返回启动页</BaseButton
+          >
+        </section>
       </div>
 
-      <section
-        v-if="stats.active && stats.activeMs > 0"
-        class="playtime-active"
-        aria-live="polite"
-      >
-        <span class="playtime-active__dot" aria-hidden="true"></span>
-        <span>正在游玩</span>
-        <strong>{{ formatClock(stats.activeMs) }}</strong>
-        <small>{{ playModeLabel(stats.active.mode) }}</small>
-      </section>
-
-      <section
-        v-if="hasRecords || playtime.loading"
-        class="playtime-summary panel"
-        aria-label="游玩统计"
-      >
-        <div
-          v-for="item in summary"
-          :key="item.label"
-          class="playtime-summary__item"
-        >
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
-        </div>
-      </section>
-
-      <template v-if="hasRecords">
-        <section class="playtime-activity panel">
-          <header class="playtime-section-head">
-            <h3>最近 12 个月</h3>
-            <span>已游玩 {{ heatmapDays }} 天</span>
-          </header>
-          <PlaytimeHeatmap
-            :heatmap="stats.heatmap"
-            :days-played="heatmapDays"
-            :total-ms="heatmapTotal"
-            :theme="form.theme"
-          />
-        </section>
-
-        <section class="playtime-months panel">
-          <header class="playtime-section-head">
-            <h3>月度时长</h3>
-            <span>{{ stats.months.length }} 个月</span>
-          </header>
-          <PlaytimeMonthlyChart :months="stats.months" :theme="form.theme" />
-        </section>
-      </template>
-
-      <section v-else-if="empty" class="playtime-empty panel">
-        <svg class="icon" aria-hidden="true"><use href="#i-clock" /></svg>
-        <h3>还没有游玩记录</h3>
-        <p>通过 Oddity 启动游戏后, 这里会记录每次游玩时间.</p>
-        <BaseButton variant="ghost" @click="showPage('home')"
-          >返回启动页</BaseButton
-        >
-      </section>
-    </div>
-
-    <PlaytimePoster
-      v-model:open="posterOpen"
-      :stats="stats"
-      :theme="form.theme"
-      :reduce-motion="form.reduceMotion"
-    />
+      <PlaytimePoster
+        v-model:open="posterOpen"
+        :stats="stats"
+        :theme="form.theme"
+        :reduce-motion="form.reduceMotion"
+      />
+    </template>
   </motion.section>
 </template>
 

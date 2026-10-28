@@ -96,3 +96,14 @@ test("热力图和折线图使用自定义提示与动效", async ({ page }) => 
     .poll(async () => Number(await cursor.getAttribute("cx")))
     .toBeGreaterThan(initial + 20);
 });
+test("离开记录页后卸载重内容并保留返回后的效果", async ({ page }) => {
+  await page.goto("/#records");
+  const cells = page.locator(".playtime-heatmap__cell");
+  await expect(cells).toHaveCount(371);
+  await page.locator('[data-page="home"]').click();
+  await expect(page.locator("#page-home")).toBeVisible();
+  await expect(cells).toHaveCount(0);
+  await page.keyboard.press("Control+5");
+  await expect(page.locator("#page-records")).toBeVisible();
+  await expect(cells).toHaveCount(371);
+});
