@@ -1247,6 +1247,19 @@ describe("更新检查", () => {
     expect(c.downloadView.value.progress).toBe(1);
   });
 
+  it("未完成时文件数回退也不会显示 100%", async () => {
+    const c = await boot();
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      phase: "needs-update",
+      totalBytes: 0,
+      downloadedBytes: 0,
+      completedFiles: 3,
+      totalFiles: 3,
+    });
+    expect(c.downloadView.value.progress).toBe(99);
+  });
+
   it.each([
     [
       check({

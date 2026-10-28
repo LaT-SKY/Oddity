@@ -606,6 +606,8 @@ fn prepare_item(
             if final_temp.is_file()
                 && verify_cancellable(&final_temp, item.size, &item.md5, &|| progress.cancelled())?
             {
+                // 完整补丁产物是之前下载并应用补丁的结果, 计入本轮已下载量.
+                progress.add(item.download_size);
                 return Ok(Prepared::File(final_temp));
             }
         }
@@ -876,6 +878,7 @@ fn download_to_temp(
         if length == expected_size {
             if verify_cancellable(temp, expected_size, expected_md5, &|| progress.cancelled())? {
                 fs::remove_file(range_index_path(temp)).ok();
+                progress.add(length);
                 return Ok(0);
             }
             // 分块下载的稀疏文件长度已经等于目标大小，但块索引还在；
@@ -914,6 +917,8 @@ fn download_to_temp(
         }
     }
 
+    // 本轮开始前已存在的有效前缀会继续使用, 完成后与本次下载量一起计入进度.
+    let mut resumed = temp.metadata().map(|meta| meta.len()).unwrap_or(0);
     let mut last_error = None;
     for (i, cdn) in config.cdns.iter().enumerate() {
         let attempt_url = request_url(config, cdn, i, url);
@@ -926,9 +931,16 @@ fn download_to_temp(
                 Ok(bytes) => match verify_cancellable(temp, expected_size, expected_md5, &|| {
                     progress.cancelled()
                 }) {
-                    Ok(true) => return Ok(bytes),
+                    Ok(true) => {
+                        // 服务端忽略 Range 时会从头覆盖文件, 此时旧前缀不再计入.
+                        if resumed > 0 && resumed.saturating_add(bytes) <= expected_size {
+                            progress.add(resumed);
+                        }
+                        return Ok(bytes);
+                    }
                     Ok(false) => {
                         fs::remove_file(temp).ok();
+                        resumed = 0;
                         last_error = Some(Error::Integrity(format!(
                             "download md5 mismatch for {}",
                             temp.display()
@@ -1109,6 +1121,11 @@ fn download_ranges(
         }
     }
 
+    let resumed_bytes = chunks
+        .iter()
+        .filter(|chunk| done.contains(&chunk.index))
+        .map(|chunk| chunk.size)
+        .sum::<u64>();
     let total = AtomicUsize::new(0);
     let failed = AtomicBool::new(false);
     let first_error: Mutex<Option<Error>> = Mutex::new(None);
@@ -1185,6 +1202,9 @@ fn download_ranges(
             "range download md5 mismatch for {}",
             temp.display()
         )));
+    }
+    if resumed_bytes > 0 {
+        progress.add(resumed_bytes);
     }
     fs::remove_file(index_path).ok();
     Ok(0)
@@ -1920,7 +1940,8 @@ mod tests {
             &plan_of(vec![res_item("data/a.bin", &md5, content.len() as u64)]),
             &ApplyOptions::default(),
         );
-        assert_eq!(report.downloaded_bytes, 0);
+        // 已存在的完整临时文件计入本轮已下载量, 但不会再次请求 CDN.
+        assert_eq!(report.downloaded_bytes, content.len() as u64);
         assert_eq!(server.hits(&path), 0);
         assert_eq!(dir.read("install/data/a.bin"), content);
     }
@@ -1944,7 +1965,8 @@ mod tests {
         plan.max_threads = 1;
         let report = apply_plan(&config, &plan, &ApplyOptions::default());
         assert!(report.results[0].ok, "{:?}", report.results[0].error);
-        assert_eq!(report.downloaded_bytes, content.len() as u64 - 100);
+        // 续传前缀与本次下载量一起构成完整文件的进度.
+        assert_eq!(report.downloaded_bytes, content.len() as u64);
         assert_eq!(dir.read("install/data/a.bin"), content);
         assert!(!part.exists());
     }
@@ -2292,7 +2314,8 @@ mod tests {
         );
         assert!(report.results[0].ok, "{:?}", report.results[0].error);
         assert_eq!(dir.read("install/data/a.bin"), content);
-        assert_eq!(report.downloaded_bytes, content.len() as u64 - RANGE_CHUNK);
+        // 已完成的块与本次下载的块一起计入进度.
+        assert_eq!(report.downloaded_bytes, content.len() as u64);
         let ranges = server.ranges();
         assert_eq!(ranges.len(), 3, "{ranges:?}");
         assert!(!ranges.iter().any(|range| range.starts_with("bytes=0-")));
@@ -2421,9 +2444,10 @@ mod tests {
         let final_path =
             chain_final_temp(&config.patcher_dir.join("tmp/nte-native"), &item).unwrap();
         let cancelled = || final_path.is_file();
+        let plan = plan_of(vec![item]);
         let report = apply_plan_observed_full(
             &config,
-            &plan_of(vec![item]),
+            &plan,
             &ApplyOptions::default(),
             &mut |_| {},
             &mut |_, _| {},
@@ -2434,6 +2458,13 @@ mod tests {
         assert!(report.cancelled);
         assert_eq!(dir.read("install/data/a.bin"), old);
         assert!(!config.patcher_dir.join("ResList.xml").exists());
+        assert_eq!(server.targets().len(), 1);
+
+        // 再次执行直接复用完整补丁产物, 不计入新的网络请求.
+        let report = apply_plan(&config, &plan, &ApplyOptions::default());
+        assert_eq!(report.failed, 0);
+        assert_eq!(report.downloaded_bytes, bytes.len() as u64);
+        assert_eq!(dir.read("install/data/a.bin"), new);
         assert_eq!(server.targets().len(), 1);
     }
 }
