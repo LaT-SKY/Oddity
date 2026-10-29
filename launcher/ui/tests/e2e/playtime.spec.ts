@@ -74,20 +74,14 @@ test("热力图和折线图使用自定义提示与动效", async ({ page }) => 
         : 999;
     })
     .toBeLessThan(80);
-  const hover = panel.locator(".playtime-heatmap__hover");
-  await expect(hover).toHaveCount(1);
+  await expect(cell).toHaveClass(/is-hovered/);
   await expect
-    .poll(() =>
-      hover.evaluate((element) => getComputedStyle(element).transform),
-    )
-    .toContain("1.45");
-  await expect
-    .poll(() => cell.evaluate((element) => getComputedStyle(element).transform))
-    .toBe("none");
+    .poll(() => cell.evaluate((element) => getComputedStyle(element).boxShadow))
+    .not.toBe("none");
   await page.screenshot({ path: "test-results/playtime-heatmap-tooltip.png" });
   await page.mouse.move(12, 12);
   await expect(heatTip).toHaveCount(0);
-  await expect(hover).toHaveCount(0);
+  await expect(cell).not.toHaveClass(/is-hovered/);
 
   const chart = panel.locator(".playtime-chart");
   const chartBox = (await chart.boundingBox())!;
