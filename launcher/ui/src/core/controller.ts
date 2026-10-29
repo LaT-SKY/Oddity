@@ -14,6 +14,7 @@ import type {
   LauncherBackgroundMedia,
   PlaytimeHistory,
   Settings,
+  MeteredPolicy,
 } from "../types/launcher";
 import {
   invoke,
@@ -411,6 +412,14 @@ export const form = reactive({
     overlay: false,
     gamescope: { ...defaultGamescope },
   },
+  updates: {
+    autoDownload: false,
+    metered: "ask" as MeteredPolicy,
+    limitBytesPerSecond: 0,
+    windowEnabled: false,
+    windowStart: "02:00",
+    windowEnd: "07:00",
+  },
   theme: "light",
   heroMedia: "video",
   reduceMotion: false,
@@ -569,6 +578,12 @@ const DOWNLOAD_STAGE_LABELS: Record<string, string> = {
   verify: "校验文件",
   install: "写入文件",
 };
+const AUTO_WAITING_LABELS: Record<string, string> = {
+  window: "当前不在允许的时段内, 自动下载稍后继续",
+  metered: "当前为计费网络, 自动下载等待确认",
+  game: "游戏运行中, 退出后继续自动下载",
+  disk: "磁盘空间不足, 自动下载已暂停",
+};
 
 export const downloadView = computed(() => {
   const status = state.download;
@@ -598,6 +613,9 @@ export const downloadView = computed(() => {
     ? Math.round((downloadedBytes / totalBytes) * 100)
     : fileProgress;
   const stageText = DOWNLOAD_STAGE_LABELS[status?.stage || ""] || "";
+  const autoText = status?.autoWaiting
+    ? AUTO_WAITING_LABELS[status.autoWaiting] || ""
+    : "";
   const launcherScope = phase === "needs-install" || phase === "launcher";
   return {
     title: titles[phase],
@@ -616,8 +634,10 @@ export const downloadView = computed(() => {
           : `补丁 ${formatSize(status.patchBytes)}`
         : "",
     stageText,
+    autoText,
     detail:
       status?.error ||
+      autoText ||
       (status?.unverifiedFiles
         ? `${status.unverifiedFiles} 个文件尚未验证, 请完整校验或安装修复`
         : phase === "checking"
@@ -1151,6 +1171,12 @@ function applyBootstrap(
     settings.gameMode,
   );
 
+  form.updates.autoDownload = settings.updates?.autoDownload ?? false;
+  form.updates.metered = settings.updates?.metered ?? "ask";
+  form.updates.limitBytesPerSecond = settings.updates?.limitBytesPerSecond ?? 0;
+  form.updates.windowEnabled = Boolean(settings.updates?.window);
+  form.updates.windowStart = settings.updates?.window?.start || "02:00";
+  form.updates.windowEnd = settings.updates?.window?.end || "07:00";
   form.stackBulletins = settings.stackBulletins;
   applyReduceMotion(Boolean(settings.reduceMotion));
   applyHeroMedia(settings.heroMedia || "video");
@@ -1204,8 +1230,43 @@ export async function checkUpdate(full = false, silent = false) {
 function applyDownloadStatus(status: DownloadStatus) {
   downloadRevision++;
   const previous = state.download?.phase;
+  const previousAuto = state.download?.autoWaiting || "";
+  const sameDistribution =
+    !state.bootstrap ||
+    status.distribution === state.bootstrap.settings.distribution;
   state.download = status;
+  if (
+    sameDistribution &&
+    status.autoWaiting === "metered" &&
+    previousAuto !== "metered" &&
+    ["needs-install", "needs-update", "needs-verify"].includes(status.phase)
+  ) {
+    notify("检测到计费网络, 自动下载等待确认.", "info", 0, {
+      key: "auto-download-metered",
+      title: "自动下载",
+      primary: {
+        label: "仍然下载",
+        icon: "i-download-simple",
+        run: () => startGameDownload("apply", false),
+      },
+      secondary: { label: "查看更新", run: () => showPage("update") },
+    });
+  }
+  if (
+    sameDistribution &&
+    status.origin === "auto" &&
+    ["launcher", "game"].includes(status.phase) &&
+    !["launcher", "game"].includes(previous || "")
+  ) {
+    notify("已开始自动下载游戏资源.", "info", 4000, {
+      key: "auto-download-start",
+    });
+  }
   if (status.phase === "ready" && previous !== "ready") {
+    if (status.origin === "auto" && status.mode === "apply")
+      notify("游戏资源已自动更新完成.", "ok", 5000, {
+        key: "auto-download-done",
+      });
     const epoch = generation;
     const revision = downloadRevision;
     const bootstrapVersion = bootstrapRevision;
@@ -1587,6 +1648,14 @@ function currentSettings(): Settings {
     stableEnvironment: state.bootstrap?.settings.stableEnvironment ?? null,
     launchMode,
     gameMode: { ...form.gameMode, gamescope: { ...form.gameMode.gamescope } },
+    updates: {
+      autoDownload: form.updates.autoDownload,
+      metered: form.updates.metered,
+      limitBytesPerSecond: form.updates.limitBytesPerSecond,
+      window: form.updates.windowEnabled
+        ? { start: form.updates.windowStart, end: form.updates.windowEnd }
+        : null,
+    },
     language: "zh-CN",
     reduceMotion: form.reduceMotion,
     stackBulletins: form.stackBulletins,

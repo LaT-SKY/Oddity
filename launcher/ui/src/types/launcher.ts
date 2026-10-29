@@ -116,6 +116,17 @@ export interface GameModeStatus {
   capabilities: GameModeFeatureStatus[];
   session: GameModeFeatureStatus[] | null;
 }
+export type MeteredPolicy = "ask" | "pause" | "allow";
+export interface UpdateWindow {
+  start: string;
+  end: string;
+}
+export interface UpdateSettings {
+  autoDownload: boolean;
+  metered: MeteredPolicy;
+  limitBytesPerSecond: number;
+  window: UpdateWindow | null;
+}
 export interface Settings {
   installRoot: string | null;
   globalInstallRoot: string | null;
@@ -125,6 +136,7 @@ export interface Settings {
   stableEnvironment: string | null;
   launchMode: string;
   gameMode: GameModeOptions;
+  updates: UpdateSettings;
   language: string;
   reduceMotion: boolean;
   stackBulletins: boolean;
@@ -240,6 +252,12 @@ export type DownloadPhase =
 export interface DownloadStatus {
   mode: "check" | "apply";
   phase: DownloadPhase;
+  /** manual 或 auto, 用于区分手动与自动任务. */
+  origin: "manual" | "auto";
+  /** 自动下载的等待原因, 空字符串表示没有等待. */
+  autoWaiting: string;
+  /** 最近一次资源检查完成时间 (Unix 毫秒), 0 表示尚未检查. */
+  checkedAt: number;
   distribution: "cn" | "global";
   installRoot: string;
   /** 官方本地清单存在时视为已安装。 */

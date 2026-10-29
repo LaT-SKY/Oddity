@@ -85,6 +85,13 @@ export const settingsEntries = [
     keywords: "官方 登录 后台 前台 开发",
   },
   {
+    id: "updates",
+    category: "game",
+    label: "资源自动下载",
+    description: "发现更新后自动下载, 并设置限速、计费网络与时段.",
+    keywords: "自动 更新 下载 限速 带宽 计费 流量 时段 后台",
+  },
+  {
     id: "runtime",
     category: "runtime",
     label: "Proton 运行环境",
