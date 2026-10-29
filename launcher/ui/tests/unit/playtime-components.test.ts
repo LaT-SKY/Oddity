@@ -46,7 +46,7 @@ describe("游玩热力图", () => {
 
   it("展示汇总及可读取的每日记录, 格子不进入焦点顺序", () => {
     render();
-    expect(wrapper.get('[role="img"]').attributes("aria-label")).toBe(
+    expect(wrapper.get('[role="group"]').attributes("aria-label")).toBe(
       "最近 12 个月游玩 1 小时, 已游玩 1 天",
     );
     expect(wrapper.findAll(".playtime-heatmap__cell")).toHaveLength(371);

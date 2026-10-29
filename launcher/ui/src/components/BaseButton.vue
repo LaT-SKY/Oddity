@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { motion, AnimatePresence } from "motion-v";
+import { motion, AnimatePresence, useDomRef } from "motion-v";
+import { computed, useAttrs, type Ref } from "vue";
+import { gamepad, gamepadTarget } from "../core/gamepad";
+import GamepadGlyph from "./GamepadGlyph.vue";
 import { useControlMotion } from "../composables/useControlMotion";
 withDefaults(
   defineProps<{
@@ -14,9 +17,14 @@ withDefaults(
   { variant: "secondary", size: "md", type: "button" },
 );
 const { control, reduced } = useControlMotion();
+const button = useDomRef() as Ref<HTMLButtonElement | null>;
+const attrs = useAttrs();
+const primary = computed(() => attrs["data-pad-primary"] !== undefined);
+const selected = computed(() => gamepadTarget.value === button.value);
 </script>
 <template>
   <motion.button
+    ref="button"
     class="control-button"
     :class="[
       `control-button--${variant}`,
@@ -28,6 +36,7 @@ const { control, reduced } = useControlMotion();
     :aria-busy="busy || undefined"
     :while-press="disabled || busy || reduced ? undefined : { scale: 0.96 }"
     :transition="control"
+    :animate="{ scale: selected && gamepad.pressing && !reduced ? 0.96 : 1 }"
   >
     <span v-if="icon || busy" class="control-button__symbol">
       <AnimatePresence mode="wait">
@@ -65,5 +74,16 @@ const { control, reduced } = useControlMotion();
       </AnimatePresence>
     </span>
     <span v-if="!iconOnly" class="control-button__label"><slot /></span>
+    <motion.span
+      v-if="gamepad.active"
+      class="gamepad-button-hint"
+      :animate="{
+        opacity: selected || primary ? 1 : 0,
+        scale: selected || primary ? 1 : 0.8,
+      }"
+      :transition="control"
+      aria-hidden="true"
+      ><GamepadGlyph :button="primary ? 'r3' : 'confirm'"
+    /></motion.span>
   </motion.button>
 </template>

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { motion } from "motion-v";
-import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { save as saveDialog } from "../../core/filePicker";
 import BaseButton from "../../components/BaseButton.vue";
 import BaseModal from "../../components/BaseModal.vue";
 import { invoke, isTauri } from "../../core/api";

@@ -10,6 +10,8 @@ import {
 } from "../core/controller";
 import { playerExpanded } from "../composables/useSceneMotion";
 import HomeGameRecords from "../components/HomeGameRecords.vue";
+import { gamepad } from "../core/gamepad";
+import GamepadGlyph from "../components/GamepadGlyph.vue";
 </script>
 
 <template>
@@ -22,9 +24,7 @@ import HomeGameRecords from "../components/HomeGameRecords.vue";
   >
     <div class="hero">
       <div class="hero__inner">
-        <HomeGameRecords
-          v-if="state.bootstrap?.settings.distribution !== 'global'"
-        />
+        <HomeGameRecords />
         <motion.div
           class="hero__content"
           :initial="{ opacity: 0, y: 22 }"
@@ -64,7 +64,12 @@ import HomeGameRecords from "../components/HomeGameRecords.vue";
             >
               <span class="btn__text">{{ launchView.label }}</span>
               <span class="btn__icon"
-                ><svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
+                ><GamepadGlyph v-if="gamepad.active" button="west" /><svg
+                  v-else
+                  class="icon"
+                  viewBox="0 0 256 256"
+                  aria-hidden="true"
+                >
                   <use :href="'#' + launchView.icon"></use></svg
               ></span>
             </motion.button>

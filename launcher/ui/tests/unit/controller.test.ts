@@ -53,6 +53,10 @@ vi.mock("../../src/core/api", () => ({
     return backend.downloadUnlisten;
   },
 }));
+vi.mock("../../src/core/gamepad", async (original) => ({
+  ...(await original<typeof import("../../src/core/gamepad")>()),
+  startGamepad: () => () => {},
+}));
 const notificationProjection = vi.hoisted(() => ({
   items: [] as import("../../src/core/notifications").NotificationItem[],
 }));
@@ -2537,7 +2541,7 @@ it("区服切换后隔离公告缓存并丢弃旧请求", async () => {
   expect(localStorage.getItem("nte.bulletins.v2.global")).toBeNull();
   expect(localStorage.getItem("nte.bulletins.v2.cn")).toBeNull();
   expect(wrapper!.findComponent({ name: "HomeGameRecords" }).exists()).toBe(
-    false,
+    true,
   );
 });
 

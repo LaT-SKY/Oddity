@@ -1,3 +1,4 @@
+import { defaultGamepadOptions } from "../../src/types/gamepad";
 import { defaultGamescope } from "../../src/core/gameMode";
 import type {
   Bootstrap,
@@ -21,6 +22,7 @@ export const settings: Settings = {
     overlay: false,
     gamescope: { ...defaultGamescope },
   },
+  gamepad: defaultGamepadOptions(),
   language: "zh-CN",
   reduceMotion: true,
   stackBulletins: false,

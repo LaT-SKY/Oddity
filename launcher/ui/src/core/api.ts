@@ -1,3 +1,4 @@
+import { defaultGamepadOptions } from "../types/gamepad";
 import { defaultGamescope } from "./gameMode";
 import { defaultAttendanceTasks } from "./attendanceTasks";
 import { distributions } from "./distribution";
@@ -163,6 +164,7 @@ const mock: Bootstrap = {
     },
   ],
   settings: {
+    gamepad: defaultGamepadOptions(),
     installRoot: null,
     globalInstallRoot: null,
     distribution: "cn",
@@ -711,6 +713,26 @@ async function previewInvoke(
       applyPreviewDistribution();
       return clone(mock);
     }
+    case "gamepad_poll":
+      return {
+        idle: { requested: false, error: null },
+        devices: [],
+        device: null,
+        buttons: [],
+        pressed: [],
+        axes: [0, 0, 0, 0, 0, 0],
+        focused: false,
+        error: null,
+      };
+    case "gamepad_release_idle":
+    case "gamepad_feedback":
+      return null;
+    case "browse_files":
+    case "gamepad_profile_validate":
+      throw new Error("请在 Oddity 桌面应用中导入反馈配置.");
+    case "gamepad_profile_load":
+    case "gamepad_profile_save":
+      throw new Error("请在 Oddity 桌面应用中导入或导出反馈配置.");
     case "game_download_status":
       return clone(mockDownload);
     case "game_download_start": {

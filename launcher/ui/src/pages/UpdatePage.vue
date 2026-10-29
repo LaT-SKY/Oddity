@@ -417,6 +417,10 @@ const budgetVisible = computed(
         <div class="update-actions">
           <BaseButton
             id="game-download-primary"
+            data-pad-primary
+            :data-pad-action="
+              primary.kind === 'apply' ? '更新游戏' : '快速检查'
+            "
             :variant="displayPhase === 'ready' ? 'secondary' : 'primary'"
             :icon="primary.icon"
             :disabled="primaryDisabled"

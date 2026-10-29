@@ -28,7 +28,6 @@
 .control-input:focus,
 .field input:focus {
   border-color: var(--input-focus-border);
-  box-shadow: var(--control-ring);
 }
 .control-input[aria-invalid="true"] {
   border-color: var(--danger);
@@ -72,11 +71,6 @@
   height: 20px;
   border-radius: 50%;
   box-shadow: var(--switch-knob-shadow);
-}
-.control-switch:has(input:focus-visible) {
-  outline: 2px solid var(--focus);
-  outline-offset: 3px;
-  border-radius: var(--pill);
 }
 .control-switch:has(input:disabled),
 fieldset:disabled .control-switch {

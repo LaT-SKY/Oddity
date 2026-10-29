@@ -20,6 +20,80 @@ const GAMEMODE_PATH: &str = "/com/feralinteractive/GameMode";
 const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
 const NOTIFICATIONS_PATH: &str = "/org/freedesktop/Notifications";
 
+#[derive(Debug)]
+pub struct IdleInhibitor {
+    bus: Connection,
+    handle: OwnedObjectPath,
+    screensaver: Option<u32>,
+    power: Option<u32>,
+}
+impl IdleInhibitor {
+    pub fn start(reason: &str) -> Result<Self, String> {
+        Self::start_on(connection().map_err(|error| error.to_string())?, reason)
+    }
+    fn start_on(bus: Connection, reason: &str) -> Result<Self, String> {
+        let options = HashMap::from([("reason", Value::from(reason))]);
+        let handle = Proxy::new(&bus, PORTAL, PORTAL_PATH, "org.freedesktop.portal.Inhibit")
+            .and_then(|proxy| proxy.call("Inhibit", &("", 12u32, options)))
+            .map_err(|error| error.to_string())?;
+        // KDE 的屏幕空闲策略由 ScreenSaver 接口接管, Portal 单独返回句柄不足以抑制熄屏.
+        let screensaver = Proxy::new(
+            &bus,
+            "org.freedesktop.ScreenSaver",
+            "/org/freedesktop/ScreenSaver",
+            "org.freedesktop.ScreenSaver",
+        )
+        .and_then(|proxy| proxy.call("Inhibit", &("Oddity", reason)))
+        .ok();
+        let power = Proxy::new(
+            &bus,
+            "org.freedesktop.PowerManagement.Inhibit",
+            "/org/freedesktop/PowerManagement/Inhibit",
+            "org.freedesktop.PowerManagement.Inhibit",
+        )
+        .and_then(|proxy| proxy.call("Inhibit", &("Oddity", reason)))
+        .ok();
+        Ok(Self {
+            bus,
+            handle,
+            screensaver,
+            power,
+        })
+    }
+}
+impl Drop for IdleInhibitor {
+    fn drop(&mut self) {
+        if let Some(cookie) = self.power {
+            let _ = Proxy::new(
+                &self.bus,
+                "org.freedesktop.PowerManagement.Inhibit",
+                "/org/freedesktop/PowerManagement/Inhibit",
+                "org.freedesktop.PowerManagement.Inhibit",
+            )
+            .and_then(|proxy| proxy.call::<_, _, ()>("UnInhibit", &cookie));
+        }
+        if let Some(cookie) = self.screensaver {
+            let _ = Proxy::new(
+                &self.bus,
+                "org.freedesktop.ScreenSaver",
+                "/org/freedesktop/ScreenSaver",
+                "org.freedesktop.ScreenSaver",
+            )
+            .and_then(|proxy| proxy.call::<_, _, ()>("UnInhibit", &cookie));
+        }
+        let result = Proxy::new(
+            &self.bus,
+            PORTAL,
+            self.handle.as_str(),
+            "org.freedesktop.portal.Request",
+        )
+        .and_then(|proxy| proxy.call::<_, _, ()>("Close", &()));
+        if let Err(error) = result {
+            eprintln!("释放防休眠请求失败: {error}");
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Options {
@@ -161,7 +235,7 @@ pub(crate) fn executable(name: &str) -> Option<std::path::PathBuf> {
 pub struct Session {
     bus: Option<Connection>,
     status: Vec<Status>,
-    inhibit: Option<OwnedObjectPath>,
+    inhibit: Option<IdleInhibitor>,
     notifications: Option<u32>,
     registered: HashSet<i32>,
     attempted: HashSet<i32>,
@@ -237,12 +311,7 @@ impl Session {
                 .bus
                 .as_ref()
                 .ok_or_else(|| "会话总线不可用".to_string())
-                .and_then(|bus| {
-                    let options = HashMap::from([("reason", Value::from("Oddity 游戏会话"))]);
-                    Proxy::new(bus, PORTAL, PORTAL_PATH, "org.freedesktop.portal.Inhibit")
-                        .and_then(|proxy| proxy.call("Inhibit", &("", 12u32, options)))
-                        .map_err(|error| error.to_string())
-                });
+                .and_then(|bus| IdleInhibitor::start_on(bus.clone(), "Oddity 游戏会话"));
             match result {
                 Ok(handle) => {
                     session.inhibit = Some(handle);
@@ -360,19 +429,8 @@ impl Session {
             return;
         }
         self.finished = true;
+        drop(self.inhibit.take());
         if let Some(bus) = &self.bus {
-            if let Some(handle) = self.inhibit.take() {
-                let result = Proxy::new(
-                    bus,
-                    PORTAL,
-                    handle.as_str(),
-                    "org.freedesktop.portal.Request",
-                )
-                .and_then(|proxy| proxy.call::<_, _, ()>("Close", &()));
-                if let Err(error) = result {
-                    eprintln!("释放防休眠请求失败: {error}");
-                }
-            }
             if let Some(cookie) = self.notifications.take() {
                 let result = Proxy::new(bus, NOTIFICATIONS, NOTIFICATIONS_PATH, NOTIFICATIONS)
                     .and_then(|proxy| proxy.call::<_, _, ()>("UnInhibit", &cookie));

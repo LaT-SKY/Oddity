@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from "vue";
+import { computed, reactive, ref, useId } from "vue";
 import {
   formatPlaytime,
   formatShortDate,
@@ -35,6 +35,9 @@ const { reduced } = useControlMotion();
 const hovered = ref<PlaytimeDay | null>(null);
 // 指针位置单独传递, 移动时只更新提示位置, 不重新渲染 371 个格子。
 const pointer = reactive({ x: 0, y: 0 });
+const region = ref<HTMLElement | null>(null);
+const uid = useId();
+const browsing = ref(false);
 let activeCell: HTMLElement | null = null;
 
 // 悬停只切换高亮类, 格子不做缩放动画。
@@ -57,6 +60,9 @@ function enter(event: MouseEvent) {
     move(event);
     return;
   }
+  showCell(target, event.clientX, event.clientY);
+}
+function showCell(target: HTMLElement, x: number, y: number) {
   const index = Number(target.dataset.index);
   const day = Number.isInteger(index) ? days.value[index] : undefined;
   if (!day || day.future) {
@@ -64,8 +70,8 @@ function enter(event: MouseEvent) {
     return;
   }
   highlight(target);
-  pointer.x = event.clientX;
-  pointer.y = event.clientY;
+  pointer.x = x;
+  pointer.y = y;
   hovered.value = day;
 }
 function move(event: MouseEvent) {
@@ -78,7 +84,58 @@ function reset() {
   hovered.value = null;
 }
 function leave() {
+  browsing.value = false;
   reset();
+}
+function keydown(event: KeyboardEvent) {
+  if (event.key === "Escape" && browsing.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    leave();
+    return;
+  }
+  let index = activeCell
+    ? Number(activeCell.dataset.index)
+    : days.value.length -
+      1 -
+      [...days.value].reverse().findIndex((day) => !day.future);
+  if (event.key === "Enter") {
+    event.preventDefault();
+    browsing.value = !browsing.value;
+    if (!browsing.value) {
+      leave();
+      return;
+    }
+  } else if (
+    browsing.value &&
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+  ) {
+    event.preventDefault();
+    index +=
+      event.key === "ArrowLeft"
+        ? -7
+        : event.key === "ArrowRight"
+          ? 7
+          : event.key === "ArrowUp"
+            ? -1
+            : 1;
+  } else return;
+  index = Math.max(
+    0,
+    Math.min(
+      days.value.length -
+        1 -
+        [...days.value].reverse().findIndex((day) => !day.future),
+      index,
+    ),
+  );
+  const cell = region.value?.querySelector<HTMLElement>(
+    `[data-index="${index}"]`,
+  );
+  if (cell) {
+    const bounds = cell.getBoundingClientRect();
+    showCell(cell, bounds.left + bounds.width / 2, bounds.top);
+  }
 }
 </script>
 
@@ -94,7 +151,16 @@ function leave() {
     </div>
     <div
       class="playtime-heatmap__grid"
-      role="img"
+      ref="region"
+      tabindex="0"
+      data-pad-region
+      :data-pad-browsing="browsing || undefined"
+      :aria-activedescendant="
+        browsing && hovered ? `${uid}-${hovered.key}` : undefined
+      "
+      role="group"
+      @keydown="keydown"
+      @blur="leave"
       :aria-label="summary"
       @mouseover="enter"
       @mousemove="move"
@@ -115,6 +181,7 @@ function leave() {
           class="playtime-heatmap__cell"
           :class="[`is-level-${day.level}`, { 'is-future': day.future }]"
           :style="{ gridColumn: weekIndex + 2, gridRow: dayIndex + 1 }"
+          :id="`${uid}-${day.key}`"
           :data-index="weekIndex * 7 + dayIndex"
           aria-hidden="true"
         />

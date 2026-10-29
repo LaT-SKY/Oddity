@@ -117,6 +117,8 @@ onBeforeUnmount(() => {
       <div class="page-head__actions">
         <BaseButton
           icon="i-download-simple"
+          data-pad-primary
+          data-pad-action="导出"
           :busy="playtime.loading"
           :disabled="!hasRecords"
           @click="openPoster"

@@ -1,0 +1,252 @@
+.gamepad-glyph {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  vertical-align: middle;
+  color: currentColor;
+}
+.gamepad-select-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  pointer-events: none;
+}
+.gamepad-select {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1100;
+  pointer-events: none;
+  isolation: isolate;
+}
+.gamepad-select__surface {
+  width: 100%;
+  height: 100%;
+  border-radius: 15px;
+  background: color-mix(in srgb, var(--signal-strong) 12%, transparent);
+  box-shadow:
+    0 7px 20px color-mix(in srgb, var(--bone) 12%, transparent),
+    inset 0 1px 0 color-mix(in srgb, var(--signal-strong) 20%, transparent);
+}
+.gamepad-select__key {
+  position: absolute;
+  right: -10px;
+  top: 50%;
+  margin-top: -15px;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+.gamepad-hints {
+  position: fixed;
+  z-index: 1120;
+  bottom: 18px;
+  right: 24px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: var(--text-soft);
+  font-size: var(--text-sm);
+  pointer-events: none;
+}
+.gamepad-hints__slot {
+  display: flex;
+  justify-content: flex-end;
+  width: 112px;
+  min-height: 26px;
+}
+.gamepad-hints__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.gamepad-hints .gamepad-glyph {
+  width: 22px;
+  height: 22px;
+}
+.gamepad-button-hint {
+  display: inline-flex;
+  width: 24px;
+  margin-left: 8px;
+}
+.control-button--icon .gamepad-button-hint {
+  position: absolute;
+  right: -8px;
+  bottom: -8px;
+  margin: 0;
+}
+.control-button {
+  position: relative;
+}
+.gamepad-mode .main {
+  padding-bottom: 74px;
+  scroll-padding-block: 24px 80px;
+}
+.gamepad-mode .page,
+.gamepad-mode .settings-panel,
+.gamepad-mode .settings-search-results {
+  scroll-padding-block: 12px 68px;
+}
+.gamepad-mode .settings-panel,
+.gamepad-mode .settings-search-results {
+  padding-bottom: 68px;
+}
+.gamepad-mode .notification-stack {
+  bottom: 82px;
+}
+.gamepad-connection {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-block: 8px 22px;
+  color: var(--text-soft);
+  font-size: var(--text-md);
+}
+.gamepad-profile-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.gamepad-profile-name {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+.gamepad-strength {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.gamepad-strength input {
+  width: 150px;
+  accent-color: var(--signal-strong);
+}
+.gamepad-strength output {
+  min-width: 4ch;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-md);
+}
+.gamepad-settings-hint {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.7;
+}
+.gamepad-icon-preview {
+  display: flex;
+  gap: 18px;
+  padding-block: 8px 20px;
+  flex-wrap: wrap;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.gamepad-icon-preview > span {
+  display: inline-flex;
+  gap: 7px;
+  align-items: center;
+}
+.pad-keyboard-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 1080;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 24px 36px 78px;
+  background: var(--modal-backdrop);
+}
+.pad-keyboard {
+  width: min(680px, 100%);
+  padding: 22px;
+  border-radius: 24px;
+  background: var(--surface-solid);
+  box-shadow: var(--modal-shadow);
+}
+.pad-keyboard header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+.pad-keyboard h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+.pad-keyboard__display {
+  display: block;
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--input-bg);
+  color: var(--bone);
+  overflow-wrap: anywhere;
+  max-height: 80px;
+  overflow: auto;
+  margin-bottom: 18px;
+}
+.pad-keyboard__row {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 6px;
+}
+.pad-keyboard__row > button {
+  min-width: 38px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  color: var(--bone);
+  background: var(--ghost-bg);
+}
+.pad-keyboard__actions {
+  margin-top: 12px;
+}
+@media (max-width: 760px) {
+  .gamepad-hints {
+    gap: 12px;
+    right: 16px;
+    bottom: 12px;
+  }
+}
+
+.pad-files {
+  display: grid;
+  gap: 16px;
+}
+.pad-files__path {
+  display: flex;
+  gap: 10px;
+}
+.pad-files__path input {
+  flex: 1;
+  min-width: 0;
+}
+.pad-files__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  justify-content: flex-end;
+}
+.pad-files__list {
+  display: grid;
+  gap: 6px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px;
+  margin: -8px;
+  scroll-padding: 8px;
+}
+.pad-files__list > button {
+  justify-content: flex-start;
+}
+.pad-files__list .control-button__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

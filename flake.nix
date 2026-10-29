@@ -35,6 +35,10 @@
             rustfmt
             clippy
             pkg-config
+            cmake
+            udev
+            alsa-lib
+            libpulseaudio
             openssl
             nodejs
             pnpm

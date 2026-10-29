@@ -327,6 +327,8 @@ onBeforeUnmount(() => {
             variant="ghost"
             icon="i-arrows-clockwise"
             :busy="loading"
+            data-pad-primary
+            data-pad-action="重新检测"
             @click="
               refresh();
               gpu?.reload();

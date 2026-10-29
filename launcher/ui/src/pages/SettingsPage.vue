@@ -32,6 +32,7 @@ import DirectoryField from "../components/DirectoryField.vue";
 import SettingGroup from "../components/settings/SettingGroup.vue";
 import SettingRow from "../components/settings/SettingRow.vue";
 import LogExport from "../components/LogExport.vue";
+import GamepadSettings from "../components/GamepadSettings.vue";
 
 const root = ref<HTMLElement | null>(null);
 const { control, surface, reduced } = useControlMotion();
@@ -196,6 +197,8 @@ function resultKeys(event: KeyboardEvent) {
           }}</span>
           <BaseButton
             id="settings-redetect"
+            data-pad-primary
+            data-pad-action="重新检测"
             variant="ghost"
             icon="i-arrows-clockwise"
             :busy="ui.redetecting"
@@ -317,8 +320,13 @@ function resultKeys(event: KeyboardEvent) {
               }"
               :transition="surface"
             >
+              <GamepadSettings
+                v-if="visited.has(category.id) && category.id === 'gamepad'"
+              />
               <template
-                v-if="visited.has(category.id) && category.id === 'appearance'"
+                v-else-if="
+                  visited.has(category.id) && category.id === 'appearance'
+                "
               >
                 <SettingGroup title="外观">
                   <SettingRow

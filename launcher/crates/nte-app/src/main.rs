@@ -36,7 +36,9 @@ mod attendance_commands;
 mod background_server;
 mod download_commands;
 mod environment_commands;
+mod file_commands;
 mod game_mode_commands;
+mod gamepad_commands;
 mod log_commands;
 mod native_session;
 mod playtime_commands;
@@ -760,7 +762,13 @@ fn settings_path() -> PathBuf {
 fn load_settings() -> Settings {
     let path = settings_path();
     match fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
+        Ok(text) => {
+            let mut settings: Settings = serde_json::from_str(&text).unwrap_or_default();
+            if settings.gamepad.validate().is_err() {
+                settings.gamepad = Default::default();
+            }
+            settings
+        }
         Err(_) => Settings::default(),
     }
 }
@@ -1330,6 +1338,7 @@ fn save_settings(
 ) -> Result<Bootstrap, String> {
     let guard = downloads.inner.lock().map_err(|error| error.to_string())?;
     let mut next = settings;
+    next.gamepad.validate()?;
     next.game_mode
         .gamescope
         .validate()
@@ -2364,6 +2373,14 @@ fn main() {
         .manage(download_commands::DownloadManager::default())
         .manage(background_server::BackgroundServer::start())
         .on_window_event(|window, event| {
+            if matches!(
+                event,
+                WindowEvent::Focused(false)
+                    | WindowEvent::Destroyed
+                    | WindowEvent::CloseRequested { .. }
+            ) {
+                gamepad_commands::stop();
+            }
             if let WindowEvent::CloseRequested { api, .. } = event {
                 let minimize = window
                     .try_state::<AppState>()
@@ -2395,6 +2412,13 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            file_commands::browse_files,
+            gamepad_commands::gamepad_poll,
+            gamepad_commands::gamepad_release_idle,
+            gamepad_commands::gamepad_feedback,
+            gamepad_commands::gamepad_profile_validate,
+            gamepad_commands::gamepad_profile_load,
+            gamepad_commands::gamepad_profile_save,
             attendance_commands::attendance_status,
             attendance_commands::attendance_refresh_game_records,
             attendance_commands::attendance_login,

@@ -70,6 +70,8 @@ const { surface } = useControlMotion();
         variant="ghost"
         icon="i-arrows-clockwise"
         :busy="loading"
+        data-pad-primary
+        data-pad-action="刷新公告"
         @click="fetchBulletins(false, true)"
         >{{ loading ? "正在更新" : "刷新公告" }}</BaseButton
       >

@@ -2,6 +2,7 @@ import { reactive } from "vue";
 
 export const settingsCategories = [
   { id: "appearance", label: "外观与交互", icon: "i-monitor" },
+  { id: "gamepad", label: "手柄", icon: "i-game-controller" },
   { id: "game", label: "游戏与启动", icon: "i-game-controller" },
   { id: "runtime", label: "运行环境", icon: "i-hard-drives" },
   { id: "account", label: "账号与签到", icon: "i-users" },
@@ -14,6 +15,13 @@ export const settingsNavigation = reactive<{
 }>({ category: "appearance", query: "" });
 
 export const settingsEntries = [
+  {
+    id: "gamepad",
+    category: "gamepad",
+    label: "手柄",
+    description: "配置手柄操作、按键图标与触觉反馈.",
+    keywords: "DS DualSense DualShock Xbox Switch 手柄 振动 反馈 摇杆",
+  },
   {
     id: "theme",
     category: "appearance",
