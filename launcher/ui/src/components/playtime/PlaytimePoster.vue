@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { motion } from "motion-v";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import BaseButton from "../../components/BaseButton.vue";
 import BaseModal from "../../components/BaseModal.vue";
 import { invoke, isTauri } from "../../core/api";
 import { formatPlaytime, type PlaytimeStats } from "../../core/playtime";
 import { notify } from "../../core/notifications";
+import { useControlMotion } from "../../composables/useControlMotion";
 
 const props = defineProps<{
   open: boolean;
@@ -14,49 +16,168 @@ const props = defineProps<{
   reduceMotion?: boolean;
 }>();
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
+const { reduced } = useControlMotion();
+const reducedMotion = computed(
+  () => Boolean(props.reduceMotion) || reduced.value,
+);
 
 const generating = ref(false);
 const saving = ref(false);
 const posterUrl = ref("");
 const savedPath = ref("");
 const error = ref("");
+let posterBlob: Blob | null = null;
+
+// 海报内容只取决于记录本身, 相同记录的再次打开直接复用上一次的结果。
+interface PosterCache {
+  signature: string;
+  blob: Blob;
+  url: string;
+}
+let posterCache: PosterCache | null = null;
+// 每次打开或重新生成都会推进轮次, 异步步骤返回后据此丢弃过期结果。
+let posterRun = 0;
 
 watch(
   () => props.open,
   async (open) => {
     if (!open) {
+      posterRun++;
+      generating.value = false;
       posterUrl.value = "";
       savedPath.value = "";
       error.value = "";
       return;
     }
     await nextTick();
+    // 先让弹窗和骨架画出一帧, 再开始绘制海报。
+    await nextPaint();
     await generatePoster();
   },
   { immediate: true },
 );
 
+function nextPaint() {
+  return new Promise<void>((resolve) => {
+    if (typeof requestAnimationFrame !== "function") {
+      resolve();
+      return;
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
+
+function posterSignature(stats: PlaytimeStats) {
+  const today = new Date();
+  return JSON.stringify([
+    stats.totalMs,
+    stats.sessionCount,
+    stats.daysPlayed,
+    stats.currentStreak,
+    stats.longestStreak,
+    stats.longestSessionMs,
+    stats.heatmap.start,
+    stats.heatmap.weeks.map((week) => week.map((day) => day.ms)),
+    stats.months.map((month) => [month.ms, month.sessions]),
+    // 海报底部绘制当天日期, 跨日打开需要重新生成。
+    `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`,
+  ]);
+}
+
 async function generatePoster() {
-  if (generating.value) return;
+  if (generating.value || !props.open) return;
+  const run = ++posterRun;
   generating.value = true;
   posterUrl.value = "";
+  posterBlob = null;
   savedPath.value = "";
   error.value = "";
+  const stale = (signature: string) =>
+    run !== posterRun ||
+    !props.open ||
+    signature !== posterSignature(props.stats);
   try {
-    await document.fonts?.ready;
-    const wallpaper = await loadWallpaper();
-    const canvas = document.createElement("canvas");
-    canvas.width = 1080;
-    canvas.height = 1440;
-    drawPoster(canvas.getContext("2d"), props.stats, wallpaper);
-    if (!props.open) return;
-    posterUrl.value = canvas.toDataURL("image/png");
+    let signature = posterSignature(props.stats);
+    while (true) {
+      if (posterCache?.signature === signature) {
+        posterBlob = posterCache.blob;
+        posterUrl.value = posterCache.url;
+        return;
+      }
+      await document.fonts?.ready;
+      const wallpaper = await loadWallpaper();
+      if (stale(signature)) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = 1080;
+      canvas.height = 1440;
+      drawPoster(canvas.getContext("2d"), props.stats, wallpaper);
+      const blob = await canvasToBlob(canvas);
+      if (stale(signature)) return;
+      // 绘制期间记录发生变化时, 用最新数据重画。
+      if (posterSignature(props.stats) !== signature) {
+        signature = posterSignature(props.stats);
+        continue;
+      }
+      const url = URL.createObjectURL(blob);
+      // 等图片解码完成再撤下骨架, 避免预览位置闪一帧空白。
+      await decodePoster(url);
+      if (stale(signature)) {
+        URL.revokeObjectURL(url);
+        if (!props.open || run !== posterRun) return;
+        signature = posterSignature(props.stats);
+        continue;
+      }
+      if (posterCache) URL.revokeObjectURL(posterCache.url);
+      posterCache = { signature, blob, url };
+      posterBlob = blob;
+      posterUrl.value = url;
+      return;
+    }
   } catch (cause) {
-    error.value = `生成海报失败: ${String(cause)}`;
+    // 旧轮次的失败不应显示在新一轮的骨架或预览旁。
+    if (run === posterRun && props.open)
+      error.value = `生成海报失败: ${String(cause)}`;
   } finally {
-    generating.value = false;
+    if (run === posterRun) generating.value = false;
   }
 }
+
+async function decodePoster(url: string) {
+  const image = new Image();
+  image.src = url;
+  try {
+    await image.decode?.();
+  } catch {
+    // 解码失败时仍然展示, 由预览图的加载状态兜底。
+  }
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("无法编码海报"))),
+      "image/png",
+    );
+  });
+}
+
+function blobToBase64(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(result.slice(result.indexOf(",") + 1));
+    };
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("无法读取海报数据"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+onBeforeUnmount(() => {
+  if (posterCache) URL.revokeObjectURL(posterCache.url);
+  posterCache = null;
+});
 
 function close() {
   if (saving.value) return;
@@ -87,7 +208,8 @@ async function savePoster() {
       filters: [{ name: "PNG 图片", extensions: ["png"] }],
     });
     if (!destination) return;
-    const data = posterUrl.value.split(",", 2)[1] ?? "";
+    if (!posterBlob) throw new Error("海报尚未生成");
+    const data = await blobToBase64(posterBlob);
     savedPath.value = await invoke("playtime_export_poster", {
       destination,
       data,
@@ -477,8 +599,26 @@ function pad(value: number) {
     @update:open="close"
   >
     <div class="playtime-poster">
-      <div v-if="generating" class="playtime-poster__status" role="status">
-        正在生成海报...
+      <div
+        v-if="generating"
+        class="playtime-poster__skeleton"
+        role="status"
+        aria-label="正在生成海报"
+      >
+        <motion.div
+          class="playtime-poster__skeleton-body"
+          aria-hidden="true"
+          :animate="{ opacity: reducedMotion ? 0.6 : [0.45, 0.85, 0.45] }"
+          :transition="{
+            duration: 1.6,
+            repeat: reducedMotion ? 0 : Infinity,
+          }"
+        >
+          <span class="playtime-poster__skeleton-hero" />
+          <span class="playtime-poster__skeleton-metrics" />
+          <span class="playtime-poster__skeleton-heatmap" />
+          <span class="playtime-poster__skeleton-chart" />
+        </motion.div>
       </div>
       <img
         v-else-if="posterUrl"
@@ -520,11 +660,56 @@ function pad(value: number) {
   border-radius: var(--r-md);
   background: #10151c;
 }
-.playtime-poster__status,
 .playtime-poster__saved {
   margin: 0;
   color: var(--muted);
   font-size: var(--text-sm);
+}
+.playtime-poster__skeleton {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1080 / 1440;
+  border-radius: var(--r-md);
+  background: #10151c;
+  overflow: hidden;
+}
+.playtime-poster__skeleton-body {
+  position: absolute;
+  inset: 0;
+}
+.playtime-poster__skeleton-hero,
+.playtime-poster__skeleton-metrics,
+.playtime-poster__skeleton-heatmap,
+.playtime-poster__skeleton-chart {
+  position: absolute;
+  border: 1px solid rgb(255 255 255 / 9%);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 6%);
+}
+.playtime-poster__skeleton-hero {
+  inset: 0 0 auto;
+  height: 41.7%;
+  border: 0;
+  border-radius: 0;
+  background: rgb(255 255 255 / 10%);
+}
+.playtime-poster__skeleton-metrics {
+  top: 43.75%;
+  left: 8.9%;
+  right: 8.9%;
+  height: 7.2%;
+}
+.playtime-poster__skeleton-heatmap {
+  top: 52.8%;
+  left: 8.9%;
+  right: 8.9%;
+  height: 16.6%;
+}
+.playtime-poster__skeleton-chart {
+  top: 71.9%;
+  left: 8.9%;
+  right: 8.9%;
+  height: 18.6%;
 }
 .playtime-poster__error {
   margin: 0;

@@ -139,8 +139,11 @@
   white-space: pre-line;
 }
 .playtime-tooltip {
+  top: 0;
+  left: 0;
   width: max-content;
   pointer-events: none;
+  will-change: transform;
 }
 .playtime-tooltip__value {
   margin: 2px 0 0;

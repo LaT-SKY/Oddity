@@ -376,6 +376,23 @@ export function listenGameState(handler: (status: GameStatus) => void) {
   };
 }
 
+/// 后端创建游玩会话后通知前端补读记录, 避免 running 先于会话创建。
+export function listenPlaytimeStarted(handler: () => void) {
+  if (!isTauri()) return () => {};
+  let disposed = false;
+  let unlisten: (() => void) | null = null;
+  listen("playtime-started", () => handler())
+    .then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    })
+    .catch(() => {});
+  return () => {
+    disposed = true;
+    if (unlisten) unlisten();
+  };
+}
+
 export function listenDownloadState(handler: (status: DownloadStatus) => void) {
   if (!isTauri()) return () => {};
   let disposed = false;

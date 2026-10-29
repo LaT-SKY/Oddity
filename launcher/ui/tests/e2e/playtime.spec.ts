@@ -74,12 +74,14 @@ test("热力图和折线图使用自定义提示与动效", async ({ page }) => 
         : 999;
     })
     .toBeLessThan(80);
+  await expect(cell).toHaveClass(/is-hovered/);
   await expect
-    .poll(() => cell.evaluate((element) => getComputedStyle(element).transform))
-    .toContain("1.45");
+    .poll(() => cell.evaluate((element) => getComputedStyle(element).boxShadow))
+    .not.toBe("none");
   await page.screenshot({ path: "test-results/playtime-heatmap-tooltip.png" });
   await page.mouse.move(12, 12);
   await expect(heatTip).toHaveCount(0);
+  await expect(cell).not.toHaveClass(/is-hovered/);
 
   const chart = panel.locator(".playtime-chart");
   const chartBox = (await chart.boundingBox())!;
@@ -92,13 +94,13 @@ test("热力图和折线图使用自定义提示与动效", async ({ page }) => 
   await expect(chartTip).toContainText("次游玩");
   await page.screenshot({ path: "test-results/playtime-chart-tooltip.png" });
   const cursor = panel.locator(".playtime-chart__cursor");
-  const initial = Number(await cursor.getAttribute("cx"));
+  const initial = (await cursor.boundingBox())!.x;
   await page.mouse.move(
     chartBox.x + chartBox.width * 0.8,
     chartBox.y + chartBox.height * 0.5,
   );
   await expect
-    .poll(async () => Number(await cursor.getAttribute("cx")))
+    .poll(async () => (await cursor.boundingBox())!.x)
     .toBeGreaterThan(initial + 20);
 });
 test("离开记录页后卸载重内容并保留返回后的效果", async ({ page }) => {

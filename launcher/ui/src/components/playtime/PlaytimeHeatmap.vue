@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
-import { useAnimate } from "motion-v";
+import { computed, reactive, ref } from "vue";
 import {
   formatPlaytime,
   formatShortDate,
@@ -32,66 +31,54 @@ const summary = computed(
   () =>
     `最近 12 个月游玩 ${formatPlaytime(props.totalMs)}, 已游玩 ${props.daysPlayed} 天`,
 );
-const [, animate] = useAnimate();
 const { reduced } = useControlMotion();
-const hovered = ref<{ day: PlaytimeDay; x: number; y: number } | null>(null);
+const hovered = ref<PlaytimeDay | null>(null);
+// 指针位置单独传递, 移动时只更新提示位置, 不重新渲染 371 个格子。
+const pointer = reactive({ x: 0, y: 0 });
 let activeCell: HTMLElement | null = null;
+
+// 悬停只切换高亮类, 格子不做缩放动画。
+function highlight(cell: HTMLElement | null) {
+  if (activeCell === cell) return;
+  activeCell?.classList.remove("is-hovered");
+  activeCell = cell;
+  activeCell?.classList.add("is-hovered");
+}
 
 function enter(event: MouseEvent) {
   const target = (event.target as Element | null)?.closest<HTMLElement>(
     ".playtime-heatmap__cell",
   );
   if (!target) {
-    leave();
+    reset();
     return;
   }
   if (target === activeCell) {
     move(event);
     return;
   }
-  if (activeCell) {
-    animate(
-      activeCell,
-      { scale: 1 },
-      reduced.value ? { duration: 0 } : { duration: 0.12 },
-    );
-    activeCell.style.zIndex = "";
-  }
-  activeCell = null;
-  hovered.value = null;
   const index = Number(target.dataset.index);
   const day = Number.isInteger(index) ? days.value[index] : undefined;
-  if (!day || day.future) return;
-  activeCell = target;
-  target.style.zIndex = "2";
-  animate(
-    target,
-    { scale: 1.45 },
-    reduced.value
-      ? { duration: 0 }
-      : { type: "spring", stiffness: 520, damping: 28 },
-  );
-  hovered.value = { day, x: event.clientX, y: event.clientY };
+  if (!day || day.future) {
+    reset();
+    return;
+  }
+  highlight(target);
+  pointer.x = event.clientX;
+  pointer.y = event.clientY;
+  hovered.value = day;
 }
 function move(event: MouseEvent) {
   if (!hovered.value) return;
-  hovered.value = {
-    ...hovered.value,
-    x: event.clientX,
-    y: event.clientY,
-  };
+  pointer.x = event.clientX;
+  pointer.y = event.clientY;
+}
+function reset() {
+  highlight(null);
+  hovered.value = null;
 }
 function leave() {
-  if (activeCell) {
-    animate(
-      activeCell,
-      { scale: 1 },
-      reduced.value ? { duration: 0 } : { duration: 0.12 },
-    );
-    activeCell.style.zIndex = "";
-  }
-  activeCell = null;
-  hovered.value = null;
+  reset();
 }
 </script>
 
@@ -144,16 +131,15 @@ function leave() {
     </section>
     <FloatingTooltip
       :open="hovered !== null"
-      :x="hovered?.x ?? 0"
-      :y="hovered?.y ?? 0"
+      :pointer="pointer"
       :theme="theme"
       :reduce-motion="reduced"
       name="heatmap"
     >
       <template v-if="hovered">
-        <strong>{{ formatShortDate(hovered.day.date) }}</strong>
+        <strong>{{ formatShortDate(hovered.date) }}</strong>
         <p class="playtime-tooltip__value">
-          {{ hovered.day.ms ? formatPlaytime(hovered.day.ms) : "没有记录" }}
+          {{ hovered.ms ? formatPlaytime(hovered.ms) : "没有记录" }}
         </p>
       </template>
     </FloatingTooltip>
@@ -188,6 +174,7 @@ function leave() {
   white-space: nowrap;
 }
 .playtime-heatmap__grid {
+  position: relative;
   display: grid;
   grid-template-columns: 18px repeat(53, minmax(0, 1fr));
   grid-template-rows: repeat(7, auto);
@@ -207,6 +194,10 @@ function leave() {
   aspect-ratio: 1;
   border-radius: 2px;
   background: var(--heat-0);
+}
+.playtime-heatmap__cell.is-hovered {
+  z-index: 1;
+  box-shadow: 0 0 0 1.5px var(--bone);
 }
 .playtime-heatmap__cell.is-level-1,
 .playtime-heatmap__legend .is-level-1 {

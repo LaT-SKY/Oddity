@@ -70,12 +70,30 @@ describe("游玩热力图", () => {
     expect(wrapper.get('[role="tooltip"]').attributes("data-theme")).toBe(
       "dark",
     );
+    expect(cell.classes()).toContain("is-hovered");
     await wrapper.get(`[data-index="${index + 1}"]`).trigger("mouseover");
+    expect(cell.classes()).not.toContain("is-hovered");
     expect(wrapper.find('[role="tooltip"]').exists()).toBe(false);
-    expect((cell.element as HTMLElement).style.zIndex).toBe("");
     await cell.trigger("mouseover");
     await wrapper.get(".playtime-heatmap__weekday").trigger("mouseover");
     expect(wrapper.find('[role="tooltip"]').exists()).toBe(false);
+  });
+
+  it("悬停只切换高亮, 格子不改变尺寸并在离开后取消", async () => {
+    render();
+    const days = stats.heatmap.weeks.flat();
+    const index = days.findIndex((day) => day.key === "2026-10-28");
+    const cell = wrapper.get(`[data-index="${index}"]`);
+    await cell.trigger("mouseover", { clientX: 100, clientY: 200 });
+    expect(cell.classes()).toContain("is-hovered");
+    expect((cell.element as HTMLElement).style.transform).toBe("");
+    expect((cell.element as HTMLElement).style.zIndex).toBe("");
+    await wrapper.get(`[data-index="${index - 1}"]`).trigger("mouseover");
+    const next = wrapper.get(`[data-index="${index - 1}"]`);
+    expect(next.classes()).toContain("is-hovered");
+    expect(cell.classes()).not.toContain("is-hovered");
+    await wrapper.get(".playtime-heatmap__grid").trigger("mouseleave");
+    expect(wrapper.findAll(".is-hovered")).toHaveLength(0);
   });
 
   it("空白日期提示没有记录, 离开网格后隐藏提示", async () => {

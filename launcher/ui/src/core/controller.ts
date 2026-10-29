@@ -15,7 +15,13 @@ import type {
   PlaytimeHistory,
   Settings,
 } from "../types/launcher";
-import { invoke, isTauri, listenGameState, listenDownloadState } from "./api";
+import {
+  invoke,
+  isTauri,
+  listenGameState,
+  listenDownloadState,
+  listenPlaytimeStarted,
+} from "./api";
 import { notify, resetNotifications } from "./notifications";
 export { notify, notifications } from "./notifications";
 import { latestSession, formatPlaytime } from "./playtime";
@@ -328,12 +334,24 @@ export const playtime = reactive({
   error: "",
 });
 let playtimeRequest = 0;
+let playtimeRequestedAt = 0;
 let lastLaunchStartedAt: number | null = null;
 const PLAYTIME_RECENT_MS = 5 * 60 * 1000;
+const PLAYTIME_REUSE_MS = 1000;
+
+/// 进入记录页时页面和导航都会请求记录, 短时间内只发起一次读取。
+export function loadPlaytimeIfStale(
+  maxAgeMs = PLAYTIME_REUSE_MS,
+): Promise<PlaytimeHistory | null> {
+  if (Date.now() - playtimeRequestedAt < maxAgeMs)
+    return Promise.resolve(playtime.history);
+  return loadPlaytime();
+}
 
 export async function loadPlaytime(): Promise<PlaytimeHistory | null> {
   const epoch = generation;
   const request = ++playtimeRequest;
+  playtimeRequestedAt = Date.now();
   playtime.loading = true;
   try {
     const next = await invoke("playtime_history");
@@ -1390,7 +1408,12 @@ export async function fetchBulletins(silent = true, force = false) {
 }
 
 function setLaunchState(next: GamePhase) {
+  const previous = state.game;
   state.game = next;
+  if (next !== "running" || previous === "running") return;
+  // 启动流程直接进入 running, 在这里统一刷新活动会话。
+  playtimeRequestedAt = 0;
+  void loadPlaytimeIfStale();
 }
 
 function applyGameStatus(
@@ -1875,7 +1898,7 @@ export function showPage(name: string | undefined, syncHash = true) {
     return;
   const changed = state.page !== name;
   state.page = name;
-  if (name === "records") void loadPlaytime();
+  if (name === "records") void loadPlaytimeIfStale();
   // 封面与播放起点一致, 返回主页时不恢复到缩放动画的中途。
   if (changed) applyHeroMedia(state.heroMedia);
   void nextTick(syncScrollEdges);
@@ -2025,11 +2048,19 @@ export async function init() {
   }
   applyReduceMotion(storedReduceMotion);
   bindInteractions();
+  // 先清理上一代状态, 首次进入记录页的读取才能保持加载状态。
+  playtime.loading = false;
   showPage(hashPage(), false);
   setLaunchState("idle");
-  playtime.loading = false;
   disposers.push(
     listenGameState((status) => applyGameStatus(status, { announce: true })),
+  );
+  disposers.push(
+    // 会话创建可能晚于 running, 收到通知后补读一次记录。
+    listenPlaytimeStarted(() => {
+      playtimeRequestedAt = 0;
+      void loadPlaytime();
+    }),
   );
   disposers.push(listenDownloadState(applyDownloadStatus));
   watchWindowShape();
@@ -2101,6 +2132,7 @@ export function dispose() {
   ui.introStarted = false;
   ui.introDone = false;
   playtimeRequest++;
+  playtimeRequestedAt = 0;
   lastLaunchStartedAt = null;
   Object.assign(playtime, {
     history: null,

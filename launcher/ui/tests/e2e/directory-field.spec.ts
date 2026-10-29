@@ -83,6 +83,7 @@ test("更新页目录选择按地区保存并与设置页同步", async ({ page 
   await browse.click();
   await expect(input).toHaveValue("/tmp/国际服 Test");
   await page.locator('[data-page="settings"]').click();
+  await settingsCategory(page, "game");
   await expect(page.locator("#set-install")).toHaveValue("/tmp/国服 Test");
   await expect(page.locator("#set-global-install")).toHaveValue(
     "/tmp/国际服 Test",

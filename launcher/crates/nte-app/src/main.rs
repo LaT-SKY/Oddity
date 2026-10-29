@@ -508,6 +508,8 @@ fn watch_game_exit<R: tauri::Runtime>(
                 if started {
                     playtime_started = true;
                     last_touch = Instant::now();
+                    // 会话创建晚于 running, 通知前端补读记录。
+                    let _ = app.emit("playtime-started", ());
                 }
             } else if playtime_started && !game_running {
                 if let Some(playtime) = &playtime {

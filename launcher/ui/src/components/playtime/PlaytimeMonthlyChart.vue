@@ -1,5 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, useId } from "vue";
+import {
+  computed,
+  onBeforeUnmount,
+  onMounted,
+  reactive,
+  ref,
+  useId,
+} from "vue";
 import { motion } from "motion-v";
 import FloatingTooltip from "./FloatingTooltip.vue";
 import { useControlMotion } from "../../composables/useControlMotion";
@@ -20,7 +27,8 @@ const plotHeight = height - top - bottom;
 const gradientId = `playtime-chart-${useId()}`;
 const chart = ref<SVGSVGElement | null>(null);
 const { reduced } = useControlMotion();
-const hovered = ref<{ x: number; y: number } | null>(null);
+const open = ref(false);
+const pointer = reactive({ x: 0, y: 0 });
 const activeIndex = ref(Math.max(0, props.months.length - 1));
 const max = computed(() =>
   Math.max(1, ...props.months.map((month) => month.ms)),
@@ -42,6 +50,11 @@ const points = computed(() =>
 const initial = computed(
   () => points.value.at(-1) ?? { month: null, x: left, y: top + plotHeight },
 );
+const cursorTransition = computed(() =>
+  reduced.value
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 800, damping: 42, mass: 0.5 },
+);
 const activePoint = computed(
   () => points.value[activeIndex.value] ?? initial.value,
 );
@@ -60,22 +73,58 @@ const area = computed(() => {
     .join(" L ")} L ${last.x} ${top + plotHeight} Z`;
 });
 const grid = [0, 0.5, 1];
+// 图表尺寸在悬停期间不变, 每次进入只测量一次, 指针移动不再触发布局。
+let bounds: DOMRect | null = null;
+const scale = ref(1);
+// 与 SVG 的 non-scaling-stroke 一致: 圆点半径随图缩放, 描边固定 3px。
+const cursorSize = computed(() => 14 * scale.value + 3);
 
-function hover(event: MouseEvent) {
+function updateScale() {
+  const box = chart.value?.getBoundingClientRect() ?? null;
+  if (box && box.width > 0) scale.value = box.width / width;
+  return box;
+}
+function measure() {
+  bounds = updateScale();
+  return bounds;
+}
+let observer: ResizeObserver | undefined;
+onMounted(() => {
+  updateScale();
   const element = chart.value;
-  if (!element || !points.value.length) return;
-  const bounds = element.getBoundingClientRect();
-  const x = ((event.clientX - bounds.left) / bounds.width) * width;
+  if (!element || typeof ResizeObserver === "undefined") return;
+  // 容器宽度变化时重新换算游标坐标。
+  observer = new ResizeObserver(() => {
+    updateScale();
+  });
+  observer.observe(element);
+});
+onBeforeUnmount(() => {
+  observer?.disconnect();
+  observer = undefined;
+});
+function hover(event: MouseEvent) {
+  if (!points.value.length) return;
+  const box = bounds ?? measure();
+  if (!box || box.width <= 0) return;
+  const x = ((event.clientX - box.left) / box.width) * width;
   const step = plotWidth / Math.max(1, points.value.length - 1);
   const index = Math.max(
     0,
     Math.min(points.value.length - 1, Math.round((x - left) / step)),
   );
+  pointer.x = event.clientX;
+  pointer.y = event.clientY;
+  open.value = true;
   activeIndex.value = index;
-  hovered.value = { x: event.clientX, y: event.clientY };
+}
+function enter(event: MouseEvent) {
+  measure();
+  hover(event);
 }
 function leave() {
-  hovered.value = null;
+  bounds = null;
+  open.value = false;
   activeIndex.value = Math.max(0, points.value.length - 1);
 }
 </script>
@@ -84,6 +133,7 @@ function leave() {
   <div class="playtime-chart">
     <svg
       ref="chart"
+      class="playtime-chart__frame"
       :viewBox="`0 0 ${width} ${height}`"
       role="group"
       aria-label="最近 12 个月月度游玩时长折线图"
@@ -134,36 +184,13 @@ function leave() {
           r="3"
         />
       </g>
-      <motion.line
-        class="playtime-chart__guide"
-        :initial="{ x1: initial.x, x2: initial.x }"
-        :animate="{ x1: activePoint.x, x2: activePoint.x }"
-        :y1="top"
-        :y2="top + plotHeight"
-        :transition="
-          reduced
-            ? { duration: 0 }
-            : { type: 'spring', stiffness: 800, damping: 42, mass: 0.5 }
-        "
-      />
-      <motion.circle
-        class="playtime-chart__cursor"
-        :initial="{ cx: initial.x, cy: initial.y }"
-        :animate="{ cx: activePoint.x, cy: activePoint.y }"
-        :r="7"
-        :transition="
-          reduced
-            ? { duration: 0 }
-            : { type: 'spring', stiffness: 800, damping: 42, mass: 0.5 }
-        "
-      />
       <rect
         class="playtime-chart__hit"
         :x="left"
         :y="top"
         :width="plotWidth"
         :height="plotHeight"
-        @mouseenter="hover"
+        @mouseenter="enter"
         @mousemove="hover"
         @mouseleave="leave"
       />
@@ -178,10 +205,31 @@ function leave() {
         {{ point.month.label }}
       </text>
     </svg>
+    <!-- 游标用独立合成层承载, 悬停时只移动图层, 不重绘折线图。 -->
+    <div class="playtime-chart__cursor-layer" aria-hidden="true">
+      <motion.div
+        class="playtime-chart__guide"
+        :style="{ top: `${top * scale}px`, height: `${plotHeight * scale}px` }"
+        :initial="{ x: initial.x * scale }"
+        :animate="{ x: activePoint.x * scale }"
+        :transition="cursorTransition"
+      />
+      <motion.div
+        class="playtime-chart__cursor"
+        :style="{
+          width: `${cursorSize}px`,
+          height: `${cursorSize}px`,
+          marginLeft: `${-cursorSize / 2}px`,
+          marginTop: `${-cursorSize / 2}px`,
+        }"
+        :initial="{ x: initial.x * scale, y: initial.y * scale }"
+        :animate="{ x: activePoint.x * scale, y: activePoint.y * scale }"
+        :transition="cursorTransition"
+      />
+    </div>
     <FloatingTooltip
-      :open="hovered !== null && activeMonth !== null"
-      :x="hovered?.x ?? 0"
-      :y="hovered?.y ?? 0"
+      :open="open && activeMonth !== null"
+      :pointer="pointer"
       :theme="theme"
       :reduce-motion="reduced"
       name="chart"
@@ -204,10 +252,17 @@ function leave() {
   position: relative;
   min-width: 0;
 }
-.playtime-chart svg {
+.playtime-chart__frame {
   display: block;
   width: 100%;
   height: auto;
+  overflow: visible;
+}
+.playtime-chart__overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
   overflow: visible;
 }
 .playtime-chart__plot {
@@ -257,19 +312,32 @@ function leave() {
 .playtime-chart__dot.is-current {
   fill: var(--signal-strong);
 }
-.playtime-chart__guide {
-  stroke: var(--line-strong);
-  stroke-width: 1;
-  stroke-dasharray: 3 4;
+.playtime-chart__cursor-layer {
+  position: absolute;
+  inset: 0;
   pointer-events: none;
-  vector-effect: non-scaling-stroke;
+}
+.playtime-chart__guide {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    var(--line-strong) 0 3px,
+    transparent 3px 7px
+  );
+  will-change: transform;
 }
 .playtime-chart__cursor {
-  fill: #10151c;
-  stroke: var(--surface-solid);
-  stroke-width: 3;
-  pointer-events: none;
-  vector-effect: non-scaling-stroke;
+  position: absolute;
+  top: 0;
+  left: 0;
+  box-sizing: border-box;
+  border: 3px solid var(--surface-solid);
+  border-radius: 50%;
+  background: #10151c;
+  will-change: transform;
 }
 .playtime-chart__hit {
   fill: transparent;

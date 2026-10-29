@@ -2,30 +2,25 @@
 import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { motion } from "motion-v";
 import BaseButton from "../components/BaseButton.vue";
+import PlaytimeActive from "../components/playtime/PlaytimeActive.vue";
 import PlaytimeHeatmap from "../components/playtime/PlaytimeHeatmap.vue";
 import PlaytimeMonthlyChart from "../components/playtime/PlaytimeMonthlyChart.vue";
 import PlaytimePoster from "../components/playtime/PlaytimePoster.vue";
 import {
   form,
   loadPlaytime,
+  loadPlaytimeIfStale,
   playtime,
   showPage,
   state,
 } from "../core/controller";
-import {
-  buildPlaytimeStats,
-  formatClock,
-  formatPlaytime,
-  playModeLabel,
-} from "../core/playtime";
+import { buildPlaytimeStats, formatPlaytime } from "../core/playtime";
 import { useControlMotion } from "../composables/useControlMotion";
 
 const { surface } = useControlMotion();
-const now = ref(Date.now());
 const statsNow = ref(Date.now());
 const rendered = ref(state.page === "records");
 const posterOpen = ref(false);
-let timer: number | undefined;
 let unrenderTimer: number | undefined;
 const stats = computed(() =>
   buildPlaytimeStats(
@@ -33,10 +28,6 @@ const stats = computed(() =>
     statsNow.value,
   ),
 );
-const liveActiveMs = computed(() => {
-  const active = stats.value.active;
-  return active ? Math.max(0, now.value - active.startedAt) : 0;
-});
 const heatmapDays = computed(
   () =>
     stats.value.heatmap.weeks.flat().filter((day) => !day.future && day.ms > 0)
@@ -61,9 +52,11 @@ function openPoster() {
   if (hasRecords.value) posterOpen.value = true;
 }
 function refresh() {
-  now.value = Date.now();
   statsNow.value = Date.now();
   void loadPlaytime();
+}
+function refreshStats() {
+  statsNow.value = Date.now();
 }
 watch(
   () => playtime.history,
@@ -80,7 +73,8 @@ watch(
     }
     if (page === "records") {
       rendered.value = true;
-      refresh();
+      statsNow.value = Date.now();
+      void loadPlaytimeIfStale();
       return;
     }
     unrenderTimer = window.setTimeout(() => {
@@ -93,32 +87,7 @@ watch(
   },
   { immediate: true },
 );
-function startTimer() {
-  if (timer !== undefined) return;
-  now.value = Date.now();
-  statsNow.value = Date.now();
-  timer = window.setInterval(() => {
-    const current = Date.now();
-    now.value = current;
-    // 热力图和汇总图不跟随秒级计时刷新, 避免每秒重算 371 个格子。
-    if (current - statsNow.value >= 30_000) statsNow.value = current;
-  }, 1000);
-}
-function stopTimer() {
-  if (timer === undefined) return;
-  window.clearInterval(timer);
-  timer = undefined;
-}
-watch(
-  () =>
-    state.game === "running" &&
-    state.page === "records" &&
-    Boolean(stats.value.active),
-  (running) => (running ? startTimer() : stopTimer()),
-  { immediate: true },
-);
 onBeforeUnmount(() => {
-  stopTimer();
   if (unrenderTimer !== undefined) window.clearTimeout(unrenderTimer);
 });
 </script>
@@ -165,17 +134,11 @@ onBeforeUnmount(() => {
           >
         </div>
 
-        <section
-          v-if="stats.active && liveActiveMs > 0"
-          class="playtime-active"
-          role="timer"
-          aria-label="当前游玩时长"
-        >
-          <span class="playtime-active__dot" aria-hidden="true"></span>
-          <span>正在游玩</span>
-          <strong>{{ formatClock(liveActiveMs) }}</strong>
-          <small>{{ playModeLabel(stats.active.mode) }}</small>
-        </section>
+        <PlaytimeActive
+          v-if="stats.active && state.game === 'running'"
+          :active="stats.active"
+          @refresh="refreshStats"
+        />
 
         <section
           v-if="hasRecords || playtime.loading"
@@ -259,34 +222,6 @@ onBeforeUnmount(() => {
   background: var(--danger-fill);
   color: var(--danger);
   font-size: var(--text-sm);
-}
-.playtime-active {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 12px 16px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-control);
-  background: var(--surface-2);
-  color: var(--text-soft);
-  font-size: var(--text-sm);
-}
-.playtime-active__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--signal-strong);
-  box-shadow: 0 0 0 4px var(--signal-dim);
-}
-.playtime-active strong {
-  font-variant-numeric: tabular-nums;
-  font-size: var(--text-lg);
-  font-weight: 500;
-  color: var(--bone);
-}
-.playtime-active small {
-  margin-left: auto;
-  color: var(--faint);
 }
 .playtime-summary {
   display: grid;

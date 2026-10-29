@@ -22,6 +22,8 @@ const backend = vi.hoisted(() => ({
   stopResize: vi.fn(),
   invoke: vi.fn(),
   handler: (_status: GameStatus) => {},
+  playtimeStarted: () => {},
+  playtimeUnlisten: vi.fn(),
   downloadHandler: (_status: DownloadStatus) => {},
   downloadStatus: {} as DownloadStatus,
   startStatus: null as DownloadStatus | null,
@@ -41,6 +43,10 @@ vi.mock("../../src/core/api", () => ({
   listenGameState: (handler: (status: GameStatus) => void) => {
     backend.handler = handler;
     return backend.unlisten;
+  },
+  listenPlaytimeStarted: (handler: () => void) => {
+    backend.playtimeStarted = handler;
+    return backend.playtimeUnlisten;
   },
   listenDownloadState: (handler: (status: DownloadStatus) => void) => {
     backend.downloadHandler = handler;
@@ -334,6 +340,8 @@ const key = (value: string, options: KeyboardEventInit = {}) =>
 describe("启动与设置", () => {
   it("加载配置、诊断和版本, 并自动检查更新", async () => {
     const c = await boot();
+    c.openSettings("maintenance");
+    await nextTick();
     expect(c.attendance.loaded).toBe(true);
     expect(c.attendance.loading).toBe(false);
     expect(c.form.installRoot).toBe("/game");
@@ -344,6 +352,18 @@ describe("启动与设置", () => {
     backend.isMaximized.mockResolvedValueOnce(true);
     await backend.resize();
     expect(button("app").classList.contains("is-maximized")).toBe(true);
+  });
+
+  it("设置分类按访问挂载, 已访问的面板保持挂载", async () => {
+    const c = await boot();
+    expect(document.querySelector("#set-install")).toBeNull();
+    c.openSettings("game");
+    await nextTick();
+    expect(document.querySelector("#set-install")).not.toBeNull();
+    c.openSettings("appearance");
+    await nextTick();
+    expect(document.querySelector("#set-install")).not.toBeNull();
+    expect(document.querySelector("#set-theme")).not.toBeNull();
   });
 
   it("缺少环境和版本时显示配置提示和默认值", async () => {
@@ -480,6 +500,8 @@ describe("启动与设置", () => {
 
   it("文本输入防抖自动保存, 保存状态随后回到空闲", async () => {
     const c = await boot();
+    c.openSettings("game");
+    await nextTick();
     backend.invoke.mockClear();
     const input = document.querySelector<HTMLInputElement>("#set-install")!;
     input.value = " /auto-game ";
@@ -501,7 +523,9 @@ describe("启动与设置", () => {
   });
 
   it("修改安装目录后统一刷新启动器与游戏资源", async () => {
-    await boot();
+    const c = await boot();
+    c.openSettings("game");
+    await nextTick();
     backend.invoke.mockClear();
     const input = document.querySelector<HTMLInputElement>("#set-install")!;
     input.value = "/new-game";
@@ -547,6 +571,8 @@ describe("启动与设置", () => {
   it("切换到没有启动器的目录时两张状态卡同时显示未安装", async () => {
     backend.data = bootstrap({ launcherRoot: "", launcherVersion: "" });
     const c = await boot();
+    c.openSettings("game");
+    await nextTick();
     backend.invoke.mockClear();
     const input = document.querySelector<HTMLInputElement>("#set-install")!;
     input.value = "/empty-game";
@@ -618,6 +644,8 @@ describe("启动与设置", () => {
 
   it("下载写入期间锁住地区和安装目录, 其他设置仍可修改", async () => {
     const c = await boot();
+    c.openSettings("game");
+    await nextTick();
     backend.downloadHandler({
       ...backend.downloadStatus,
       mode: "apply",
@@ -1435,6 +1463,58 @@ describe("游戏会话", () => {
     expect(noticeMessage()).toBe("游戏已退出。");
   });
 
+  it("记录页打开时启动游戏会刷新活动会话", async () => {
+    const c = await boot();
+    backend.playtimeHistory = { sessions: [], active: null };
+    c.showPage("records");
+    await flushPromises();
+    const reads = () =>
+      backend.invoke.mock.calls.filter(
+        ([command]) => command === "playtime_history",
+      ).length;
+    expect(reads()).toBe(1);
+    const active = {
+      startedAt: Date.now(),
+      lastSeenAt: Date.now(),
+      mode: "background",
+      distribution: "cn" as const,
+    };
+    backend.playtimeHistory = { sessions: [], active };
+    backend.handler(session({ running: true, pid: 123 }));
+    await flushPromises();
+    expect(reads()).toBe(2);
+    expect(c.playtime.history).not.toBeNull();
+    expect(c.playtime.history?.active).toEqual(active);
+  });
+
+  it("running 先于会话创建时, 会话创建后补读记录", async () => {
+    const c = await boot();
+    backend.playtimeHistory = { sessions: [], active: null };
+    c.showPage("records");
+    await flushPromises();
+    const reads = () =>
+      backend.invoke.mock.calls.filter(
+        ([command]) => command === "playtime_history",
+      ).length;
+    expect(reads()).toBe(1);
+    // 游戏先进入 running, 后端尚未创建活动会话。
+    backend.handler(session({ running: true, pid: 123 }));
+    await flushPromises();
+    expect(c.playtime.history?.active).toBeNull();
+    const before = reads();
+    const active = {
+      startedAt: Date.now(),
+      lastSeenAt: Date.now(),
+      mode: "background",
+      distribution: "cn" as const,
+    };
+    backend.playtimeHistory = { sessions: [], active };
+    backend.playtimeStarted();
+    await flushPromises();
+    expect(reads()).toBe(before + 1);
+    expect(c.playtime.history?.active).toEqual(active);
+  });
+
   it("退出提示选择最后结束的会话并可进入记录页", async () => {
     const c = await boot();
     const endedAt = Date.now() - 1000;
@@ -1687,7 +1767,9 @@ describe("导航和窗口交互", () => {
   });
 
   it("保留文本输入行为并阻止页面拖拽和上下文菜单", async () => {
-    await boot();
+    const c = await boot();
+    c.openSettings("game");
+    await nextTick();
     for (const type of [
       "dragstart",
       "dragover",
@@ -2033,8 +2115,12 @@ it("组件事件和双向绑定将用户操作传给控制器", async () => {
   const c = await boot();
   await wrapper!.find('[data-page="settings"]').trigger("click");
   expect(c.state.page).toBe("settings");
+  await wrapper!.find('[data-category="game"]').trigger("click");
+  await nextTick();
   await wrapper!.find("#set-install").setValue(" /component-game ");
   await wrapper!.find("#set-install").trigger("change");
+  await wrapper!.find('[data-category="appearance"]').trigger("click");
+  await nextTick();
   await wrapper!.find("#set-theme").setValue("dark");
   expect(localStorage.getItem("nte.theme")).toBe("dark");
   await wrapper!.find("#set-hero-media").setValue("photo");
