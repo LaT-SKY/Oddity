@@ -246,20 +246,21 @@ const budgetVisible = computed(
     !active.value &&
     Boolean(state.download?.pendingFiles || state.download?.unverifiedFiles),
 );
+const isActive = computed(() => state.page === "update");
 </script>
 
 <template>
   <motion.section
     class="page page--update"
-    :class="{ 'is-active': state.page === 'update' }"
+    :class="{ 'is-active': isActive }"
     id="page-update"
-    :inert="state.page !== 'update'"
-    :aria-hidden="state.page !== 'update' || undefined"
+    :inert="!isActive"
+    :aria-hidden="!isActive || undefined"
     :initial="false"
     :animate="{
-      opacity: state.page === 'update' ? 1 : 0,
-      x: state.page === 'update' ? 0 : 22,
-      visibility: state.page === 'update' ? 'visible' : 'hidden',
+      opacity: isActive ? 1 : 0,
+      x: isActive ? 0 : 22,
+      visibility: isActive ? 'visible' : 'hidden',
     }"
     :transition="surface"
     aria-labelledby="update-title"
@@ -414,9 +415,13 @@ const budgetVisible = computed(
             </p>
           </motion.div>
         </AnimatePresence>
-        <div class="update-actions">
+        <div class="update-actions" data-pad-actions>
           <BaseButton
             id="game-download-primary"
+            :data-pad-primary="cancellable ? undefined : ''"
+            :data-pad-action="
+              primary.kind === 'apply' ? '更新游戏' : '快速检查'
+            "
             :variant="displayPhase === 'ready' ? 'secondary' : 'primary'"
             :icon="primary.icon"
             :disabled="primaryDisabled"
@@ -435,6 +440,10 @@ const budgetVisible = computed(
           <BaseButton
             v-if="cancellable"
             variant="ghost"
+            data-pad-primary
+            :data-pad-action="
+              state.download?.phase === 'checking' ? '取消检查' : '暂停下载'
+            "
             @click="cancelGameDownload"
             >{{
               state.download?.phase === "checking" ? "取消检查" : "暂停下载"

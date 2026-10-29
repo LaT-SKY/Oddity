@@ -32,6 +32,7 @@ import DirectoryField from "../components/DirectoryField.vue";
 import SettingGroup from "../components/settings/SettingGroup.vue";
 import SettingRow from "../components/settings/SettingRow.vue";
 import LogExport from "../components/LogExport.vue";
+import GamepadSettings from "../components/GamepadSettings.vue";
 import type { MeteredPolicy } from "../types/launcher";
 
 const root = ref<HTMLElement | null>(null);
@@ -244,20 +245,21 @@ function resultKeys(event: KeyboardEvent) {
     else buttons[Math.min(next, buttons.length - 1)]?.focus();
   }
 }
+const isActive = computed(() => state.page === "settings");
 </script>
 
 <template>
   <motion.section
     id="page-settings"
     class="page settings-page"
-    :class="{ 'is-active': state.page === 'settings' }"
-    :inert="state.page !== 'settings'"
-    :aria-hidden="state.page !== 'settings' || undefined"
+    :class="{ 'is-active': isActive }"
+    :inert="!isActive"
+    :aria-hidden="!isActive || undefined"
     :initial="false"
     :animate="{
-      opacity: state.page === 'settings' ? 1 : 0,
-      x: state.page === 'settings' ? 0 : 22,
-      visibility: state.page === 'settings' ? 'visible' : 'hidden',
+      opacity: isActive ? 1 : 0,
+      x: isActive ? 0 : 22,
+      visibility: isActive ? 'visible' : 'hidden',
     }"
     :transition="surface"
     aria-labelledby="settings-title"
@@ -279,6 +281,8 @@ function resultKeys(event: KeyboardEvent) {
           }}</span>
           <BaseButton
             id="settings-redetect"
+            data-pad-primary
+            data-pad-action="重新检测"
             variant="ghost"
             icon="i-arrows-clockwise"
             :busy="ui.redetecting"
@@ -355,6 +359,7 @@ function resultKeys(event: KeyboardEvent) {
               v-if="navigation.category === category.id"
               class="settings-category__focus category-tab__selection"
               layout-id="settings-category-focus"
+              :layout-dependency="navigation.category"
               :animate="{ opacity: searching ? 0.35 : 1 }"
               :transition="control"
             />
@@ -400,8 +405,13 @@ function resultKeys(event: KeyboardEvent) {
               }"
               :transition="surface"
             >
+              <GamepadSettings
+                v-if="visited.has(category.id) && category.id === 'gamepad'"
+              />
               <template
-                v-if="visited.has(category.id) && category.id === 'appearance'"
+                v-else-if="
+                  visited.has(category.id) && category.id === 'appearance'
+                "
               >
                 <SettingGroup title="外观">
                   <SettingRow
@@ -645,6 +655,7 @@ function resultKeys(event: KeyboardEvent) {
                     <label class="field"
                       ><span>开始时间</span
                       ><BaseInput
+                        id="set-updates-window-start"
                         v-model="form.updates.windowStart"
                         type="time"
                         @change="queueSettingsSave(0)"
@@ -652,6 +663,7 @@ function resultKeys(event: KeyboardEvent) {
                     <label class="field"
                       ><span>结束时间</span
                       ><BaseInput
+                        id="set-updates-window-end"
                         v-model="form.updates.windowEnd"
                         type="time"
                         @change="queueSettingsSave(0)"
@@ -695,9 +707,7 @@ function resultKeys(event: KeyboardEvent) {
               >
                 <div data-setting="account" tabindex="-1">
                   <TaygedoSettings
-                    v-if="
-                      state.page === 'settings' && form.distribution === 'cn'
-                    "
+                    v-if="isActive && form.distribution === 'cn'"
                   />
                   <SettingGroup
                     v-else-if="form.distribution === 'global'"

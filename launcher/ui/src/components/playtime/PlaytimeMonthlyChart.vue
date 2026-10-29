@@ -28,6 +28,7 @@ const gradientId = `playtime-chart-${useId()}`;
 const chart = ref<SVGSVGElement | null>(null);
 const { reduced } = useControlMotion();
 const open = ref(false);
+const browsing = ref(false);
 const pointer = reactive({ x: 0, y: 0 });
 const activeIndex = ref(Math.max(0, props.months.length - 1));
 const max = computed(() =>
@@ -123,14 +124,60 @@ function enter(event: MouseEvent) {
   hover(event);
 }
 function leave() {
+  browsing.value = false;
   bounds = null;
   open.value = false;
   activeIndex.value = Math.max(0, points.value.length - 1);
 }
+function keydown(event: KeyboardEvent) {
+  if (event.key === "Escape" && browsing.value) {
+    event.preventDefault();
+    event.stopPropagation();
+    leave();
+    return;
+  }
+  if (event.key === "Enter") {
+    event.preventDefault();
+    browsing.value = !browsing.value;
+    if (!browsing.value) {
+      leave();
+      return;
+    }
+  } else if (
+    browsing.value &&
+    ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(event.key)
+  ) {
+    event.preventDefault();
+    activeIndex.value = Math.max(
+      0,
+      Math.min(
+        points.value.length - 1,
+        activeIndex.value +
+          (["ArrowLeft", "ArrowUp"].includes(event.key) ? -1 : 1),
+      ),
+    );
+  } else return;
+  const box = bounds ?? measure();
+  if (box) {
+    pointer.x = box.left + (activePoint.value.x / width) * box.width;
+    pointer.y = box.top + (activePoint.value.y / height) * box.height;
+    open.value = true;
+  }
+}
 </script>
 
 <template>
-  <div class="playtime-chart">
+  <div
+    class="playtime-chart"
+    tabindex="0"
+    data-pad-region
+    :data-pad-browsing="browsing || undefined"
+    role="group"
+    aria-label="月度游玩时长, 确认后使用方向键浏览"
+    :aria-describedby="browsing ? `${gradientId}-description` : undefined"
+    @keydown="keydown"
+    @blur="leave"
+  >
     <svg
       ref="chart"
       class="playtime-chart__frame"
@@ -227,6 +274,18 @@ function leave() {
         :transition="cursorTransition"
       />
     </div>
+    <p
+      :id="`${gradientId}-description`"
+      class="playtime-chart__sr"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <template v-if="browsing && activeMonth"
+        >{{ activeMonth.label }}, {{ formatPlaytime(activeMonth.ms) }},
+        {{ activeMonth.sessions }} 次游玩</template
+      >
+    </p>
     <FloatingTooltip
       :open="open && activeMonth !== null"
       :pointer="pointer"
@@ -248,6 +307,14 @@ function leave() {
 </template>
 
 <style scoped>
+.playtime-chart__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .playtime-chart {
   position: relative;
   min-width: 0;

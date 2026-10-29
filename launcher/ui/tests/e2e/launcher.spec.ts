@@ -482,7 +482,12 @@ test("国际服切换同步启动方式、公告来源和专属功能", async ({
     "https://static.pwsdk.com/nte/contract/contract.html",
   );
   await page.locator('[data-page="home"]').click();
-  await expect(page.locator(".game-records__capsule")).toHaveCount(0);
+  const player = page.locator(".game-records__capsule");
+  await expect(player).toBeVisible();
+  await player.click();
+  await expect(page.locator(".game-records__empty")).toContainText(
+    "当前地区暂无可读取的玩家信息",
+  );
 });
 
 test("任务授权控制手动执行, 全部关闭并在当天重新授权", async ({ page }) => {

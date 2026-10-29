@@ -90,20 +90,21 @@ watch(
 onBeforeUnmount(() => {
   if (unrenderTimer !== undefined) window.clearTimeout(unrenderTimer);
 });
+const isActive = computed(() => state.page === "records");
 </script>
 
 <template>
   <motion.section
     id="page-records"
     class="page playtime-page"
-    :class="{ 'is-active': state.page === 'records' }"
-    :inert="state.page !== 'records'"
-    :aria-hidden="state.page !== 'records' || undefined"
+    :class="{ 'is-active': isActive }"
+    :inert="!isActive"
+    :aria-hidden="!isActive || undefined"
     :initial="false"
     :animate="{
-      opacity: state.page === 'records' ? 1 : 0,
-      x: state.page === 'records' ? 0 : 22,
-      visibility: state.page === 'records' ? 'visible' : 'hidden',
+      opacity: isActive ? 1 : 0,
+      x: isActive ? 0 : 22,
+      visibility: isActive ? 'visible' : 'hidden',
     }"
     :transition="surface"
     aria-labelledby="records-title"
@@ -117,6 +118,8 @@ onBeforeUnmount(() => {
       <div class="page-head__actions">
         <BaseButton
           icon="i-download-simple"
+          data-pad-primary
+          data-pad-action="导出"
           :busy="playtime.loading"
           :disabled="!hasRecords"
           @click="openPoster"

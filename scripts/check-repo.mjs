@@ -120,7 +120,8 @@ function checkTrackedPaths() {
 
   const privatePrefixes = ["internal/", "research/", "docs/evidence/"];
   for (const path of tracked) {
-    if (privatePrefixes.some((prefix) => path.startsWith(prefix))) {
+    const controllerTest = /^internal\/gamepad\/(?:acceptance\/[^/]+\.test\.ts|tests\/[^/]+\.(?:rs|json)|rust\/src\/lib\.rs)$/.test(path);
+    if (!controllerTest && privatePrefixes.some((prefix) => path.startsWith(prefix))) {
       fail(`私有路径被纳入了版本管理: ${path}`);
     }
   }

@@ -70,6 +70,19 @@ function place() {
     maxHeight: `${height}px`,
   };
 }
+function scrollActiveOption() {
+  const list = menu.value;
+  const option = list?.querySelector<HTMLElement>(
+    `[data-index="${active.value}"]`,
+  );
+  if (!list || !option) return;
+  if (option.offsetTop < list.scrollTop) list.scrollTop = option.offsetTop;
+  else if (
+    option.offsetTop + option.offsetHeight >
+    list.scrollTop + list.clientHeight
+  )
+    list.scrollTop = option.offsetTop + option.offsetHeight - list.clientHeight;
+}
 async function open() {
   if (props.disabled || trigger.value?.matches(":disabled")) return;
   active.value = props.options.findIndex(
@@ -84,9 +97,7 @@ async function open() {
   isOpen.value = true;
   place();
   await nextTick();
-  menu.value
-    ?.querySelector<HTMLElement>(`[data-index="${active.value}"]`)
-    ?.scrollIntoView?.({ block: "nearest" });
+  scrollActiveOption();
 }
 function selectOption(option: Option) {
   if (props.disabled || option.disabled) return;
@@ -139,11 +150,7 @@ function keydown(event: KeyboardEvent) {
         break;
       }
     }
-    void nextTick(() =>
-      menu.value
-        ?.querySelector<HTMLElement>(`[data-index="${active.value}"]`)
-        ?.scrollIntoView?.({ block: "nearest" }),
-    );
+    void nextTick(scrollActiveOption);
   }
 }
 watch(

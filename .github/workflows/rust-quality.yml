@@ -33,6 +33,8 @@ jobs:
             code:
               - 'launcher/Cargo.*'
               - 'launcher/crates/**'
+              - 'internal/gamepad/tests/**'
+              - 'internal/gamepad/rust/src/lib.rs'
               - 'launcher/deny.toml'
               - 'scripts/check-repo.mjs'
               - 'scripts/check-rust-coverage.mjs'

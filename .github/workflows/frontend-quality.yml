@@ -30,6 +30,7 @@ jobs:
           filters: |
             ui:
               - 'launcher/ui/**'
+              - 'internal/gamepad/acceptance/**'
               - 'scripts/check-frontend-coverage.mjs'
               - '.github/workflows/frontend-quality.yml'
             deps:

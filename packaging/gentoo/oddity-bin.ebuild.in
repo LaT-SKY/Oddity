@@ -25,6 +25,9 @@ RDEPEND="
 	dev-libs/libayatana-appindicator
 	dev-util/desktop-file-utils
 	gnome-base/librsvg
+	virtual/libudev
+	media-libs/alsa-lib
+	media-libs/libpulse
 	media-libs/gst-plugins-good
 	net-libs/libsoup:3.0
 	net-libs/webkit-gtk:4.1

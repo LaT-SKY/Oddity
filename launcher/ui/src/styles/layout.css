@@ -116,15 +116,16 @@
   display: flex;
 }
 .rail__nav {
+  position: relative;
   touch-action: none;
   user-select: none;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--rail-item-gap);
 }
 .rail-item {
   position: relative;
-  width: 40px;
+  width: var(--rail-item-width);
   height: 38px;
   display: grid;
   place-items: center;
@@ -143,6 +144,9 @@
 .nav-focus {
   position: absolute;
   inset: 0;
+  right: auto;
+  width: var(--rail-item-width);
+  pointer-events: none;
   border: 1px solid rgb(255 255 255 / 24%);
   border-radius: 11px;
   background: rgb(255 255 255 / 16%);

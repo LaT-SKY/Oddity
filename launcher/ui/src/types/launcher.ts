@@ -1,3 +1,10 @@
+import type { FileListing } from "../core/filePicker";
+import type {
+  GamepadOptions,
+  GamepadSnapshot,
+  Profile,
+  Feedback,
+} from "./gamepad";
 export type AttendanceTrigger = "off" | "launch" | "boot" | "daily" | "manual";
 export interface AttendanceTasks {
   communitySign: boolean;
@@ -136,6 +143,7 @@ export interface Settings {
   stableEnvironment: string | null;
   launchMode: string;
   gameMode: GameModeOptions;
+  gamepad: GamepadOptions;
   updates: UpdateSettings;
   language: string;
   reduceMotion: boolean;
@@ -310,6 +318,13 @@ export interface LogPreview {
 }
 
 export interface Commands {
+  browse_files: FileListing;
+  gamepad_poll: GamepadSnapshot;
+  gamepad_release_idle: null;
+  gamepad_feedback: null;
+  gamepad_profile_validate: Profile;
+  gamepad_profile_load: Profile;
+  gamepad_profile_save: void;
   attendance_status: AttendanceStatus;
   attendance_refresh_game_records: AttendanceStatus;
   attendance_login: AttendanceStatus;
@@ -352,6 +367,13 @@ export interface Commands {
   win_drag: null;
 }
 export interface CommandArgs {
+  browse_files: { path: string | null };
+  gamepad_poll: undefined;
+  gamepad_release_idle: undefined;
+  gamepad_feedback: { deviceId: number; effect: Feedback | "stop" };
+  gamepad_profile_validate: { profile: Profile };
+  gamepad_profile_load: { path: string };
+  gamepad_profile_save: { path: string; profile: Profile };
   attendance_status: undefined;
   attendance_refresh_game_records: undefined;
   attendance_send_code: { phone: string };

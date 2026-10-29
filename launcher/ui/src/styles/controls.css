@@ -26,7 +26,6 @@
 .custom-select.is-open .select-trigger {
   outline: none;
   border-color: var(--input-focus-border);
-  box-shadow: var(--control-ring);
 }
 .select-trigger:disabled {
   opacity: 0.45;

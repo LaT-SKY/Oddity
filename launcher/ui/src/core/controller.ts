@@ -1,3 +1,4 @@
+import { defaultGamepadOptions } from "../types/gamepad";
 import { defaultGamescope } from "./gameMode";
 import { defaultAttendanceTasks } from "./attendanceTasks";
 import { computed, nextTick, reactive, ref } from "vue";
@@ -401,6 +402,7 @@ async function announcePlaytimeExit(fallback: string) {
 }
 
 export const form = reactive({
+  gamepad: defaultGamepadOptions(),
   installRoot: "",
   globalInstallRoot: "",
   distribution: "cn" as "cn" | "global",
@@ -1171,6 +1173,7 @@ function applyBootstrap(
     settings.gameMode,
   );
 
+  Object.assign(form.gamepad, settings.gamepad);
   form.updates.autoDownload = settings.updates?.autoDownload ?? false;
   form.updates.metered = settings.updates?.metered ?? "ask";
   form.updates.limitBytesPerSecond = settings.updates?.limitBytesPerSecond ?? 0;
@@ -1648,6 +1651,7 @@ function currentSettings(): Settings {
     stableEnvironment: state.bootstrap?.settings.stableEnvironment ?? null,
     launchMode,
     gameMode: { ...form.gameMode, gamescope: { ...form.gameMode.gamescope } },
+    gamepad: JSON.parse(JSON.stringify(form.gamepad)),
     updates: {
       autoDownload: form.updates.autoDownload,
       metered: form.updates.metered,

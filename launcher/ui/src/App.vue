@@ -21,6 +21,11 @@ import GameModePage from "./pages/GameModePage.vue";
 import PlaytimePage from "./pages/PlaytimePage.vue";
 import SettingsPage from "./pages/SettingsPage.vue";
 import IconSprite from "./components/icons/IconSprite.vue";
+import { gamepad, startGamepad } from "./core/gamepad";
+import GamepadOverlay from "./components/GamepadOverlay.vue";
+import GamepadFilePicker from "./components/GamepadFilePicker.vue";
+import GamepadKeyboard from "./components/GamepadKeyboard.vue";
+let stopGamepad: (() => void) | undefined;
 const scene = useTemplateRef<HTMLElement>("scene");
 const drawer = useTemplateRef<HTMLElement>("drawer");
 const shade = useTemplateRef<HTMLElement>("shade");
@@ -32,7 +37,7 @@ watch(
     playerExpanded.value = false;
     const scrubbing = navigationScrubbing.value;
     await nextTick();
-    if (scrubbing || navigationScrubbing.value) return;
+    if (scrubbing || navigationScrubbing.value || gamepad.active) return;
     if (page !== "home") {
       content.value
         ?.querySelector<HTMLElement>(".page.is-active h2")
@@ -51,9 +56,11 @@ function escape(event: KeyboardEvent) {
 }
 onMounted(() => {
   void init();
+  stopGamepad = startGamepad();
   document.addEventListener("keydown", escape);
 });
 onBeforeUnmount(() => {
+  stopGamepad?.();
   document.removeEventListener("keydown", escape);
   dispose();
 });
@@ -72,6 +79,7 @@ onBeforeUnmount(() => {
         'is-maximized': ui.maximized,
         'reduce-motion': form.reduceMotion,
         'has-drawer': opened,
+        'gamepad-mode': gamepad.active,
       }"
     >
       <div ref="scene" class="scene" aria-hidden="true">
@@ -112,6 +120,9 @@ onBeforeUnmount(() => {
         </main>
       </div>
       <NotificationCenter />
+      <GamepadFilePicker />
+      <GamepadKeyboard />
+      <GamepadOverlay />
     </div>
   </MotionConfig>
 </template>
