@@ -328,12 +328,24 @@ export const playtime = reactive({
   error: "",
 });
 let playtimeRequest = 0;
+let playtimeRequestedAt = 0;
 let lastLaunchStartedAt: number | null = null;
 const PLAYTIME_RECENT_MS = 5 * 60 * 1000;
+const PLAYTIME_REUSE_MS = 1000;
+
+/// 进入记录页时页面和导航都会请求记录, 短时间内只发起一次读取。
+export function loadPlaytimeIfStale(
+  maxAgeMs = PLAYTIME_REUSE_MS,
+): Promise<PlaytimeHistory | null> {
+  if (Date.now() - playtimeRequestedAt < maxAgeMs)
+    return Promise.resolve(playtime.history);
+  return loadPlaytime();
+}
 
 export async function loadPlaytime(): Promise<PlaytimeHistory | null> {
   const epoch = generation;
   const request = ++playtimeRequest;
+  playtimeRequestedAt = Date.now();
   playtime.loading = true;
   try {
     const next = await invoke("playtime_history");
@@ -1875,7 +1887,7 @@ export function showPage(name: string | undefined, syncHash = true) {
     return;
   const changed = state.page !== name;
   state.page = name;
-  if (name === "records") void loadPlaytime();
+  if (name === "records") void loadPlaytimeIfStale();
   // 封面与播放起点一致, 返回主页时不恢复到缩放动画的中途。
   if (changed) applyHeroMedia(state.heroMedia);
   void nextTick(syncScrollEdges);
@@ -2101,6 +2113,7 @@ export function dispose() {
   ui.introStarted = false;
   ui.introDone = false;
   playtimeRequest++;
+  playtimeRequestedAt = 0;
   lastLaunchStartedAt = null;
   Object.assign(playtime, {
     history: null,

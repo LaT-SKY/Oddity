@@ -202,6 +202,21 @@ function buildMonths(
   active: ActivePlaytime | null,
   now: number,
 ): PlaytimeMonth[] {
+  // 记录会持续增长, 先按月份归并一次, 再取最近 12 个月。
+  const monthMs = new Map<string, number>();
+  for (const [day, value] of Object.entries(dayMs)) {
+    const key = day.slice(0, 7);
+    monthMs.set(key, (monthMs.get(key) ?? 0) + value);
+  }
+  const monthSessions = new Map<string, number>();
+  for (const session of sessions) {
+    const key = localMonthKey(session.startedAt);
+    monthSessions.set(key, (monthSessions.get(key) ?? 0) + 1);
+  }
+  if (active) {
+    const key = localMonthKey(active.startedAt);
+    monthSessions.set(key, (monthSessions.get(key) ?? 0) + 1);
+  }
   const months: PlaytimeMonth[] = [];
   const first = new Date(now);
   first.setDate(1);
@@ -209,18 +224,11 @@ function buildMonths(
   for (let index = 0; index < MONTH_WINDOW; index += 1) {
     const date = new Date(first.getFullYear(), first.getMonth() + index, 1);
     const key = localMonthKey(date.getTime());
-    const ms = Object.entries(dayMs).reduce(
-      (total, [day, value]) => total + (day.startsWith(key) ? value : 0),
-      0,
-    );
-    const count =
-      sessions.filter((session) => localMonthKey(session.startedAt) === key)
-        .length + (active && localMonthKey(active.startedAt) === key ? 1 : 0);
     months.push({
       key,
       label: `${date.getMonth() + 1}月`,
-      ms,
-      sessions: count,
+      ms: monthMs.get(key) ?? 0,
+      sessions: monthSessions.get(key) ?? 0,
     });
   }
   return months;

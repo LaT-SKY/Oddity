@@ -31,7 +31,8 @@ const stats = buildPlaytimeStats(
   },
   now,
 );
-const dataUrl = "data:image/png;base64,cG9zdGVy";
+const blobUrl = "blob:http://localhost/hero";
+const encode = vi.hoisted(() => vi.fn());
 let wrapper: VueWrapper;
 let images: {
   src: string;
@@ -86,7 +87,28 @@ beforeEach(() => {
     createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
   } as unknown as CanvasRenderingContext2D;
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context);
-  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue(dataUrl);
+  encode.mockReset();
+  Object.defineProperty(HTMLCanvasElement.prototype, "toBlob", {
+    configurable: true,
+    value: (callback: BlobCallback, type?: string) => {
+      encode(type);
+      callback(new Blob(["poster"], { type: "image/png" }));
+    },
+  });
+  vi.stubGlobal(
+    "FileReader",
+    class {
+      result: string | null = null;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsDataURL(blob: Blob) {
+        void blob.text().then((text) => {
+          this.result = `data:${blob.type};base64,${btoa(text)}`;
+          this.onload?.();
+        });
+      }
+    },
+  );
 });
 afterEach(() => wrapper?.unmount());
 
@@ -122,11 +144,9 @@ it("等待壁纸加载时禁用保存, 生成后显示 PNG 预览", async () => 
   expect(images[0].crossOrigin).toBe("anonymous");
   images[0].onload?.();
   await flushPromises();
-  expect(wrapper.get("img").attributes("src")).toBe(dataUrl);
+  expect(wrapper.get("img").attributes("src")).toBe(blobUrl);
   expect(saveButton().attributes("disabled")).toBeUndefined();
-  expect(HTMLCanvasElement.prototype.toDataURL).toHaveBeenCalledExactlyOnceWith(
-    "image/png",
-  );
+  expect(encode).toHaveBeenCalledExactlyOnceWith("image/png");
 });
 
 it("官方壁纸失败时使用内置壁纸, 全部失败时仍生成海报", async () => {
@@ -244,7 +264,7 @@ it("浏览器预览通过下载链接保存并清理链接", async () => {
     .spyOn(HTMLAnchorElement.prototype, "click")
     .mockImplementation(function (this: HTMLAnchorElement) {
       expect(this.download).toBe("异环游玩记录-2026-10-28.png");
-      expect(this.href).toBe(dataUrl);
+      expect(this.href).toBe(blobUrl);
       expect(this.isConnected).toBe(true);
     });
   await generate();
@@ -275,10 +295,20 @@ it("生成期间关闭后不发布预览, 重新打开可再次生成", async ()
   await wrapper.setProps({ open: false });
   images[0].onload?.();
   await flushPromises();
-  expect(HTMLCanvasElement.prototype.toDataURL).not.toHaveBeenCalled();
+  expect(encode).not.toHaveBeenCalled();
   await wrapper.setProps({ open: true });
   await flushPromises();
   expect(images).toHaveLength(1);
   expect(wrapper.find("img").exists()).toBe(true);
   expect(wrapper.find(".playtime-poster__saved").exists()).toBe(false);
+});
+
+it("相同记录再次打开时复用已生成的海报", async () => {
+  await generate();
+  await wrapper.setProps({ open: false });
+  await flushPromises();
+  await wrapper.setProps({ open: true });
+  await flushPromises();
+  expect(encode).toHaveBeenCalledOnce();
+  expect(wrapper.get("img").attributes("src")).toBe(blobUrl);
 });

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from "vue";
+import { nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import BaseButton from "../../components/BaseButton.vue";
 import BaseModal from "../../components/BaseModal.vue";
@@ -20,6 +20,15 @@ const saving = ref(false);
 const posterUrl = ref("");
 const savedPath = ref("");
 const error = ref("");
+let posterBlob: Blob | null = null;
+
+// 海报内容只取决于记录本身, 相同记录的再次打开直接复用上一次的结果。
+interface PosterCache {
+  signature: string;
+  blob: Blob;
+  url: string;
+}
+let posterCache: PosterCache | null = null;
 
 watch(
   () => props.open,
@@ -36,27 +45,81 @@ watch(
   { immediate: true },
 );
 
+function posterSignature(stats: PlaytimeStats) {
+  return JSON.stringify([
+    stats.totalMs,
+    stats.sessionCount,
+    stats.daysPlayed,
+    stats.currentStreak,
+    stats.longestStreak,
+    stats.longestSessionMs,
+    stats.heatmap.start,
+    stats.heatmap.weeks.map((week) => week.map((day) => day.ms)),
+    stats.months.map((month) => [month.ms, month.sessions]),
+  ]);
+}
+
 async function generatePoster() {
   if (generating.value) return;
   generating.value = true;
   posterUrl.value = "";
+  posterBlob = null;
   savedPath.value = "";
   error.value = "";
   try {
+    const signature = posterSignature(props.stats);
+    if (posterCache?.signature === signature) {
+      posterBlob = posterCache.blob;
+      posterUrl.value = posterCache.url;
+      return;
+    }
     await document.fonts?.ready;
     const wallpaper = await loadWallpaper();
+    if (!props.open) return;
     const canvas = document.createElement("canvas");
     canvas.width = 1080;
     canvas.height = 1440;
     drawPoster(canvas.getContext("2d"), props.stats, wallpaper);
+    const blob = await canvasToBlob(canvas);
     if (!props.open) return;
-    posterUrl.value = canvas.toDataURL("image/png");
+    const url = URL.createObjectURL(blob);
+    if (posterCache) URL.revokeObjectURL(posterCache.url);
+    posterCache = { signature, blob, url };
+    posterBlob = blob;
+    posterUrl.value = url;
   } catch (cause) {
     error.value = `生成海报失败: ${String(cause)}`;
   } finally {
     generating.value = false;
   }
 }
+
+function canvasToBlob(canvas: HTMLCanvasElement) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => (blob ? resolve(blob) : reject(new Error("无法编码海报"))),
+      "image/png",
+    );
+  });
+}
+
+function blobToBase64(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(result.slice(result.indexOf(",") + 1));
+    };
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("无法读取海报数据"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+onBeforeUnmount(() => {
+  if (posterCache) URL.revokeObjectURL(posterCache.url);
+  posterCache = null;
+});
 
 function close() {
   if (saving.value) return;
@@ -87,7 +150,8 @@ async function savePoster() {
       filters: [{ name: "PNG 图片", extensions: ["png"] }],
     });
     if (!destination) return;
-    const data = posterUrl.value.split(",", 2)[1] ?? "";
+    if (!posterBlob) throw new Error("海报尚未生成");
+    const data = await blobToBase64(posterBlob);
     savedPath.value = await invoke("playtime_export_poster", {
       destination,
       data,

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from "vue";
 import { useAnimate } from "motion-v";
 import {
   formatPlaytime,
@@ -16,6 +16,13 @@ const props = defineProps<{
   totalMs: number;
   theme?: string;
 }>();
+
+interface HoverLayer {
+  x: number;
+  y: number;
+  size: number;
+  level: number;
+}
 
 const weekdays = ["一", "", "三", "", "五", "", "日"];
 const days = computed(() => props.heatmap.weeks.flat());
@@ -34,8 +41,103 @@ const summary = computed(
 );
 const [, animate] = useAnimate();
 const { reduced } = useControlMotion();
-const hovered = ref<{ day: PlaytimeDay; x: number; y: number } | null>(null);
+const hovered = ref<PlaytimeDay | null>(null);
+// 指针位置单独传递, 移动时只更新提示位置, 不重新渲染 371 个格子。
+const pointer = reactive({ x: 0, y: 0 });
 let activeCell: HTMLElement | null = null;
+
+// 格子本身不参与动画, 悬停放大交给两个覆盖层, 只让合成层变化。
+const grid = ref<HTMLElement | null>(null);
+let geometry: { cell: number; gap: number; label: number } | null = null;
+const layerA = ref<HoverLayer | null>(null);
+const layerB = ref<HoverLayer | null>(null);
+const elementA = ref<HTMLElement | null>(null);
+const elementB = ref<HTMLElement | null>(null);
+const slots = [
+  { layer: layerA, element: elementA },
+  { layer: layerB, element: elementB },
+] as const;
+const animations: Array<ReturnType<typeof animate> | undefined> = [
+  undefined,
+  undefined,
+];
+const timers = [0, 0];
+let activeSlot = 1;
+
+function measureGrid() {
+  const element = grid.value;
+  if (!element) return null;
+  const width = element.clientWidth;
+  if (width <= 0) return null;
+  const gap = 3;
+  const label = 18;
+  geometry = { cell: (width - label - gap * 52) / 53, gap, label };
+  return geometry;
+}
+
+function grow(slot: number, layer: HoverLayer) {
+  const target = slots[slot];
+  window.clearTimeout(timers[slot]);
+  timers[slot] = 0;
+  animations[slot]?.stop();
+  target.layer.value = layer;
+  const run = () => {
+    const element = target.element.value;
+    if (!element) return;
+    animations[slot] = animate(
+      element,
+      { x: layer.x, y: layer.y, scale: 1 },
+      { duration: 0 },
+    );
+    animations[slot] = animate(
+      element,
+      { x: layer.x, y: layer.y, scale: 1.45 },
+      reduced.value
+        ? { duration: 0 }
+        : { type: "spring", stiffness: 520, damping: 28 },
+    );
+  };
+  if (target.element.value) run();
+  else void nextTick(run);
+}
+
+function shrink(slot: number) {
+  const target = slots[slot];
+  const layer = target.layer.value;
+  if (!layer) return;
+  const element = target.element.value;
+  if (element) {
+    animations[slot]?.stop();
+    animations[slot] = animate(
+      element,
+      { x: layer.x, y: layer.y, scale: 1 },
+      reduced.value ? { duration: 0 } : { duration: 0.12 },
+    );
+  }
+  window.clearTimeout(timers[slot]);
+  timers[slot] = window.setTimeout(
+    () => {
+      timers[slot] = 0;
+      target.layer.value = null;
+    },
+    reduced.value ? 0 : 130,
+  );
+}
+
+function showLayer(index: number) {
+  const day = days.value[index];
+  if (!day) return;
+  const box = geometry ?? measureGrid();
+  const slot = activeSlot === 0 ? 1 : 0;
+  shrink(activeSlot);
+  grow(slot, {
+    x: box ? box.label + Math.floor(index / 7) * (box.cell + box.gap) : 0,
+    y: box ? (index % 7) * (box.cell + box.gap) : 0,
+    size: box?.cell ?? 0,
+    level: day.level,
+  });
+  activeSlot = slot;
+}
 
 function enter(event: MouseEvent) {
   const target = (event.target as Element | null)?.closest<HTMLElement>(
@@ -49,50 +151,48 @@ function enter(event: MouseEvent) {
     move(event);
     return;
   }
-  if (activeCell) {
-    animate(
-      activeCell,
-      { scale: 1 },
-      reduced.value ? { duration: 0 } : { duration: 0.12 },
-    );
-    activeCell.style.zIndex = "";
-  }
-  activeCell = null;
-  hovered.value = null;
   const index = Number(target.dataset.index);
   const day = Number.isInteger(index) ? days.value[index] : undefined;
-  if (!day || day.future) return;
+  if (!day || day.future) {
+    reset();
+    return;
+  }
   activeCell = target;
-  target.style.zIndex = "2";
-  animate(
-    target,
-    { scale: 1.45 },
-    reduced.value
-      ? { duration: 0 }
-      : { type: "spring", stiffness: 520, damping: 28 },
-  );
-  hovered.value = { day, x: event.clientX, y: event.clientY };
+  pointer.x = event.clientX;
+  pointer.y = event.clientY;
+  hovered.value = day;
+  showLayer(index);
 }
 function move(event: MouseEvent) {
   if (!hovered.value) return;
-  hovered.value = {
-    ...hovered.value,
-    x: event.clientX,
-    y: event.clientY,
-  };
+  pointer.x = event.clientX;
+  pointer.y = event.clientY;
 }
-function leave() {
-  if (activeCell) {
-    animate(
-      activeCell,
-      { scale: 1 },
-      reduced.value ? { duration: 0 } : { duration: 0.12 },
-    );
-    activeCell.style.zIndex = "";
-  }
+function reset() {
+  shrink(activeSlot);
   activeCell = null;
   hovered.value = null;
 }
+function leave() {
+  reset();
+}
+let observer: ResizeObserver | undefined;
+watch(grid, (element) => {
+  observer?.disconnect();
+  observer = undefined;
+  if (!element || typeof ResizeObserver === "undefined") return;
+  // 尺寸变化后下一次悬停重新测量格子间距。
+  observer = new ResizeObserver(() => {
+    geometry = null;
+  });
+  observer.observe(element);
+});
+onBeforeUnmount(() => {
+  observer?.disconnect();
+  observer = undefined;
+  timers.forEach((timer) => window.clearTimeout(timer));
+  animations.forEach((animation) => animation?.stop());
+});
 </script>
 
 <template>
@@ -106,6 +206,7 @@ function leave() {
       >
     </div>
     <div
+      ref="grid"
       class="playtime-heatmap__grid"
       role="img"
       :aria-label="summary"
@@ -132,6 +233,22 @@ function leave() {
           aria-hidden="true"
         />
       </template>
+      <span
+        v-if="layerA"
+        ref="elementA"
+        class="playtime-heatmap__cell playtime-heatmap__hover"
+        :class="`is-level-${layerA.level}`"
+        :style="{ width: `${layerA.size}px`, height: `${layerA.size}px` }"
+        aria-hidden="true"
+      />
+      <span
+        v-if="layerB"
+        ref="elementB"
+        class="playtime-heatmap__cell playtime-heatmap__hover"
+        :class="`is-level-${layerB.level}`"
+        :style="{ width: `${layerB.size}px`, height: `${layerB.size}px` }"
+        aria-hidden="true"
+      />
     </div>
     <section class="playtime-heatmap__sr">
       <h3>每日游玩时长</h3>
@@ -144,16 +261,15 @@ function leave() {
     </section>
     <FloatingTooltip
       :open="hovered !== null"
-      :x="hovered?.x ?? 0"
-      :y="hovered?.y ?? 0"
+      :pointer="pointer"
       :theme="theme"
       :reduce-motion="reduced"
       name="heatmap"
     >
       <template v-if="hovered">
-        <strong>{{ formatShortDate(hovered.day.date) }}</strong>
+        <strong>{{ formatShortDate(hovered.date) }}</strong>
         <p class="playtime-tooltip__value">
-          {{ hovered.day.ms ? formatPlaytime(hovered.day.ms) : "没有记录" }}
+          {{ hovered.ms ? formatPlaytime(hovered.ms) : "没有记录" }}
         </p>
       </template>
     </FloatingTooltip>
@@ -188,6 +304,7 @@ function leave() {
   white-space: nowrap;
 }
 .playtime-heatmap__grid {
+  position: relative;
   display: grid;
   grid-template-columns: 18px repeat(53, minmax(0, 1fr));
   grid-template-rows: repeat(7, auto);
@@ -207,6 +324,14 @@ function leave() {
   aspect-ratio: 1;
   border-radius: 2px;
   background: var(--heat-0);
+}
+.playtime-heatmap__hover {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  aspect-ratio: auto;
+  pointer-events: none;
 }
 .playtime-heatmap__cell.is-level-1,
 .playtime-heatmap__legend .is-level-1 {

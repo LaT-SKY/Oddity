@@ -2,21 +2,30 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { AnimatePresence, motion, useReducedMotion } from "motion-v";
 
-const props = defineProps<{
-  open: boolean;
+interface TooltipPointer {
   x: number;
   y: number;
+}
+
+const props = defineProps<{
+  open: boolean;
+  pointer: TooltipPointer;
   theme?: string;
   reduceMotion?: boolean;
   name?: string;
 }>();
 const tip = ref<HTMLElement | null>(null);
-const position = ref({ left: "0px", top: "0px" });
 const placed = ref(false);
 const prefersReduced = useReducedMotion();
 const reduced = computed(() => props.reduceMotion || prefersReduced.value);
+// 尺寸只在提示出现或内容变化时测量, 指针移动时仅改写合成层位移。
+const size = { width: 0, height: 0 };
+let pendingX = 0;
+let pendingY = 0;
 let placeFrame = 0;
+let moveFrame = 0;
 let attempts = 0;
+let observer: ResizeObserver | undefined;
 
 function tipElement() {
   const value = tip.value as unknown as
@@ -25,28 +34,55 @@ function tipElement() {
   return value instanceof HTMLElement ? value : (value.$el ?? null);
 }
 
+function measure(element: HTMLElement) {
+  const box = element.getBoundingClientRect();
+  if (box.width <= 0) return false;
+  size.width = box.width;
+  size.height = box.height;
+  return true;
+}
+
+function apply(element: HTMLElement) {
+  const left = Math.max(
+    12,
+    Math.min(pendingX - size.width / 2, window.innerWidth - size.width - 12),
+  );
+  const above = pendingY - size.height - 10;
+  const top =
+    above >= 12
+      ? above
+      : Math.min(pendingY + 16, window.innerHeight - size.height - 12);
+  element.style.transform = `translate3d(${left}px, ${top}px, 0)`;
+  if (placed.value) return;
+  element.style.visibility = "visible";
+  placed.value = true;
+}
+
 async function place() {
   if (!props.open) return;
   await nextTick();
   const element = tipElement();
-  const box = element?.getBoundingClientRect();
-  if (!box || box.width <= 0) {
+  if (!element) return;
+  pendingX = props.pointer.x;
+  pendingY = props.pointer.y;
+  if (!measure(element)) {
     if (attempts++ < 4) schedule();
     return;
   }
   attempts = 0;
-  const left = Math.max(
-    12,
-    Math.min(props.x - box.width / 2, window.innerWidth - box.width - 12),
-  );
-  const above = props.y - box.height - 10;
-  const top =
-    above >= 12
-      ? above
-      : Math.min(props.y + 16, window.innerHeight - box.height - 12);
-  position.value = { left: `${left}px`, top: `${top}px` };
-  placed.value = true;
+  observe(element);
+  apply(element);
 }
+
+function observe(element: HTMLElement) {
+  if (observer || typeof ResizeObserver === "undefined") return;
+  observer = new ResizeObserver(() => {
+    if (!props.open) return;
+    if (measure(element)) apply(element);
+  });
+  observer.observe(element);
+}
+
 function schedule() {
   if (placeFrame) cancelAnimationFrame(placeFrame);
   placeFrame = requestAnimationFrame(() => {
@@ -54,6 +90,7 @@ function schedule() {
     void place();
   });
 }
+
 watch(
   () => props.open,
   (open) => {
@@ -65,11 +102,23 @@ watch(
   { flush: "post" },
 );
 watch(
-  () => [props.x, props.y],
+  () => [props.pointer.x, props.pointer.y],
   () => {
     if (!props.open) return;
-    attempts = 0;
-    schedule();
+    pendingX = props.pointer.x;
+    pendingY = props.pointer.y;
+    if (moveFrame) return;
+    moveFrame = requestAnimationFrame(() => {
+      moveFrame = 0;
+      const element = tipElement();
+      if (!element) return;
+      if (size.width <= 0 && !measure(element)) {
+        attempts = 0;
+        schedule();
+        return;
+      }
+      apply(element);
+    });
   },
   { flush: "post" },
 );
@@ -85,6 +134,9 @@ watch(
 );
 onBeforeUnmount(() => {
   if (placeFrame) cancelAnimationFrame(placeFrame);
+  if (moveFrame) cancelAnimationFrame(moveFrame);
+  observer?.disconnect();
+  observer = undefined;
 });
 </script>
 
@@ -98,10 +150,7 @@ onBeforeUnmount(() => {
         class="task-tooltip playtime-tooltip"
         :data-theme="theme"
         :data-tooltip="name"
-        :style="{
-          ...position,
-          visibility: placed ? 'visible' : 'hidden',
-        }"
+        :style="{ visibility: placed ? 'visible' : 'hidden' }"
         :initial="{ opacity: 0 }"
         :animate="{ opacity: 1 }"
         :exit="{ opacity: 0 }"

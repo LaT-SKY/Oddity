@@ -70,12 +70,40 @@ describe("游玩热力图", () => {
     expect(wrapper.get('[role="tooltip"]').attributes("data-theme")).toBe(
       "dark",
     );
+    expect(wrapper.get(".playtime-heatmap__hover").classes()).toContain(
+      "is-level-3",
+    );
     await wrapper.get(`[data-index="${index + 1}"]`).trigger("mouseover");
     expect(wrapper.find('[role="tooltip"]').exists()).toBe(false);
-    expect((cell.element as HTMLElement).style.zIndex).toBe("");
     await cell.trigger("mouseover");
     await wrapper.get(".playtime-heatmap__weekday").trigger("mouseover");
     expect(wrapper.find('[role="tooltip"]').exists()).toBe(false);
+  });
+
+  it("放大交给独立覆盖层, 格子本身不改样式并在离开后收起", async () => {
+    render();
+    const days = stats.heatmap.weeks.flat();
+    const index = days.findIndex((day) => day.key === "2026-10-28");
+    const cell = wrapper.get(`[data-index="${index}"]`);
+    await cell.trigger("mouseover", { clientX: 100, clientY: 200 });
+    expect((cell.element as HTMLElement).style.transform).toBe("");
+    expect((cell.element as HTMLElement).style.zIndex).toBe("");
+    const layer = wrapper.get(".playtime-heatmap__hover");
+    expect(
+      wrapper
+        .get(".playtime-heatmap__grid")
+        .find(".playtime-heatmap__hover")
+        .exists(),
+    ).toBe(true);
+    expect(layer.classes()).toContain("is-level-3");
+    await wrapper.get(`[data-index="${index - 1}"]`).trigger("mouseover");
+    await vi.advanceTimersByTimeAsync(150);
+    const layers = wrapper.findAll(".playtime-heatmap__hover");
+    expect(layers).toHaveLength(1);
+    expect(layers[0].classes()).toContain("is-level-0");
+    await wrapper.get(".playtime-heatmap__grid").trigger("mouseleave");
+    await vi.advanceTimersByTimeAsync(150);
+    expect(wrapper.findAll(".playtime-heatmap__hover")).toHaveLength(0);
   });
 
   it("空白日期提示没有记录, 离开网格后隐藏提示", async () => {
