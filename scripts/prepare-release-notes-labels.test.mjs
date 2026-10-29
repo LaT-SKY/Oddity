@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   calculateLabelActions,
   consolidateReleaseNotes,
+  extractLinePrNumber,
   extractPrNumberFromSubject,
   extractPrNumbersFromCommitMessages,
 } from "./prepare-release-notes-labels.mjs";
@@ -24,6 +25,29 @@ test("从提交首行准确提取 PR 编号，校验安全整数与非零约束�
   assert.equal(extractPrNumberFromSubject("Refs #37"), null);
   assert.equal(extractPrNumberFromSubject("Closes #38\n\nFix #20"), null);
   assert.equal(extractPrNumberFromSubject(""), null);
+});
+
+test("从发布说明列表行精准提取主体 PR 编号，避免被正文超链接误导", () => {
+  assert.equal(
+    extractLinePrNumber(
+      "* feat(proton): 添加 A/B 运行环境 by @LaT-SKY in https://github.com/LaT-SKY/Oddity/pull/76",
+    ),
+    76,
+  );
+  assert.equal(
+    extractLinePrNumber(
+      "• fix(ui): 修复启动检查期间下拉框重叠 by @LaT-SKY in https://github.com/LaT-SKY/Oddity/pull/82",
+    ),
+    82,
+  );
+  assert.equal(
+    extractLinePrNumber(
+      "* fix: 修复针对 #100 (https://github.com/LaT-SKY/Oddity/pull/100) 的问题 by @LaT-SKY in https://github.com/LaT-SKY/Oddity/pull/102",
+    ),
+    102,
+  );
+  assert.equal(extractLinePrNumber("## What's Changed"), null);
+  assert.equal(extractLinePrNumber("### 新增功能"), null);
 });
 
 test("批量提取多条提交消息中的 PR 编号并升序去重", () => {
@@ -94,19 +118,19 @@ test("清洗规则：业务 PR 剥离 ci/question 排除标签，纯测试 PR �
   ]);
 });
 
-test("收敛 Release 说明：将同周期跟随 PR 合并入父功能，移除孤立跟随条目，支持指定仓库且幂等", () => {
+test("收敛 Release 说明：父 PR 标题带括号仍正常收敛，子项提及父项但父项不存在时不误删", () => {
   const inputNotes = `## What's Changed
 ### 新增功能
-* feat: 添加游玩记录与分享海报 by @LaT-SKY in https://github.com/LaT-SKY/Oddity/pull/100
+* feat: 添加多项能力 (含测试版) by @LaT-SKY in https://github.com/LaT-SKY/Oddity/pull/100
 ### 体验优化
-* perf: 优化记录页与设置页的加载开销 by @LaT-SKY in https://github.com/LaT-SKY/Oddity/pull/102
+* perf: 优化记录页加载开销 by @LaT-SKY in https://github.com/LaT-SKY/Oddity/pull/102
 ### 问题修复
-* fix: 孤立修复父 PR 不在本次发布的跟随条目 by @LaT-SKY in https://github.com/LaT-SKY/Oddity/pull/200
+* fix: 针对缺失父条目 #999 (https://github.com/LaT-SKY/Oddity/pull/999) 的修复 by @LaT-SKY in https://github.com/LaT-SKY/Oddity/pull/200
 `;
 
   const customMappings = {
-    102: { parent: 100, note: "优化海报生成与图表渲染性能" },
-    200: { parent: 999, note: "父 PR 未在本次范围中" },
+    102: { parent: 100, note: "优化图表渲染性能" },
+    200: { parent: 999, note: "父项 999 并未在列表中" },
   };
 
   const output = consolidateReleaseNotes(
@@ -114,17 +138,17 @@ test("收敛 Release 说明：将同周期跟随 PR 合并入父功能，移除�
     customMappings,
     "LaT-SKY/Oddity",
   );
+  // 父 PR 原标题含 "(含测试版)"，仍应正常追加跟随说明
   assert.ok(
     output.includes(
-      "feat: 添加游玩记录与分享海报 by @LaT-SKY in https://github.com/LaT-SKY/Oddity/pull/100 (含 #102 优化海报生成与图表渲染性能; https://github.com/LaT-SKY/Oddity/pull/102)",
+      "feat: 添加多项能力 (含测试版) by @LaT-SKY in https://github.com/LaT-SKY/Oddity/pull/100 (含 #102 优化图表渲染性能; https://github.com/LaT-SKY/Oddity/pull/102)",
     ),
   );
-  assert.ok(!output.includes("### 体验优化\n* perf: 优化记录页与设置页"));
-  // 父 PR 不在本次发布范围内的跟随条目应保持原样，不被误删
-  assert.ok(output.includes("孤立修复父 PR 不在本次发布的跟随条目"));
+  // 子 PR 200 正文提到了父 PR 999，但 999 并不在列表中，所以 200 不能被误删
+  assert.ok(output.includes("针对缺失父条目 #999"));
   assert.match(output, /\/pull\/200\b/);
 
-  // 二次收敛保持幂等，不会重复追加 (含 ...)
+  // 二次收敛保持幂等，不会重复追加跟随说明
   const doubleOutput = consolidateReleaseNotes(
     output,
     customMappings,

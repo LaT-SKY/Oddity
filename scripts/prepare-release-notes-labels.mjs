@@ -108,6 +108,23 @@ export const knownFollowupMappings = {
   102: { parent: 100, note: "优化海报生成与图表渲染性能" },
 };
 
+export function extractLinePrNumber(line) {
+  if (!/^\s*[*•-]\s+/.test(line)) return null;
+  // 匹配列表项归属的 PR 链接（优先匹配 "in https://.../pull/数字" 或末尾的 "/pull/数字"）
+  const inMatch = line.match(/\bin\s+https?:\/\/[^\s]+\/pull\/(\d+)/i);
+  if (inMatch) {
+    const number = parseInt(inMatch[1], 10);
+    return Number.isSafeInteger(number) && number > 0 ? number : null;
+  }
+  const allMatches = [...line.matchAll(/\/pull\/(\d+)/g)];
+  if (allMatches.length > 0) {
+    const lastMatch = allMatches[allMatches.length - 1];
+    const number = parseInt(lastMatch[1], 10);
+    return Number.isSafeInteger(number) && number > 0 ? number : null;
+  }
+  return null;
+}
+
 export function consolidateReleaseNotes(
   markdown,
   mappings = knownFollowupMappings,
@@ -116,14 +133,18 @@ export function consolidateReleaseNotes(
   const lines = markdown.split("\n");
   const result = [];
   const removedPrs = new Set();
-  const presentPrs = new Set(
-    [...markdown.matchAll(/\/pull\/(\d+)/g)].map((m) => parseInt(m[1], 10)),
-  );
+  const presentPrs = new Set();
 
   for (const line of lines) {
-    const prMatch = line.match(/\/pull\/(\d+)/);
-    if (prMatch) {
-      const prNumber = parseInt(prMatch[1], 10);
+    const prNumber = extractLinePrNumber(line);
+    if (prNumber !== null) {
+      presentPrs.add(prNumber);
+    }
+  }
+
+  for (const line of lines) {
+    const prNumber = extractLinePrNumber(line);
+    if (prNumber !== null) {
       const mapping = mappings[prNumber];
       if (mapping && presentPrs.has(mapping.parent)) {
         removedPrs.add(prNumber);
@@ -136,22 +157,27 @@ export function consolidateReleaseNotes(
   // 为父 PR 条目补充跟随说明与 PR 引用（防重复追加）
   for (let i = 0; i < result.length; i++) {
     const line = result[i];
-    const prMatch = line.match(/\/pull\/(\d+)/);
-    if (!prMatch) continue;
+    const parentPr = extractLinePrNumber(line);
+    if (parentPr === null) continue;
 
-    const parentPr = parseInt(prMatch[1], 10);
     const children = Object.entries(mappings).filter(
       ([childPr, item]) =>
         item.parent === parentPr && removedPrs.has(Number(childPr)),
     );
-    if (children.length > 0 && !line.includes(" (含 ")) {
-      const notes = children
-        .map(([childPr, item]) => `#${childPr} ${item.note}`)
-        .join("、");
-      const extraLinks = children
-        .map(([childPr]) => `https://github.com/${repo}/pull/${childPr}`)
-        .join(", ");
-      result[i] = `${line} (含 ${notes}; ${extraLinks})`;
+    if (children.length > 0) {
+      // 检查当前行是否已追加过这些跟随 PR（避免重复追加，保证幂等）
+      const missingChildren = children.filter(
+        ([childPr]) => !line.includes(`/pull/${childPr}`),
+      );
+      if (missingChildren.length > 0) {
+        const notes = missingChildren
+          .map(([childPr, item]) => `#${childPr} ${item.note}`)
+          .join("、");
+        const extraLinks = missingChildren
+          .map(([childPr]) => `https://github.com/${repo}/pull/${childPr}`)
+          .join(", ");
+        result[i] = `${line} (含 ${notes}; ${extraLinks})`;
+      }
     }
   }
 
@@ -202,10 +228,7 @@ function collectPrNumbers(repo, notesStart, commit) {
       const messages = (compare.commits || []).map(
         (item) => item.commit?.message || "",
       );
-      const numbers = extractPrNumbersFromCommitMessages(messages);
-      if (numbers.length > 0) {
-        return numbers;
-      }
+      return extractPrNumbersFromCommitMessages(messages);
     } catch (error) {
       console.warn(
         `获取提交对比范围失败: ${error.message}，尝试按合并列表获取`,
