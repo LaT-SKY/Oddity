@@ -37,7 +37,7 @@ Oddity 不附带游戏文件, 资源来自官方服务. 它把检查, 下载, �
 
 ## 开始使用
 
-1. **安装 Oddity**. 从 [Releases](https://github.com/LaT-SKY/Oddity/releases) 选择发行版安装包, 各发行版的命令见[安装指南](docs/install.md#安装-oddity).
+1. **安装 Oddity**. 从 [Releases](https://github.com/LaT-SKY/Oddity/releases) 选择发行版安装包, 各发行版的命令见[安装指南](docs/install.md#安装-oddity). 需要确认安装包来源时, 见[验证安装包](docs/install.md#验证安装包).
 2. **准备运行环境**. 安装 `umu-launcher`, 准备 Proton. 不需要手动设置 Wine prefix; 创建 Proton 运行环境后由 Oddity 创建和管理, 见[环境准备](docs/install.md#准备游戏环境).
 3. **完成首次设置**. 在 **设置 → 游戏与启动** 选择地区并填写安装目录, 在 **运行环境** 创建 Proton 环境.
 4. **检查并启动**. 在 **更新** 点击 **检查资源**, 按提示安装或更新, 完成后回到 **启动**.
