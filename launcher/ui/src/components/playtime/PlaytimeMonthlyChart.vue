@@ -174,6 +174,7 @@ function keydown(event: KeyboardEvent) {
     :data-pad-browsing="browsing || undefined"
     role="group"
     aria-label="月度游玩时长, 确认后使用方向键浏览"
+    :aria-describedby="browsing ? `${gradientId}-description` : undefined"
     @keydown="keydown"
     @blur="leave"
   >
@@ -273,6 +274,18 @@ function keydown(event: KeyboardEvent) {
         :transition="cursorTransition"
       />
     </div>
+    <p
+      :id="`${gradientId}-description`"
+      class="playtime-chart__sr"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <template v-if="browsing && activeMonth"
+        >{{ activeMonth.label }}, {{ formatPlaytime(activeMonth.ms) }},
+        {{ activeMonth.sessions }} 次游玩</template
+      >
+    </p>
     <FloatingTooltip
       :open="open && activeMonth !== null"
       :pointer="pointer"
@@ -294,6 +307,14 @@ function keydown(event: KeyboardEvent) {
 </template>
 
 <style scoped>
+.playtime-chart__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 .playtime-chart {
   position: relative;
   min-width: 0;

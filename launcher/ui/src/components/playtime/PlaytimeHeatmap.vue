@@ -183,7 +183,13 @@ function keydown(event: KeyboardEvent) {
           :style="{ gridColumn: weekIndex + 2, gridRow: dayIndex + 1 }"
           :id="`${uid}-${day.key}`"
           :data-index="weekIndex * 7 + dayIndex"
-          aria-hidden="true"
+          role="img"
+          :aria-hidden="browsing && hovered?.key === day.key ? undefined : true"
+          :aria-label="
+            browsing && hovered?.key === day.key
+              ? `${new Date(day.date).getFullYear()}年${formatShortDate(day.date)}, ${formatPlaytime(day.ms)}`
+              : undefined
+          "
         />
       </template>
     </div>

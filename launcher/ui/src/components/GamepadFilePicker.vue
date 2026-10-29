@@ -14,6 +14,8 @@ const hidden = ref(false);
 const error = ref("");
 const busy = ref(false);
 const overwrite = ref(false);
+let requestGeneration = 0;
+let browseGeneration = 0;
 const entries = computed(
   () =>
     listing.value?.entries.filter(
@@ -35,36 +37,48 @@ function close(value: string | null = null) {
   request?.resolve(value);
 }
 async function browse(destination?: string) {
+  const request = requestGeneration;
+  const generation = ++browseGeneration;
+  listing.value = null;
   busy.value = true;
   error.value = "";
   overwrite.value = false;
   const result = await invoke("browse_files", {
     path: destination ?? null,
   }).catch((cause) => {
-    error.value = String(cause);
+    if (request === requestGeneration && generation === browseGeneration)
+      error.value = String(cause);
     return null;
   });
-  if (result && fileRequest.value) {
+  if (request !== requestGeneration || generation !== browseGeneration) return;
+  if (result) {
     listing.value = result;
     path.value = result.path;
   }
   busy.value = false;
 }
-watch(fileRequest, (request) => {
-  if (!request) return;
-  listing.value = null;
-  name.value = "";
-  hidden.value = false;
-  const initial = request.defaultPath ?? "";
-  if (request.save) name.value = initial.split("/").at(-1) ?? "";
-  const directory = request.save
-    ? initial.slice(0, initial.lastIndexOf("/") + 1)
-    : initial;
-  void browse(directory || undefined);
-});
+watch(
+  fileRequest,
+  (request) => {
+    requestGeneration++;
+    busy.value = false;
+    listing.value = null;
+    if (!request) return;
+    name.value = "";
+    hidden.value = false;
+    const initial = request.defaultPath ?? "";
+    if (request.save) name.value = initial.split("/").at(-1) ?? "";
+    const directory = request.save
+      ? initial.slice(0, initial.lastIndexOf("/") + 1)
+      : initial;
+    path.value = directory;
+    void browse(directory || undefined);
+  },
+  { flush: "sync" },
+);
 function saveFile() {
   if (!listing.value) return;
-  const filename = name.value.trim();
+  let filename = name.value.trim();
   if (
     !filename ||
     filename === "." ||
@@ -73,6 +87,18 @@ function saveFile() {
   ) {
     error.value = "请输入有效文件名.";
     return;
+  }
+  const extensions = fileRequest.value?.extensions ?? [];
+  const dot = filename.lastIndexOf(".");
+  if (
+    extensions.length &&
+    (dot <= 0 ||
+      !extensions.some(
+        (extension) =>
+          filename.slice(dot + 1).toLowerCase() === extension.toLowerCase(),
+      ))
+  ) {
+    filename = `${dot > 0 ? filename.slice(0, dot) : filename}.${extensions[0]}`;
   }
   const existing = listing.value.entries.find(
     (entry) => entry.name === filename,

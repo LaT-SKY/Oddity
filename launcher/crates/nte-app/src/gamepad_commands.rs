@@ -245,7 +245,12 @@ impl Input {
         self.pads.retain(|_, pad| pad.connected());
         for id in self.subsystem.gamepads().map_err(|e| e.to_string())? {
             if let std::collections::btree_map::Entry::Vacant(entry) = self.pads.entry(id) {
-                entry.insert(self.subsystem.open(id).map_err(|e| e.to_string())?);
+                match self.subsystem.open(id) {
+                    Ok(pad) => {
+                        entry.insert(pad);
+                    }
+                    Err(error) => self.error = Some(error.to_string()),
+                }
             }
         }
         if self.active.is_none_or(|id| !self.pads.contains_key(&id)) {
