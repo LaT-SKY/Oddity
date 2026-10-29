@@ -50,13 +50,26 @@ pub fn plan_launcher_cancellable(
     full: bool,
     cancelled: &dyn Fn() -> bool,
 ) -> Result<LauncherPlan> {
-    plan_launcher_with_urls_cancellable(
-        distribution,
-        install_root,
-        full,
-        &distribution.version_urls(),
-        cancelled,
-    )
+    let urls = launcher_version_urls(distribution);
+    let urls: Vec<&str> = urls.iter().map(String::as_str).collect();
+    plan_launcher_with_urls_cancellable(distribution, install_root, full, &urls, cancelled)
+}
+
+/// 开发或联调时可用 ODDITY_LAUNCHER_VERSION_URL 指向本地虚拟 CDN.
+/// 发布构建忽略这个变量, 始终使用官方地址.
+fn launcher_version_urls(distribution: Distribution) -> Vec<String> {
+    #[cfg(debug_assertions)]
+    if let Ok(value) = std::env::var("ODDITY_LAUNCHER_VERSION_URL") {
+        let value = value.trim();
+        if !value.is_empty() {
+            return vec![value.to_string()];
+        }
+    }
+    distribution
+        .version_urls()
+        .iter()
+        .map(|url| (*url).to_string())
+        .collect()
 }
 
 #[cfg(test)]

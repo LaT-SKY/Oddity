@@ -15,6 +15,13 @@ fn settings_default_matches_the_ui_contract() {
     assert_eq!(settings.hero_media, "video");
     assert!(settings.minimize_to_tray_on_close);
     assert!(settings.show_launcher_after_game_exit);
+    assert!(!settings.updates.auto_download);
+    assert_eq!(
+        settings.updates.metered,
+        nte_core::updates::MeteredPolicy::Ask
+    );
+    assert_eq!(settings.updates.limit_bytes_per_second, 0);
+    assert!(settings.updates.window.is_none());
 }
 
 #[test]
@@ -91,6 +98,11 @@ fn settings_round_trip_through_the_config_dir() {
     assert_eq!(loaded.hero_media, "photo");
     assert!(!loaded.minimize_to_tray_on_close);
     assert!(!loaded.show_launcher_after_game_exit);
+    assert!(!loaded.updates.auto_download);
+    assert_eq!(
+        loaded.updates.metered,
+        nte_core::updates::MeteredPolicy::Ask
+    );
 }
 
 #[test]
@@ -112,6 +124,8 @@ fn settings_fall_back_when_the_file_is_broken_or_partial() {
     assert_eq!(partial.hero_media, "video");
     assert!(partial.minimize_to_tray_on_close);
     assert!(partial.show_launcher_after_game_exit);
+    assert!(!partial.updates.auto_download);
+    assert!(partial.updates.window.is_none());
 }
 
 #[test]

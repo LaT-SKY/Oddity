@@ -12,6 +12,7 @@ use crate::game::check::{join_install_path, PatchRef, UpdateItem, UpdateKind, Up
 use crate::game::config::GameUpdateConfig;
 use crate::game::manifest::{Block, PakEntry, ResEntry};
 use crate::http::HttpClient;
+use crate::throttle::RateLimiter;
 use crate::update::md5_file_cancellable;
 use crate::{Error, Result};
 
@@ -109,6 +110,7 @@ struct Progress<'a> {
     tx: &'a Sender<WorkerEvent>,
     index: usize,
     cancelled: &'a (dyn Fn() -> bool + Send + Sync),
+    limiter: &'a RateLimiter,
     bytes: AtomicU64,
 }
 
@@ -117,12 +119,23 @@ impl Progress<'_> {
         tx: &'a Sender<WorkerEvent>,
         index: usize,
         cancelled: &'a (dyn Fn() -> bool + Send + Sync),
+        limiter: &'a RateLimiter,
     ) -> Progress<'a> {
         Progress {
             tx,
             index,
             cancelled,
+            limiter,
             bytes: AtomicU64::new(0),
+        }
+    }
+
+    /// 为本次网络读取扣减限速令牌, 取消时终止当前文件.
+    fn throttle(&self, bytes: u64) -> Result<()> {
+        if self.limiter.acquire(bytes, self.cancelled) {
+            Ok(())
+        } else {
+            Err(Error::Cancelled)
         }
     }
 
@@ -176,6 +189,7 @@ pub fn apply_plan_observed(
         config,
         plan,
         opts,
+        0,
         on_file,
         on_bytes,
         &mut |_, _| {},
@@ -198,6 +212,7 @@ pub fn apply_plan_observed_with_stage(
         config,
         plan,
         opts,
+        0,
         on_file,
         on_bytes,
         on_stage,
@@ -211,6 +226,7 @@ pub fn apply_plan_observed_full(
     config: &GameUpdateConfig,
     plan: &UpdatePlan,
     opts: &ApplyOptions,
+    limit_bytes_per_second: u64,
     on_file: &mut dyn FnMut(&UpdateItem),
     on_bytes: &mut dyn FnMut(&str, u64),
     on_stage: &mut dyn FnMut(&str, ApplyStage),
@@ -317,6 +333,7 @@ pub fn apply_plan_observed_full(
     let worker_config = &worker_config;
     let next = AtomicUsize::new(0);
     let install_lock = Mutex::new(());
+    let limiter = RateLimiter::new(limit_bytes_per_second);
     let (tx, rx) = mpsc::channel();
     let mut worker_txs: Vec<Sender<WorkerEvent>> = (0..workers).map(|_| tx.clone()).collect();
     drop(tx);
@@ -325,6 +342,7 @@ pub fn apply_plan_observed_full(
     let install_lock = &install_lock;
     let next = &next;
     let http = &http;
+    let limiter = &limiter;
     let mut completed: Vec<String> = Vec::new();
     let mut report = std::thread::scope(|scope| {
         for tx in worker_txs.drain(..) {
@@ -339,6 +357,7 @@ pub fn apply_plan_observed_full(
                     install_lock,
                     next,
                     &tx,
+                    limiter,
                     cancelled,
                     allow_ranges,
                 );
@@ -405,6 +424,7 @@ fn worker_loop(
     install_lock: &Mutex<()>,
     next: &AtomicUsize,
     tx: &Sender<WorkerEvent>,
+    limiter: &RateLimiter,
     cancelled: &(dyn Fn() -> bool + Send + Sync),
     allow_ranges: bool,
 ) {
@@ -416,7 +436,7 @@ fn worker_loop(
         if index >= selected.len() {
             return;
         }
-        let progress = Progress::new(tx, index, cancelled);
+        let progress = Progress::new(tx, index, cancelled, limiter);
         let _ = tx.send(WorkerEvent::Started { index });
         let (result, was_cancelled) = process_item(
             config,
@@ -1351,6 +1371,7 @@ fn fetch_to_file(
         if read == 0 {
             break;
         }
+        progress.throttle(read as u64)?;
         output.write_all(&buffer[..read])?;
         total += read as u64;
         progress.add(read as u64);
@@ -1395,6 +1416,7 @@ fn fetch_range_to_file(
         if read == 0 {
             break;
         }
+        progress.throttle(read as u64)?;
         write_all_at(file, &buffer[..read], write_offset + written)?;
         written += read as u64;
         progress.add(read as u64);
@@ -1862,6 +1884,37 @@ mod tests {
         assert_eq!(ledger.tag, "baseTag");
         assert_eq!(ledger.res[0].filename, "data/a.bin");
         assert_eq!(ledger.res[0].md5, md5);
+    }
+
+    #[test]
+    fn apply_plan_passes_the_bandwidth_limit_to_the_transfer() {
+        let dir = TempDir::new("dl-limit");
+        let server = HttpServer::start();
+        let mut config = config_for(&dir);
+        config.cdns = vec![server.url("/cdn")];
+        let content = b"limited payload";
+        let md5 = crate::update::md5_bytes(content);
+        server.route(res_path(&md5, content.len() as u64), content);
+        let plan = plan_of(vec![res_item(
+            "data/limited.bin",
+            &md5,
+            content.len() as u64,
+        )]);
+
+        let report = apply_plan_observed_full(
+            &config,
+            &plan,
+            &ApplyOptions::default(),
+            4096,
+            &mut |_| {},
+            &mut |_, _| {},
+            &mut |_, _| {},
+            &mut |_| {},
+            &|| false,
+        );
+        assert_eq!(report.failed, 0);
+        assert_eq!(report.downloaded_bytes, content.len() as u64);
+        assert_eq!(dir.read("install/data/limited.bin"), content);
     }
 
     #[test]
@@ -2449,6 +2502,7 @@ mod tests {
             &config,
             &plan,
             &ApplyOptions::default(),
+            0,
             &mut |_| {},
             &mut |_, _| {},
             &mut |_, _| {},

@@ -40,6 +40,7 @@ mod game_mode_commands;
 mod log_commands;
 mod native_session;
 mod playtime_commands;
+mod update_scheduler;
 
 const APP_IDENTIFIER: &str = "io.github.oddity.Launcher";
 
@@ -760,7 +761,11 @@ fn settings_path() -> PathBuf {
 fn load_settings() -> Settings {
     let path = settings_path();
     match fs::read_to_string(&path) {
-        Ok(text) => serde_json::from_str(&text).unwrap_or_default(),
+        Ok(text) => {
+            let mut settings: Settings = serde_json::from_str(&text).unwrap_or_default();
+            settings.updates.normalize();
+            settings
+        }
         Err(_) => Settings::default(),
     }
 }
@@ -1334,6 +1339,7 @@ fn save_settings(
         .gamescope
         .validate()
         .map_err(|error| error.to_string())?;
+    next.updates.validate()?;
     if !matches!(
         next.launch_mode.as_str(),
         "official" | "background" | "direct"
@@ -2392,6 +2398,7 @@ fn main() {
             if let Err(error) = install_tray(app.handle()) {
                 eprintln!("tray unavailable: {error}");
             }
+            update_scheduler::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

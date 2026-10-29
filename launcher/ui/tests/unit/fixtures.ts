@@ -21,6 +21,12 @@ export const settings: Settings = {
     overlay: false,
     gamescope: { ...defaultGamescope },
   },
+  updates: {
+    autoDownload: false,
+    metered: "ask",
+    limitBytesPerSecond: 0,
+    window: null,
+  },
   language: "zh-CN",
   reduceMotion: true,
   stackBulletins: false,
