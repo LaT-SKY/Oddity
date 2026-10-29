@@ -10,6 +10,11 @@ test("游玩记录展示统计、热力图和可保存的海报", async ({ page 
     panel.getByRole("heading", { name: "游玩记录", exact: true }),
   ).toBeVisible();
   await expect(panel.locator(".playtime-heatmap__cell")).toHaveCount(371);
+  const daily = panel.locator(".playtime-heatmap__sr");
+  await expect(daily).toContainText("每日游玩时长");
+  await expect(daily.locator("li").first()).toContainText(
+    /年.*月.*日: .*(小时|分钟)/,
+  );
   await expect(panel.locator(".playtime-chart")).toBeVisible();
   await expect(panel.locator(".playtime-chart__month")).toHaveCount(12);
   await page.waitForTimeout(600);

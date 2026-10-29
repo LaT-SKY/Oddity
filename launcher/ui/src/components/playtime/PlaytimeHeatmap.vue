@@ -19,6 +19,15 @@ const props = defineProps<{
 
 const weekdays = ["一", "", "三", "", "五", "", "日"];
 const days = computed(() => props.heatmap.weeks.flat());
+const playedDays = computed(() =>
+  days.value
+    .filter((day) => !day.future && day.ms > 0)
+    .map((day) => ({
+      key: day.key,
+      label: `${new Date(day.date).getFullYear()}年${formatShortDate(day.date)}`,
+      ms: day.ms,
+    })),
+);
 const summary = computed(
   () =>
     `最近 12 个月游玩 ${formatPlaytime(props.totalMs)}, 已游玩 ${props.daysPlayed} 天`,
@@ -124,6 +133,15 @@ function leave() {
         />
       </template>
     </div>
+    <section class="playtime-heatmap__sr">
+      <h3>每日游玩时长</h3>
+      <p v-if="!playedDays.length">暂无游玩记录</p>
+      <ul v-else>
+        <li v-for="day in playedDays" :key="day.key">
+          {{ day.label }}: {{ formatPlaytime(day.ms) }}
+        </li>
+      </ul>
+    </section>
     <FloatingTooltip
       :open="hovered !== null"
       :x="hovered?.x ?? 0"
@@ -149,6 +167,7 @@ function leave() {
 
 <style scoped>
 .playtime-heatmap {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -219,6 +238,17 @@ function leave() {
   gap: 4px;
   color: var(--faint);
   font-size: var(--text-2xs);
+}
+.playtime-heatmap__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 .playtime-heatmap__legend i {
   width: 9px;

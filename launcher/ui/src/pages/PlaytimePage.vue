@@ -168,7 +168,8 @@ onBeforeUnmount(() => {
         <section
           v-if="stats.active && liveActiveMs > 0"
           class="playtime-active"
-          aria-live="polite"
+          role="timer"
+          aria-label="当前游玩时长"
         >
           <span class="playtime-active__dot" aria-hidden="true"></span>
           <span>正在游玩</span>

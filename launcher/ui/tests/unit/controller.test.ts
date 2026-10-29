@@ -1436,6 +1436,57 @@ describe("游戏会话", () => {
     expect(noticeMessage()).toBe("游戏已退出 · 本次游玩 2 小时");
   });
 
+  it("忽略本次启动之前结束的旧会话", async () => {
+    const c = await boot();
+    c.handleLaunchAction();
+    await vi.advanceTimersByTimeAsync(900);
+    await flushPromises();
+    expect(c.state.game).toBe("running");
+    const endedAt = Date.now() - 60_000;
+    backend.playtimeHistory = {
+      sessions: [
+        {
+          startedAt: endedAt - 2 * 60 * 60_000,
+          endedAt,
+          mode: "background",
+          distribution: "cn",
+        },
+      ],
+      active: null,
+    };
+    backend.handler(session());
+    await flushPromises();
+    expect(noticeMessage()).toBe("游戏已退出。");
+  });
+
+  it("dispose 后不再发送退出提示", async () => {
+    const c = await boot();
+    backend.handler(session({ running: true, pid: 123 }));
+    const original = backend.invoke.getMockImplementation()!;
+    let resolveHistory!: (history: PlaytimeHistory) => void;
+    const pending = new Promise<PlaytimeHistory>((resolve) => {
+      resolveHistory = resolve;
+    });
+    backend.invoke.mockImplementation((command, args) =>
+      command === "playtime_history" ? pending : original(command, args),
+    );
+    backend.handler(session());
+    c.dispose();
+    resolveHistory({
+      sessions: [
+        {
+          startedAt: Date.now() - 2 * 60 * 60_000,
+          endedAt: Date.now() - 1_000,
+          mode: "background",
+          distribution: "cn",
+        },
+      ],
+      active: null,
+    });
+    await flushPromises();
+    expect(noticeMessage()).toBeUndefined();
+  });
+
   it("进程在反馈期间退出时不收起窗口", async () => {
     const c = await boot();
     c.handleLaunchAction();
