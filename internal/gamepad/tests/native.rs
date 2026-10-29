@@ -27,10 +27,20 @@ fn virtual_controllers_poll_feedback_stream_and_profile_files() {
     input.matched_audio = Some(Some(cached_audio));
     input.poll(false, &options).unwrap();
     assert_eq!(input.audio_device(), Some(cached_audio));
-    for (event_type, capture) in [
-        (sdl3::sys::events::SDL_EVENT_AUDIO_DEVICE_ADDED, true),
-        (sdl3::sys::events::SDL_EVENT_AUDIO_DEVICE_ADDED, false),
-        (sdl3::sys::events::SDL_EVENT_AUDIO_DEVICE_REMOVED, false),
+    for (event_type, capture, invalidate) in [
+        (sdl3::sys::events::SDL_EVENT_AUDIO_DEVICE_ADDED, true, false),
+        (sdl3::sys::events::SDL_EVENT_AUDIO_DEVICE_ADDED, false, true),
+        (
+            sdl3::sys::events::SDL_EVENT_AUDIO_DEVICE_REMOVED,
+            false,
+            true,
+        ),
+        (
+            sdl3::sys::events::SDL_EVENT_AUDIO_DEVICE_FORMAT_CHANGED,
+            false,
+            true,
+        ),
+        (sdl3::sys::events::SDL_EventType(0x7ffe), false, false),
     ] {
         input.matched_audio = Some(Some(cached_audio));
         let mut event = sdl3::sys::events::SDL_Event {
@@ -43,7 +53,7 @@ fn virtual_controllers_poll_feedback_stream_and_profile_files() {
         };
         assert!(unsafe { sdl3::sys::events::SDL_PushEvent(&mut event) });
         input.poll(false, &options).unwrap();
-        assert_eq!(input.audio_device(), capture.then_some(cached_audio));
+        assert_eq!(input.audio_device(), (!invalidate).then_some(cached_audio));
     }
     input.matched_audio = Some(Some(cached_audio));
     let mut attached = Vec::new();

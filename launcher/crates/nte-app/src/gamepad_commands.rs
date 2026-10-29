@@ -251,6 +251,11 @@ impl Input {
                 } => {
                     self.matched_audio = None;
                 }
+                Event::Unknown { type_, .. }
+                    if type_ == sdl3::sys::events::SDL_EVENT_AUDIO_DEVICE_FORMAT_CHANGED.0 =>
+                {
+                    self.matched_audio = None;
+                }
                 _ => {}
             }
         }
