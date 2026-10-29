@@ -11,6 +11,7 @@ import { createTimeline, spring, utils } from "animejs";
 import { form, state } from "../core/controller";
 
 export const playerExpanded = ref(false);
+export const sceneEntering = ref(false);
 
 export function useSceneMotion(
   scene: Readonly<ShallowRef<HTMLElement | null>>,
@@ -22,12 +23,16 @@ export function useSceneMotion(
   const opened = computed(() => state.page !== "home");
   let timeline: ReturnType<typeof createTimeline> | undefined;
   let mounted = false;
+  let previousOpened = false;
 
   function arrange() {
     if (!mounted || !scene.value || !drawer.value || !shade.value) return;
     timeline?.cancel();
     // 只让编排层写入空间属性, Motion 负责内部组件的弹簧与布局。
     const entering = opened.value;
+    sceneEntering.value =
+      entering && !reduced.value && (!previousOpened || sceneEntering.value);
+    previousOpened = entering;
     const focus = entering || playerExpanded.value;
     const travel: { duration: number } | { ease: ReturnType<typeof spring> } =
       reduced.value
@@ -58,7 +63,10 @@ export function useSceneMotion(
           ease: "out(3)",
         },
         0,
-      );
+      )
+      .call(() => {
+        sceneEntering.value = false;
+      });
   }
   watch([opened, playerExpanded, reduced], arrange, { flush: "post" });
   onMounted(() => {
@@ -67,6 +75,7 @@ export function useSceneMotion(
     arrange();
   });
   onBeforeUnmount(() => {
+    sceneEntering.value = false;
     mounted = false;
     timeline?.revert();
   });

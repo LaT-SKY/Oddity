@@ -23,18 +23,6 @@ const iconOptions = [
         ><span>{{ gamepad.device?.name ?? "未连接手柄" }}</span
         ><span v-if="gamepad.device">已连接</span>
       </div>
-      <p v-if="gamepad.device" class="gamepad-settings-hint">
-        {{
-          [
-            gamepad.device.rumble ? "双通道振动" : "",
-            gamepad.device.triggerRumble ? "扳机振动" : "",
-            gamepad.device.adaptive ? "自适应扳机" : "",
-            gamepad.device.audio ? "USB 音频触觉" : "",
-          ]
-            .filter(Boolean)
-            .join(" / ") || "当前设备未提供触觉反馈"
-        }}
-      </p>
       <SettingRow label="启用手柄操作" for="set-gamepad-enabled"
         ><BaseSwitch
           id="set-gamepad-enabled"
@@ -74,19 +62,7 @@ const iconOptions = [
           /><output>{{ Math.round(form.gamepad.deadZone * 100) }}%</output>
         </div></SettingRow
       >
-      <p class="gamepad-settings-hint">
-        肩键切页. 分类栏中确认进入, 返回退出. R3 执行页面主操作.
-      </p>
     </SettingGroup>
-    <p class="gamepad-settings-hint" role="status">
-      {{
-        gamepad.idle.error
-          ? `无法保持唤醒: ${gamepad.idle.error}`
-          : gamepad.idle.requested
-            ? "已请求防止熄屏与空闲休眠."
-            : "手柄操作期间自动保持唤醒, 停止操作 60 秒后恢复桌面空闲策略."
-      }}
-    </p>
     <SettingGroup title="触觉反馈" data-pad-feedback="off">
       <SettingRow label="手柄振动" for="set-gamepad-vibration"
         ><BaseSwitch

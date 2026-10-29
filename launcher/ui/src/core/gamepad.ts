@@ -25,6 +25,7 @@ export const gamepad = reactive({
   error: "",
   idle: { requested: false, error: null as string | null },
   notification: false,
+  windowControls: false,
   navigation: false,
   editing: null as HTMLInputElement | HTMLTextAreaElement | null,
 });
@@ -98,6 +99,7 @@ export function createGamepadNavigation() {
   let page: string | undefined;
   let first = true;
   let listScroll = 0;
+  let windowReturn: HTMLElement | null = null;
   const navigationBar = () =>
     document.querySelector<HTMLElement>(
       ".page.is-active .settings-categories,.page.is-active .control-tabs--navigation",
@@ -118,11 +120,12 @@ export function createGamepadNavigation() {
     null;
   const navigating = () =>
     gamepad.navigation &&
+    !gamepad.windowControls &&
     !modal() &&
     !gamepad.notification &&
     !playerExpanded.value;
   const key = () =>
-    `${state.page}/${settingsNavigation.category}/${gamepad.navigation ? "navigation" : "content"}/${playerExpanded.value ? "player" : "page"}`;
+    `${state.page}/${settingsNavigation.category}/${gamepad.navigation ? "navigation" : "content"}/${playerExpanded.value ? "player" : "page"}/${gamepad.windowControls ? "window" : "page"}`;
   function visible(element: Element): boolean {
     return (
       !element.matches(':disabled,[aria-disabled="true"]') &&
@@ -133,6 +136,7 @@ export function createGamepadNavigation() {
   function root(): Element | null {
     const dialog = modal();
     if (dialog) return dialog.querySelector(".modal__panel") ?? dialog;
+    if (gamepad.windowControls) return document.querySelector(".win-controls");
     if (gamepad.notification)
       return document.querySelector(".notification-stack");
     if (playerExpanded.value) return document.querySelector(".game-records");
@@ -146,6 +150,7 @@ export function createGamepadNavigation() {
     const current = root();
     const navigation =
       gamepad.navigation &&
+      !gamepad.windowControls &&
       !modal() &&
       !gamepad.notification &&
       !playerExpanded.value;
@@ -256,17 +261,17 @@ export function createGamepadNavigation() {
       : current && (modal() || gamepad.notification)
         ? scopedPositions.get(current)
         : positions.get(key());
-    const category =
-      gamepad.navigation && !modal()
-        ? (categoryButtons().find(
-            (item) =>
-              item.getAttribute("aria-current") === "true" ||
-              item.getAttribute("aria-selected") === "true",
-          ) ?? categoryButtons()[0])
-        : null;
+    const category = navigating()
+      ? (categoryButtons().find(
+          (item) =>
+            item.getAttribute("aria-current") === "true" ||
+            item.getAttribute("aria-selected") === "true",
+        ) ?? categoryButtons()[0])
+      : null;
     const launch =
       !modal() &&
       !gamepad.notification &&
+      !gamepad.windowControls &&
       state.page === "home" &&
       !playerExpanded.value
         ? document.getElementById("launch-btn")
@@ -387,7 +392,7 @@ export function createGamepadNavigation() {
   async function press(button: number) {
     refresh();
     const target = gamepadTarget.value;
-    if (!modal() && state.page === "home") {
+    if (!modal() && !gamepad.windowControls && state.page === "home") {
       if (button === 2) {
         void gamepadFeedback("confirm");
         await handleLaunchAction();
@@ -413,6 +418,19 @@ export function createGamepadNavigation() {
       return;
     }
     if (button === backButton.value) {
+      if (gamepad.windowControls) {
+        gamepad.windowControls = false;
+        const previous = windowReturn;
+        windowReturn = null;
+        if (previous && visible(previous) && root()?.contains(previous))
+          point(previous);
+        else {
+          first = true;
+          refresh();
+        }
+        previousKey = key();
+        return;
+      }
       if (target?.matches("[data-pad-region]") && dispatch("Escape")) return;
       if (gamepad.editing) {
         gamepad.editing = null;
@@ -447,7 +465,12 @@ export function createGamepadNavigation() {
       }
       return;
     }
-    if (!modal() && !gamepad.editing && !gamepad.notification) {
+    if (
+      !modal() &&
+      !gamepad.editing &&
+      !gamepad.notification &&
+      !gamepad.windowControls
+    ) {
       if (button === 9 || button === 10) {
         const pages = [
           ...document.querySelectorAll<HTMLElement>(".rail__nav [data-page]"),
@@ -478,10 +501,16 @@ export function createGamepadNavigation() {
         await changed();
         return;
       }
-      if (button === 4 && notifications.length) {
-        gamepad.notification = !gamepad.notification;
-        pauseNotifications("gamepad", gamepad.notification);
-        await changed();
+      if (button === 4) {
+        const control = [
+          ...document.querySelectorAll<HTMLElement>(".win-controls button"),
+        ].find(visible);
+        if (!control) return;
+        windowReturn = gamepadTarget.value;
+        gamepad.windowControls = true;
+        point(control);
+        previousKey = key();
+        first = false;
         return;
       }
     }
@@ -489,6 +518,7 @@ export function createGamepadNavigation() {
       button === confirmButton.value &&
       target &&
       gamepad.navigation &&
+      !gamepad.windowControls &&
       !modal() &&
       (navigationBar()?.contains(target) || target.matches(".settings-result"))
     ) {
@@ -621,6 +651,8 @@ export function createGamepadNavigation() {
       point(null);
       gamepad.pressing = false;
       gamepad.notification = false;
+      gamepad.windowControls = false;
+      windowReturn = null;
       pauseNotifications("gamepad", false);
     },
     dispose: stopWatch,

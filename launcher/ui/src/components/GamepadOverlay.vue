@@ -4,7 +4,7 @@ import { motion, useReducedMotion } from "motion-v";
 import { createTimeline } from "animejs";
 import { gamepad, gamepadTarget, gamepadViewport } from "../core/gamepad";
 import { form, state } from "../core/controller";
-import { playerExpanded } from "../composables/useSceneMotion";
+import { playerExpanded, sceneEntering } from "../composables/useSceneMotion";
 import GamepadHints from "./GamepadHints.vue";
 import type { GamepadHint } from "../types/gamepad";
 import GamepadGlyph from "./GamepadGlyph.vue";
@@ -195,6 +195,15 @@ const local = computed(
     !!gamepadTarget.value?.closest(".modal,[data-pad-modal]"),
 );
 const hints = computed<GamepadHint[]>(() => {
+  if (gamepad.windowControls)
+    return [
+      {
+        id: "confirm",
+        buttons: ["confirm"],
+        label: gamepadTarget.value?.getAttribute("aria-label") || "操作",
+      },
+      { id: "back", buttons: ["back"], label: "返回" },
+    ];
   if (state.page === "home" && !local.value)
     return [
       { id: "launch", buttons: ["west"], label: "启动" },
@@ -288,6 +297,7 @@ const hints = computed<GamepadHint[]>(() => {
             !gamepadTarget?.classList.contains('game-records__capsule')
           "
           class="gamepad-select__key"
+          :class="{ 'gamepad-select__key--window': gamepad.windowControls }"
           :animate="{
             opacity: detail ? 1 : 0.2,
             scale: gamepad.pressing ? 0.85 : detail ? 1 : 0.8,
@@ -298,6 +308,11 @@ const hints = computed<GamepadHint[]>(() => {
         /></motion.span>
       </motion.div>
     </div>
-    <GamepadHints v-if="gamepad.active" :items="hints" :reduced="!!reduced" />
+    <GamepadHints
+      v-if="gamepad.active"
+      :items="hints"
+      :reduced="!!reduced"
+      :defer-enter="sceneEntering"
+    />
   </Teleport>
 </template>

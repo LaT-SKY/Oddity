@@ -55,6 +55,13 @@
   font-size: var(--text-sm);
   pointer-events: none;
 }
+.gamepad-select__key--window {
+  left: 50%;
+  right: auto;
+  top: 100%;
+  margin-left: -15px;
+  margin-top: 4px;
+}
 .gamepad-hints__slot {
   width: calc(50px + 7px + 6em);
   min-height: 26px;

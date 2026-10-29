@@ -153,4 +153,49 @@ describe("手柄提示更新", () => {
     wrapper.unmount();
     (gamepadFamily as Ref<string>).value = "dualsense";
   });
+  it("从主页打开二级页时等待抽屉入场完成, 再执行提示渐入", async () => {
+    const wrapper = mount(GamepadHints, {
+      props: {
+        items: [{ id: "confirm", buttons: ["confirm"], label: "进入" }],
+        reduced: false,
+        deferEnter: true,
+      },
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(
+      wrapper.findComponent({ name: "motion.span" }).props("animate").opacity,
+    ).toBe(0);
+    await wrapper.setProps({ deferEnter: false });
+    const animation = wrapper
+      .findComponent({ name: "motion.span" })
+      .props("animate");
+    expect(animation.opacity).toBe(1);
+    expect(animation.filter).toBe("blur(0px)");
+    wrapper.unmount();
+  });
+  it("主页旧提示退场后保持隐藏, 抽屉完成前不提前替换新图标", async () => {
+    const wrapper = mount(GamepadHints, {
+      props: {
+        items: [{ id: "launch", buttons: ["west"], label: "启动" }],
+        reduced: false,
+      },
+    });
+    await vi.advanceTimersByTimeAsync(400);
+    await wrapper.setProps({
+      items: [{ id: "confirm", buttons: ["confirm"], label: "操作" }],
+      deferEnter: true,
+    });
+    await vi.advanceTimersByTimeAsync(500);
+    expect(wrapper.find('[data-hint="confirm"]').exists()).toBe(false);
+    expect(wrapper.get('[data-hint="launch"]').text()).toContain("启动");
+    expect(
+      wrapper.findComponent({ name: "motion.span" }).props("animate").opacity,
+    ).toBe(0);
+    await wrapper.setProps({ deferEnter: false });
+    expect(wrapper.get('[data-hint="confirm"]').text()).toContain("操作");
+    expect(
+      wrapper.findComponent({ name: "motion.span" }).props("animate").opacity,
+    ).toBe(1);
+    wrapper.unmount();
+  });
 });

@@ -72,6 +72,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   gamepad.active = true;
   gamepad.notification = false;
+  gamepad.windowControls = false;
   gamepad.navigation = false;
   gamepad.editing = null;
   gamepad.device = {
@@ -91,6 +92,33 @@ beforeEach(() => {
 });
 afterEach(() => navigation.dispose());
 describe("手柄导航", () => {
+  it("地图键进入窗口控制, 方向和确认操作窗口按钮, 返回恢复原分类位置", async () => {
+    region(
+      '<header><div class="win-controls"><button id="minimize">最小化</button><button id="maximize">最大化</button><button id="close">关闭</button></div></header><section class="page is-active"><nav class="settings-categories"><button id="cat" aria-current="true">外观</button></nav><button id="field">字段</button></section>',
+    );
+    navigation.refresh();
+    expect(gamepadTarget.value?.id).toBe("cat");
+    expect(gamepad.navigation).toBe(true);
+    const maximize = vi.fn();
+    document.getElementById("maximize")!.addEventListener("click", maximize);
+    for (const [index, id] of ["minimize", "maximize", "close"].entries())
+      rects.set(
+        document.getElementById(id)!,
+        new DOMRect(20 + index * 50, 0, 40, 40),
+      );
+    await navigation.press(4);
+    expect(gamepad.windowControls).toBe(true);
+    expect(gamepadTarget.value?.id).toBe("minimize");
+    await navigation.press(14);
+    expect(gamepadTarget.value?.id).toBe("maximize");
+    await navigation.press(0);
+    expect(maximize).toHaveBeenCalledTimes(1);
+    await navigation.press(1);
+    expect(gamepad.windowControls).toBe(false);
+    expect(gamepadTarget.value?.id).toBe("cat");
+    expect(gamepad.navigation).toBe(true);
+  });
+
   it("更新主按钮支持确认和 R3, 并可向上进入地区选择器", async () => {
     state.page = "update";
     region(

@@ -8,6 +8,7 @@ import GamepadGlyph from "./GamepadGlyph.vue";
 const props = defineProps<{
   items: GamepadHint[];
   reduced: boolean;
+  deferEnter?: boolean;
 }>();
 const slots = reactive(
   Array.from({ length: 3 }, () => ({
@@ -19,6 +20,7 @@ const slots = reactive(
 );
 const timelines: (ReturnType<typeof createTimeline> | undefined)[] = [];
 const requested = ["", "", ""];
+const waiting = [false, false, false];
 watch(
   () =>
     [
@@ -31,29 +33,39 @@ watch(
         };
       }),
       props.reduced,
+      props.deferEnter,
     ] as const,
-  ([items, reduced]) => {
+  ([items, reduced, deferred]) => {
     slots.forEach((slot, index) => {
       const next = items[index];
       const key = next?.key ?? "";
+      const visible = !!next && (reduced || !deferred);
       if (
         requested[index] === key &&
-        (!reduced || (slot.key === key && slot.visible === !!next))
+        (slot.key !== key
+          ? !reduced && !waiting[index]
+          : slot.visible === visible)
       )
         return;
       requested[index] = key;
       timelines[index]?.cancel();
       if (slot.key === key) {
-        slot.visible = !!next;
+        slot.visible = visible;
+        waiting[index] = false;
         return;
       }
       const replace = () => {
+        if (props.deferEnter && !props.reduced) {
+          waiting[index] = true;
+          return;
+        }
+        waiting[index] = false;
         slot.hint = next?.hint ?? null;
         slot.symbols = next?.symbols ?? [];
         slot.key = key;
-        slot.visible = !!next;
+        slot.visible = !!next && (props.reduced || !props.deferEnter);
       };
-      if (reduced) {
+      if (reduced || waiting[index]) {
         replace();
         return;
       }

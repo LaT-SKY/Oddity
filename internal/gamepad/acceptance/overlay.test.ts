@@ -9,7 +9,7 @@ vi.mock("../../../launcher/ui/src/core/controller", () => ({
 }));
 vi.mock("../../../launcher/ui/src/composables/useSceneMotion", async () => {
   const { ref } = await import("vue");
-  return { playerExpanded: ref(false) };
+  return { playerExpanded: ref(false), sceneEntering: ref(false) };
 });
 vi.mock("../../../launcher/ui/src/core/gamepad", async () => {
   const { reactive, shallowRef, computed } = await import("vue");
