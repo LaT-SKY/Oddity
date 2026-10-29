@@ -40,7 +40,9 @@ export function extractPrNumberFromSubject(subject) {
   const match =
     firstLine.match(/\(#(\d+)\)$/) ||
     firstLine.match(/^Merge pull request #(\d+)/);
-  return match ? parseInt(match[1], 10) : null;
+  if (!match) return null;
+  const number = parseInt(match[1], 10);
+  return Number.isSafeInteger(number) && number > 0 ? number : null;
 }
 
 export function extractPrNumbersFromCommitMessages(messages) {
@@ -66,18 +68,18 @@ export function calculateLabelActions(prList) {
     const toRemove = [];
     const toAdd = [];
 
-    // 1. 业务 PR 带有 ci 或 question：移除排除标签，使其进入 Release 说明
-    if ((hasCi || hasQuestion) && otherLabels.length > 0) {
-      if (hasCi) toRemove.push("ci");
-      if (hasQuestion) toRemove.push("question");
-    }
-
-    // 2. 纯测试/CI 维护 PR（如 test:、test(ci):）且无用户面向标签：补齐 ci 排除标签
     const title = pr.title || "";
     const isPureTestOrCi =
       /^(?:test|ci|chore\(ci\))(?:\([^)]+\))?:/i.test(title) &&
       !otherLabels.some((l) => userFacingLabels.has(l));
 
+    // 1. 业务 PR 带有 ci 或 question：移除排除标签，使其进入 Release 说明（纯测试/CI PR 不移除 ci）
+    if ((hasCi || hasQuestion) && otherLabels.length > 0) {
+      if (hasCi && !isPureTestOrCi) toRemove.push("ci");
+      if (hasQuestion) toRemove.push("question");
+    }
+
+    // 2. 纯测试/CI 维护 PR（如 test:、test(ci):）且无用户面向标签：补齐 ci 排除标签
     if (isPureTestOrCi && !hasCi) {
       toAdd.push("ci");
     }
@@ -109,17 +111,21 @@ export const knownFollowupMappings = {
 export function consolidateReleaseNotes(
   markdown,
   mappings = knownFollowupMappings,
+  repo = defaultRepo,
 ) {
   const lines = markdown.split("\n");
   const result = [];
   const removedPrs = new Set();
+  const presentPrs = new Set(
+    [...markdown.matchAll(/\/pull\/(\d+)/g)].map((m) => parseInt(m[1], 10)),
+  );
 
   for (const line of lines) {
     const prMatch = line.match(/\/pull\/(\d+)/);
     if (prMatch) {
       const prNumber = parseInt(prMatch[1], 10);
       const mapping = mappings[prNumber];
-      if (mapping) {
+      if (mapping && presentPrs.has(mapping.parent)) {
         removedPrs.add(prNumber);
         continue;
       }
@@ -127,7 +133,7 @@ export function consolidateReleaseNotes(
     result.push(line);
   }
 
-  // 为父 PR 条目补充跟随说明与 PR 引用
+  // 为父 PR 条目补充跟随说明与 PR 引用（防重复追加）
   for (let i = 0; i < result.length; i++) {
     const line = result[i];
     const prMatch = line.match(/\/pull\/(\d+)/);
@@ -135,14 +141,15 @@ export function consolidateReleaseNotes(
 
     const parentPr = parseInt(prMatch[1], 10);
     const children = Object.entries(mappings).filter(
-      ([, item]) => item.parent === parentPr,
+      ([childPr, item]) =>
+        item.parent === parentPr && removedPrs.has(Number(childPr)),
     );
-    if (children.length > 0) {
+    if (children.length > 0 && !line.includes(" (含 ")) {
       const notes = children
         .map(([childPr, item]) => `#${childPr} ${item.note}`)
         .join("、");
       const extraLinks = children
-        .map(([childPr]) => `https://github.com/${defaultRepo}/pull/${childPr}`)
+        .map(([childPr]) => `https://github.com/${repo}/pull/${childPr}`)
         .join(", ");
       result[i] = `${line} (含 ${notes}; ${extraLinks})`;
     }
