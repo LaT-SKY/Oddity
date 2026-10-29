@@ -127,6 +127,9 @@ async function render() {
     },
   });
   await flushPromises();
+  // 生成前会等待弹窗首帧, 推进两个动画帧。
+  await vi.advanceTimersByTimeAsync(50);
+  await flushPromises();
 }
 async function generate() {
   await render();
@@ -136,17 +139,54 @@ async function generate() {
 const saveButton = () =>
   wrapper.get(".playtime-poster__actions button:last-child");
 
-it("等待壁纸加载时禁用保存, 生成后显示 PNG 预览", async () => {
+it("打开后立即显示骨架, 生成完成再替换为 PNG 预览", async () => {
   await render();
-  expect(wrapper.get('[role="status"]').text()).toContain("正在生成");
+  expect(wrapper.get('[role="status"]').attributes("aria-label")).toBe(
+    "正在生成海报",
+  );
+  expect(wrapper.find(".playtime-poster__skeleton").exists()).toBe(true);
+  expect(wrapper.find("img").exists()).toBe(false);
   expect(saveButton().attributes()).toHaveProperty("disabled");
   expect(images[0].src).toBe("/official.jpg");
   expect(images[0].crossOrigin).toBe("anonymous");
   images[0].onload?.();
   await flushPromises();
+  expect(wrapper.find(".playtime-poster__skeleton").exists()).toBe(false);
   expect(wrapper.get("img").attributes("src")).toBe(blobUrl);
   expect(saveButton().attributes("disabled")).toBeUndefined();
   expect(encode).toHaveBeenCalledExactlyOnceWith("image/png");
+});
+
+it("图片解码完成前保持骨架", async () => {
+  let decode!: () => void;
+  vi.stubGlobal(
+    "Image",
+    class {
+      src = "";
+      crossOrigin = "";
+      naturalWidth = 1920;
+      naturalHeight = 1080;
+      onload = null;
+      onerror = null;
+      constructor() {
+        images.push(this);
+      }
+      decode() {
+        return new Promise<void>((resolve) => {
+          decode = resolve;
+        });
+      }
+    },
+  );
+  await render();
+  images[0].onload?.();
+  await flushPromises();
+  expect(wrapper.find(".playtime-poster__skeleton").exists()).toBe(true);
+  expect(wrapper.find("img").exists()).toBe(false);
+  decode();
+  await flushPromises();
+  expect(wrapper.find(".playtime-poster__skeleton").exists()).toBe(false);
+  expect(wrapper.get("img").attributes("src")).toBe(blobUrl);
 });
 
 it("官方壁纸失败时使用内置壁纸, 全部失败时仍生成海报", async () => {
@@ -297,8 +337,11 @@ it("生成期间关闭后不发布预览, 重新打开可再次生成", async ()
   await flushPromises();
   expect(encode).not.toHaveBeenCalled();
   await wrapper.setProps({ open: true });
+  await vi.advanceTimersByTimeAsync(50);
   await flushPromises();
-  expect(images).toHaveLength(1);
+  expect(images.filter((image) => image.src === "/official.jpg")).toHaveLength(
+    1,
+  );
   expect(wrapper.find("img").exists()).toBe(true);
   expect(wrapper.find(".playtime-poster__saved").exists()).toBe(false);
 });
@@ -308,6 +351,7 @@ it("相同记录再次打开时复用已生成的海报", async () => {
   await wrapper.setProps({ open: false });
   await flushPromises();
   await wrapper.setProps({ open: true });
+  await vi.advanceTimersByTimeAsync(50);
   await flushPromises();
   expect(encode).toHaveBeenCalledOnce();
   expect(wrapper.get("img").attributes("src")).toBe(blobUrl);

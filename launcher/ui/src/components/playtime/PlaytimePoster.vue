@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { motion } from "motion-v";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import BaseButton from "../../components/BaseButton.vue";
 import BaseModal from "../../components/BaseModal.vue";
 import { invoke, isTauri } from "../../core/api";
 import { formatPlaytime, type PlaytimeStats } from "../../core/playtime";
 import { notify } from "../../core/notifications";
+import { useControlMotion } from "../../composables/useControlMotion";
 
 const props = defineProps<{
   open: boolean;
@@ -14,6 +16,7 @@ const props = defineProps<{
   reduceMotion?: boolean;
 }>();
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
+const { reduced } = useControlMotion();
 
 const generating = ref(false);
 const saving = ref(false);
@@ -40,10 +43,22 @@ watch(
       return;
     }
     await nextTick();
+    // 先让弹窗和骨架画出一帧, 再开始绘制海报。
+    await nextPaint();
     await generatePoster();
   },
   { immediate: true },
 );
+
+function nextPaint() {
+  return new Promise<void>((resolve) => {
+    if (typeof requestAnimationFrame !== "function") {
+      resolve();
+      return;
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  });
+}
 
 function posterSignature(stats: PlaytimeStats) {
   return JSON.stringify([
@@ -83,6 +98,12 @@ async function generatePoster() {
     const blob = await canvasToBlob(canvas);
     if (!props.open) return;
     const url = URL.createObjectURL(blob);
+    // 等图片解码完成再撤下骨架, 避免预览位置闪一帧空白。
+    await decodePoster(url);
+    if (!props.open) {
+      URL.revokeObjectURL(url);
+      return;
+    }
     if (posterCache) URL.revokeObjectURL(posterCache.url);
     posterCache = { signature, blob, url };
     posterBlob = blob;
@@ -91,6 +112,16 @@ async function generatePoster() {
     error.value = `生成海报失败: ${String(cause)}`;
   } finally {
     generating.value = false;
+  }
+}
+
+async function decodePoster(url: string) {
+  const image = new Image();
+  image.src = url;
+  try {
+    await image.decode?.();
+  } catch {
+    // 解码失败时仍然展示, 由预览图的加载状态兜底。
   }
 }
 
@@ -541,8 +572,23 @@ function pad(value: number) {
     @update:open="close"
   >
     <div class="playtime-poster">
-      <div v-if="generating" class="playtime-poster__status" role="status">
-        正在生成海报...
+      <div
+        v-if="generating"
+        class="playtime-poster__skeleton"
+        role="status"
+        aria-label="正在生成海报"
+      >
+        <motion.div
+          class="playtime-poster__skeleton-body"
+          aria-hidden="true"
+          :animate="{ opacity: reduced ? 0.6 : [0.45, 0.85, 0.45] }"
+          :transition="{ duration: 1.6, repeat: reduced ? 0 : Infinity }"
+        >
+          <span class="playtime-poster__skeleton-hero" />
+          <span class="playtime-poster__skeleton-metrics" />
+          <span class="playtime-poster__skeleton-heatmap" />
+          <span class="playtime-poster__skeleton-chart" />
+        </motion.div>
       </div>
       <img
         v-else-if="posterUrl"
@@ -584,11 +630,56 @@ function pad(value: number) {
   border-radius: var(--r-md);
   background: #10151c;
 }
-.playtime-poster__status,
 .playtime-poster__saved {
   margin: 0;
   color: var(--muted);
   font-size: var(--text-sm);
+}
+.playtime-poster__skeleton {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1080 / 1440;
+  border-radius: var(--r-md);
+  background: #10151c;
+  overflow: hidden;
+}
+.playtime-poster__skeleton-body {
+  position: absolute;
+  inset: 0;
+}
+.playtime-poster__skeleton-hero,
+.playtime-poster__skeleton-metrics,
+.playtime-poster__skeleton-heatmap,
+.playtime-poster__skeleton-chart {
+  position: absolute;
+  border: 1px solid rgb(255 255 255 / 9%);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 6%);
+}
+.playtime-poster__skeleton-hero {
+  inset: 0 0 auto;
+  height: 41.7%;
+  border: 0;
+  border-radius: 0;
+  background: rgb(255 255 255 / 10%);
+}
+.playtime-poster__skeleton-metrics {
+  top: 43.75%;
+  left: 8.9%;
+  right: 8.9%;
+  height: 7.2%;
+}
+.playtime-poster__skeleton-heatmap {
+  top: 52.8%;
+  left: 8.9%;
+  right: 8.9%;
+  height: 16.6%;
+}
+.playtime-poster__skeleton-chart {
+  top: 71.9%;
+  left: 8.9%;
+  right: 8.9%;
+  height: 18.6%;
 }
 .playtime-poster__error {
   margin: 0;
