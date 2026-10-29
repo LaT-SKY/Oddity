@@ -18,6 +18,7 @@ vi.mock("../../../launcher/ui/src/core/gamepad", async () => {
     gamepadTarget: shallowRef<HTMLElement | null>(null),
     gamepadViewport: () => ({ top: 0, bottom: 760 }),
     gamepadFamily: computed(() => "dualsense"),
+    gamepadGlyph: (button: string) => `ps-${button}`,
     confirmButton: computed(() => 0),
     backButton: computed(() => 1),
   };

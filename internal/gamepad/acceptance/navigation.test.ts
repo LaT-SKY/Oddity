@@ -91,6 +91,81 @@ beforeEach(() => {
 });
 afterEach(() => navigation.dispose());
 describe("手柄导航", () => {
+  it("更新主按钮支持确认和 R3, 并可向上进入地区选择器", async () => {
+    state.page = "update";
+    region(
+      '<section class="page is-active"><header class="page-head"><button id="region" role="combobox" aria-expanded="false">国服</button></header><div data-pad-actions><button id="primary" data-pad-primary>快速检查</button><button id="full">完整校验</button></div><input id="path"></section>',
+    );
+    const primary = document.getElementById("primary")!;
+    const regionButton = document.getElementById("region")!;
+    const action = vi.fn();
+    primary.addEventListener("click", action);
+    navigation.refresh();
+    expect(gamepadTarget.value).toBe(primary);
+    await navigation.press(0);
+    expect(action).toHaveBeenCalledTimes(1);
+    await navigation.press(11);
+    expect(gamepadTarget.value).toBe(regionButton);
+    await navigation.press(8);
+    expect(action).toHaveBeenCalledTimes(2);
+    expect(gamepadTarget.value).toBe(regionButton);
+    const enter = vi.fn();
+    regionButton.addEventListener("keydown", enter);
+    await navigation.press(0);
+    expect(enter.mock.calls[0][0].key).toBe("Enter");
+  });
+  it("完整校验启动后保留操作位置, 取消操作出现时转入该按钮", async () => {
+    state.page = "update";
+    region(
+      '<section class="page is-active"><div data-pad-actions><button id="primary" data-pad-primary>快速检查</button><button id="full">完整校验</button></div><input id="path"></section>',
+    );
+    const primary = document.getElementById("primary") as HTMLButtonElement;
+    const full = document.getElementById("full") as HTMLButtonElement;
+    rects.set(primary, new DOMRect(20, 100, 140, 40));
+    rects.set(full, new DOMRect(180, 100, 140, 40));
+    navigation.refresh();
+    await navigation.press(14);
+    expect(gamepadTarget.value).toBe(full);
+    primary.disabled = true;
+    full.disabled = true;
+    navigation.refresh();
+    expect(gamepadTarget.value).toBe(full);
+    const cancel = document.createElement("button");
+    cancel.textContent = "取消检查";
+    cancel.setAttribute("data-pad-primary", "");
+    full.parentElement!.append(cancel);
+    rects.set(cancel, new DOMRect(340, 100, 140, 40));
+    primary.removeAttribute("data-pad-primary");
+    const action = vi.fn();
+    cancel.addEventListener("click", action);
+    navigation.refresh();
+    expect(gamepadTarget.value).toBe(cancel);
+    await navigation.press(0);
+    await navigation.press(8);
+    expect(action).toHaveBeenCalledTimes(2);
+    cancel.remove();
+    primary.disabled = false;
+    full.disabled = false;
+    primary.setAttribute("data-pad-primary", "");
+    navigation.refresh();
+    expect(gamepadTarget.value).toBe(primary);
+  });
+
+  it("更新进入分类页时同步切换导航状态, 不出现短暂的内容模式", async () => {
+    state.page = "update";
+    region('<section class="page is-active"><button>检查</button></section>');
+    navigation.refresh();
+    expect(gamepad.navigation).toBe(false);
+    state.page = "game-mode";
+    expect(gamepad.navigation).toBe(true);
+    region(
+      '<section class="page is-active"><nav class="settings-categories"><button aria-current="true">常规</button></nav></section>',
+    );
+    await nextTick();
+    navigation.refresh();
+    expect(gamepad.navigation).toBe(true);
+  });
+
   it("按平台确认返回, 快捷键按位置", () => {
     expect(confirmButton.value).toBe(0);
     gamepad.device!.family = "switch";

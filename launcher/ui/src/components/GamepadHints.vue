@@ -2,7 +2,7 @@
 import { onBeforeUnmount, reactive, watch } from "vue";
 import { motion } from "motion-v";
 import { createTimeline } from "animejs";
-import { gamepadFamily } from "../core/gamepad";
+import { gamepadGlyph } from "../core/gamepad";
 import type { GamepadHint } from "../types/gamepad";
 import GamepadGlyph from "./GamepadGlyph.vue";
 const props = defineProps<{
@@ -14,45 +14,75 @@ const slots = reactive(
     hint: null as GamepadHint | null,
     key: "",
     visible: false,
+    symbols: [] as string[],
   })),
 );
-let timeline: ReturnType<typeof createTimeline> | undefined;
+const timelines: (ReturnType<typeof createTimeline> | undefined)[] = [];
+const requested = ["", "", ""];
 watch(
-  () => [props.items, gamepadFamily.value],
-  () => {
-    timeline?.cancel();
-    const changes = slots.flatMap((slot, index) => {
-      const hint = props.items[index] ?? null;
-      const key = hint
-        ? `${hint.id}/${hint.label}/${hint.buttons.join()}/${gamepadFamily.value}`
-        : "";
-      return slot.key !== key || (hint && !slot.visible)
-        ? [{ slot, hint, key }]
-        : [];
-    });
-    for (const { slot } of changes) slot.visible = false;
-    const replace = () => {
-      for (const { slot, hint, key } of changes) {
-        slot.hint = hint;
-        slot.key = key;
-        slot.visible = !!hint;
+  () =>
+    [
+      props.items.map((hint) => {
+        const symbols = hint.buttons.map(gamepadGlyph);
+        return {
+          hint: { ...hint, buttons: [...hint.buttons] },
+          symbols,
+          key: `${hint.id}/${hint.label}/${symbols.join()}`,
+        };
+      }),
+      props.reduced,
+    ] as const,
+  ([items, reduced]) => {
+    slots.forEach((slot, index) => {
+      const next = items[index];
+      const key = next?.key ?? "";
+      if (
+        requested[index] === key &&
+        (!reduced || (slot.key === key && slot.visible === !!next))
+      )
+        return;
+      requested[index] = key;
+      timelines[index]?.cancel();
+      if (slot.key === key) {
+        slot.visible = !!next;
+        return;
       }
-    };
-    if (props.reduced) replace();
-    else if (changes.length) {
-      timeline = createTimeline();
-      timeline.call(replace, 110);
-    }
+      const replace = () => {
+        slot.hint = next?.hint ?? null;
+        slot.symbols = next?.symbols ?? [];
+        slot.key = key;
+        slot.visible = !!next;
+      };
+      if (reduced) {
+        replace();
+        return;
+      }
+      const entering = !slot.hint;
+      slot.visible = false;
+      if (entering) {
+        slot.hint = next?.hint ?? null;
+        slot.symbols = next?.symbols ?? [];
+        slot.key = key;
+      }
+      const timeline = createTimeline();
+      timelines[index] = timeline;
+      timeline.call(replace, entering ? 16 : 140);
+    });
   },
   { immediate: true },
 );
-onBeforeUnmount(() => timeline?.cancel());
+onBeforeUnmount(() => timelines.forEach((timeline) => timeline?.cancel()));
 </script>
 <template>
-  <div class="gamepad-hints" aria-label="手柄操作提示">
+  <div
+    class="gamepad-hints"
+    :data-reduced="reduced || undefined"
+    aria-label="手柄操作提示"
+  >
     <span
       v-for="(slot, index) in slots"
       :key="index"
+      v-memo="[slot.key, slot.visible, reduced]"
       class="gamepad-hints__slot"
     >
       <motion.span
@@ -73,9 +103,10 @@ onBeforeUnmount(() => timeline?.cancel());
       >
         <span class="gamepad-hints__buttons">
           <GamepadGlyph
-            v-for="button in slot.hint.buttons"
+            v-for="(button, index) in slot.hint.buttons"
             :key="button"
             :button="button"
+            :symbol="slot.symbols[index]"
           />
         </span>
         <span class="gamepad-hints__label">{{ slot.hint.label }}</span>

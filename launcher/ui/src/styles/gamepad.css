@@ -60,11 +60,15 @@
   min-height: 26px;
 }
 .gamepad-hints__item {
+  filter: blur(6px);
   display: grid;
   grid-template-columns: 50px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   white-space: nowrap;
+}
+.gamepad-hints[data-reduced] .gamepad-hints__item {
+  filter: none;
 }
 .gamepad-hints__buttons {
   display: flex;

@@ -415,10 +415,10 @@ const isActive = computed(() => state.page === "update");
             </p>
           </motion.div>
         </AnimatePresence>
-        <div class="update-actions">
+        <div class="update-actions" data-pad-actions>
           <BaseButton
             id="game-download-primary"
-            data-pad-primary
+            :data-pad-primary="cancellable ? undefined : ''"
             :data-pad-action="
               primary.kind === 'apply' ? '更新游戏' : '快速检查'
             "
@@ -440,6 +440,10 @@ const isActive = computed(() => state.page === "update");
           <BaseButton
             v-if="cancellable"
             variant="ghost"
+            data-pad-primary
+            :data-pad-action="
+              state.download?.phase === 'checking' ? '取消检查' : '暂停下载'
+            "
             @click="cancelGameDownload"
             >{{
               state.download?.phase === "checking" ? "取消检查" : "暂停下载"

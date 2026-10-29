@@ -11,6 +11,7 @@ import { playerExpanded } from "../composables/useSceneMotion";
 import { settingsNavigation } from "./settingsCatalog";
 import type {
   Feedback,
+  GamepadButton,
   GamepadDevice,
   GamepadSnapshot,
 } from "../types/gamepad";
@@ -39,6 +40,25 @@ export const confirmButton = computed(() =>
 export const backButton = computed(() =>
   gamepad.device?.family === "switch" ? 0 : 1,
 );
+
+export function gamepadGlyph(button: GamepadButton) {
+  const family = gamepadFamily.value;
+  const prefix =
+    family === "dualsense" || family === "ds4"
+      ? "ps"
+      : family === "switch"
+        ? "ns"
+        : "xbox";
+  const face =
+    prefix === "ps"
+      ? ["cross", "circle", "square", "triangle"]
+      : prefix === "ns"
+        ? ["b", "a", "y", "x"]
+        : ["a", "b", "x", "y"];
+  if (["confirm", "back", "west", "north"].includes(button))
+    return `${prefix}-${face[button === "confirm" ? confirmButton.value : button === "back" ? backButton.value : button === "west" ? 2 : 3]}`;
+  return `${prefix}-${button}`;
+}
 
 export function gamepadViewport(target: HTMLElement) {
   let top = 0,
@@ -136,9 +156,7 @@ export function createGamepadNavigation() {
     ].filter((item) => {
       if (
         !visible(item) ||
-        item.matches(
-          "[data-pad-primary],[data-page],.drawer-dismiss,.drawer-close,select",
-        )
+        item.matches("[data-page],.drawer-dismiss,.drawer-close,select")
       )
         return false;
       if (navigation)
@@ -147,8 +165,11 @@ export function createGamepadNavigation() {
         );
       return (
         !item.closest(
-          ".page-head,.settings-categories,.control-tabs--navigation,.settings-search",
-        ) && !item.matches("[data-category]")
+          ".settings-categories,.control-tabs--navigation,.settings-search",
+        ) &&
+        !item.matches("[data-category]") &&
+        (!item.closest(".page-head") ||
+          item.matches('[data-pad-primary],[role="combobox"]'))
       );
     });
   }
@@ -219,6 +240,17 @@ export function createGamepadNavigation() {
       items.includes(gamepadTarget.value)
     )
       return;
+    const previous = gamepadTarget.value;
+    const actions =
+      !first && samePage && previous?.isConnected && current?.contains(previous)
+        ? previous.closest("[data-pad-actions]")
+        : null;
+    if (actions) {
+      const replacement = items.find((item) => actions.contains(item));
+      if (replacement) point(replacement);
+      // 请求启动期间先保留原操作, 等待取消或暂停按钮出现。
+      return;
+    }
     const remembered = first
       ? undefined
       : current && (modal() || gamepad.notification)
@@ -247,7 +279,8 @@ export function createGamepadNavigation() {
             items.find(
               (item) =>
                 item.getAttribute("aria-label") !== "关闭弹窗" &&
-                !item.hasAttribute("data-pad-close"),
+                !item.hasAttribute("data-pad-close") &&
+                !item.closest(".page-head"),
             ) ??
             items[0]),
     );
@@ -511,6 +544,8 @@ export function createGamepadNavigation() {
       return;
     }
     const items = targets();
+    if (target.matches(":disabled") && target.closest("[data-pad-actions]"))
+      items.push(target);
     const rows: { y: number; items: HTMLElement[] }[] = [];
     for (const item of items) {
       const box = item.getBoundingClientRect();
@@ -560,11 +595,23 @@ export function createGamepadNavigation() {
     }
   }
   const stopWatch = watch(
-    () => [state.page, settingsNavigation.category, playerExpanded.value],
+    [
+      () => state.page,
+      () => settingsNavigation.category,
+      () => playerExpanded.value,
+      () => state.download?.phase,
+    ],
     () => {
-      if (gamepad.active) void changed();
+      if (!gamepad.active) return;
+      if (page !== state.page) {
+        gamepad.navigation = ["settings", "bulletin", "game-mode"].includes(
+          state.page,
+        );
+        first = true;
+      }
+      void changed();
     },
-    { flush: "post" },
+    { flush: "sync" },
   );
   return {
     press,
