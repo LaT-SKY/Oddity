@@ -48,23 +48,32 @@
   bottom: 18px;
   right: 24px;
   display: flex;
-  gap: 10px;
+  gap: 16px;
   align-items: center;
-  color: var(--text-soft);
+  color: #fff;
+  mix-blend-mode: difference;
   font-size: var(--text-sm);
   pointer-events: none;
 }
 .gamepad-hints__slot {
-  display: flex;
-  justify-content: flex-end;
-  width: 112px;
+  width: calc(50px + 7px + 6em);
   min-height: 26px;
 }
 .gamepad-hints__item {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: 50px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   white-space: nowrap;
+}
+.gamepad-hints__buttons {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 5px;
+}
+.gamepad-hints__label {
+  text-align: left;
 }
 .gamepad-hints .gamepad-glyph {
   width: 22px;
@@ -107,16 +116,6 @@
   padding-block: 8px 22px;
   color: var(--text-soft);
   font-size: var(--text-md);
-}
-.gamepad-profile-actions {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-.gamepad-profile-name {
-  color: var(--muted);
-  font-size: var(--text-sm);
 }
 .gamepad-strength {
   display: flex;

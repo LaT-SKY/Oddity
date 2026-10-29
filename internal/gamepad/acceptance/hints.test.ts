@@ -20,7 +20,6 @@ describe("手柄提示更新", () => {
       props: {
         items: items.map((item) => ({ ...item, buttons: [...item.buttons] })),
         reduced: true,
-        theme: "light",
       },
     });
     const original = wrapper.get('[data-hint="confirm"]').element;

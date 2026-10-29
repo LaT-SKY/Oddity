@@ -8,7 +8,6 @@ import GamepadGlyph from "./GamepadGlyph.vue";
 const props = defineProps<{
   items: GamepadHint[];
   reduced: boolean;
-  theme: string;
 }>();
 const slots = reactive(
   Array.from({ length: 3 }, () => ({
@@ -19,7 +18,7 @@ const slots = reactive(
 );
 let timeline: ReturnType<typeof createTimeline> | undefined;
 watch(
-  () => [props.items, props.theme, gamepadFamily.value],
+  () => [props.items, gamepadFamily.value],
   () => {
     timeline?.cancel();
     const changes = slots.flatMap((slot, index) => {
@@ -50,7 +49,7 @@ watch(
 onBeforeUnmount(() => timeline?.cancel());
 </script>
 <template>
-  <div class="gamepad-hints" :data-theme="theme" aria-label="手柄操作提示">
+  <div class="gamepad-hints" aria-label="手柄操作提示">
     <span
       v-for="(slot, index) in slots"
       :key="index"
@@ -73,11 +72,14 @@ onBeforeUnmount(() => timeline?.cancel());
         }"
         :transition="{ duration: reduced ? 0 : 0.14, ease: 'easeOut' }"
       >
-        <GamepadGlyph
-          v-for="button in slot.hint.buttons"
-          :key="button"
-          :button="button"
-        />{{ slot.hint.label }}
+        <span class="gamepad-hints__buttons">
+          <GamepadGlyph
+            v-for="button in slot.hint.buttons"
+            :key="button"
+            :button="button"
+          />
+        </span>
+        <span class="gamepad-hints__label">{{ slot.hint.label }}</span>
       </motion.span>
     </span>
   </div>

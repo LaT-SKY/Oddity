@@ -1,19 +1,11 @@
 <script setup lang="ts">
-import { ref } from "vue";
-import { open, save } from "../core/filePicker";
 import { gamepad, gamepadFeedback } from "../core/gamepad";
-import { form, queueSettingsSave, saveSettings } from "../core/controller";
-import { invoke } from "../core/api";
-import type { Feedback } from "../types/gamepad";
-import BaseButton from "./BaseButton.vue";
+import { form, queueSettingsSave } from "../core/controller";
 import BaseSelect from "./BaseSelect.vue";
 import BaseSwitch from "./BaseSwitch.vue";
 import SettingGroup from "./settings/SettingGroup.vue";
 import SettingRow from "./settings/SettingRow.vue";
 import GamepadGlyph from "./GamepadGlyph.vue";
-const effect = ref<Feedback>("confirm");
-const message = ref("");
-const busy = ref(false);
 const iconOptions = [
   { value: "auto", label: "自动识别" },
   { value: "dualsense", label: "DualSense" },
@@ -21,52 +13,6 @@ const iconOptions = [
   { value: "xbox", label: "Xbox" },
   { value: "switch", label: "Nintendo Switch" },
 ];
-const effects = [
-  { value: "confirm", label: "确认" },
-  { value: "complete", label: "完成" },
-  { value: "error", label: "错误" },
-];
-async function test() {
-  busy.value = true;
-  message.value = "";
-  if (await saveSettings(true)) await gamepadFeedback(effect.value);
-  busy.value = false;
-}
-async function importProfile() {
-  const path = await open({
-    multiple: false,
-    filters: [{ name: "振动配置", extensions: ["json"] }],
-  });
-  if (!path) return;
-  const profile = await invoke("gamepad_profile_load", { path }).catch(
-    (error) => {
-      message.value = String(error);
-      return null;
-    },
-  );
-  if (profile) {
-    form.gamepad.profiles[effect.value] = profile;
-    queueSettingsSave(0);
-    message.value = "已导入反馈配置.";
-  }
-}
-async function exportProfile() {
-  const path = await save({
-    defaultPath: `oddity-${effect.value}.json`,
-    filters: [{ name: "振动配置", extensions: ["json"] }],
-  });
-  if (!path) return;
-  await invoke("gamepad_profile_save", {
-    path,
-    profile: JSON.parse(JSON.stringify(form.gamepad.profiles[effect.value])),
-  })
-    .then(() => {
-      message.value = "已导出反馈配置.";
-    })
-    .catch((error) => {
-      message.value = String(error);
-    });
-}
 </script>
 <template>
   <section data-setting="gamepad" tabindex="-1">
@@ -167,41 +113,8 @@ async function exportProfile() {
           /><output>{{ form.gamepad.strength }}%</output>
         </div></SettingRow
       >
-      <SettingRow label="反馈场景" for="set-gamepad-event-trigger"
-        ><BaseSelect
-          id="set-gamepad-event"
-          v-model="effect"
-          :options="effects"
-          label="反馈场景"
-      /></SettingRow>
-      <SettingRow label="反馈配置"
-        ><div class="gamepad-profile-actions">
-          <span class="gamepad-profile-name">{{
-            form.gamepad.profiles[effect].name
-          }}</span
-          ><BaseButton
-            :disabled="!gamepad.device || !form.gamepad.vibration"
-            :busy="busy"
-            @click="test"
-            >测试</BaseButton
-          ><BaseButton @click="gamepadFeedback('stop')">停止</BaseButton>
-        </div></SettingRow
-      >
-      <div class="gamepad-profile-actions">
-        <BaseButton icon="i-download-simple" @click="importProfile"
-          >导入配置</BaseButton
-        ><BaseButton @click="exportProfile">导出配置</BaseButton>
-      </div>
-      <p class="gamepad-settings-hint">
-        支持微调页导出的包络、USB 音频与自适应扳机配置.
-        设备能力不足时会说明原因.
-      </p>
-      <p
-        v-if="message || gamepad.error"
-        class="gamepad-settings-hint"
-        role="status"
-      >
-        {{ message || gamepad.error }}
+      <p v-if="gamepad.error" class="gamepad-settings-hint" role="status">
+        {{ gamepad.error }}
       </p>
     </SettingGroup>
   </section>

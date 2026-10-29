@@ -225,11 +225,6 @@ const hints = computed<GamepadHint[]>(() => {
         /></motion.span>
       </motion.div>
     </div>
-    <GamepadHints
-      v-if="gamepad.active"
-      :items="hints"
-      :reduced="!!reduced"
-      :theme="state.page === 'home' ? 'dark' : form.theme"
-    />
+    <GamepadHints v-if="gamepad.active" :items="hints" :reduced="!!reduced" />
   </Teleport>
 </template>
