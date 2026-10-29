@@ -1,0 +1,88 @@
+{
+  "schema": "oddity.haptics.v1",
+  "name": "确认落位",
+  "mode": "rumble",
+  "channels": [
+    {
+      "gain": 0.22,
+      "attack": 12,
+      "decay": 35,
+      "sustain": 0.3,
+      "hold": 25,
+      "release": 90,
+      "delay": 0,
+      "curve": "smooth",
+      "modulation": "flat",
+      "rate": 8,
+      "depth": 1,
+      "duty": 0.5,
+      "phase": 0,
+      "carrier": 100,
+      "end_frequency": 100,
+      "wave": "sine",
+      "carrier_phase": 0
+    },
+    {
+      "gain": 0.14,
+      "attack": 12,
+      "decay": 35,
+      "sustain": 0.3,
+      "hold": 25,
+      "release": 90,
+      "delay": 12,
+      "curve": "smooth",
+      "modulation": "flat",
+      "rate": 8,
+      "depth": 1,
+      "duty": 0.5,
+      "phase": 0,
+      "carrier": 180,
+      "end_frequency": 180,
+      "wave": "sine",
+      "carrier_phase": 0
+    }
+  ],
+  "triggers": [
+    {
+      "mode": "off",
+      "zones": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "frequency": 30,
+      "start": 2,
+      "end": 5,
+      "strength": 2
+    },
+    {
+      "mode": "off",
+      "zones": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "frequency": 30,
+      "start": 2,
+      "end": 5,
+      "strength": 2
+    }
+  ],
+  "repeat": 1,
+  "gap": 120,
+  "trigger_ms": 0
+}

@@ -4,9 +4,16 @@ import viteConfig from "./vite.config.ts";
 export default mergeConfig(
   viteConfig,
   defineConfig({
+    resolve: {
+      dedupe: ["vue", "vitest", "@vue/test-utils", "@tauri-apps/plugin-dialog"],
+    },
+    server: { fs: { allow: [new URL("../..", import.meta.url).pathname] } },
     test: {
       environment: "jsdom",
-      include: ["tests/unit/**/*.test.ts"],
+      include: [
+        "tests/unit/**/*.test.ts",
+        "../../internal/gamepad/acceptance/*.test.ts",
+      ],
       setupFiles: ["./tests/unit/setup.ts"],
       coverage: {
         provider: "v8",

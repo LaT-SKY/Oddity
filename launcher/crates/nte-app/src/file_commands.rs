@@ -60,3 +60,7 @@ pub fn browse_files(path: Option<String>) -> Result<Listing, String> {
         entries,
     })
 }
+
+#[cfg(test)]
+#[path = "../../../../internal/gamepad/tests/files.rs"]
+mod tests;

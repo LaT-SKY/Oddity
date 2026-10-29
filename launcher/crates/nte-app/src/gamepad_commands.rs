@@ -497,3 +497,7 @@ pub async fn gamepad_release_idle(app: AppHandle) -> Result<(), String> {
     })
     .await
 }
+
+#[cfg(test)]
+#[path = "../../../../internal/gamepad/tests/native.rs"]
+mod tests;

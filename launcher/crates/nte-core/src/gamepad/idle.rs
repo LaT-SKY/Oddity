@@ -15,6 +15,12 @@ pub struct ActivityInhibitor {
 }
 impl ActivityInhibitor {
     pub fn new(timeout: Duration) -> Self {
+        Self::with_request(timeout, || IdleInhibitor::start("Oddity 手柄操作"))
+    }
+    pub(crate) fn with_request(
+        timeout: Duration,
+        request: impl Fn() -> Result<IdleInhibitor, String> + Send + 'static,
+    ) -> Self {
         let (sender, receiver) = mpsc::channel::<Option<Instant>>();
         let status = Arc::new(Mutex::new(Status::default()));
         let report = status.clone();
@@ -42,7 +48,7 @@ impl ActivityInhibitor {
                     }
                     expires = Some(activity + timeout);
                     if inhibitor.is_none() {
-                        match IdleInhibitor::start("Oddity 手柄操作") {
+                        match request() {
                             Ok(request) => {
                                 inhibitor = Some(request);
                                 *report.lock().expect("手柄唤醒状态") = Status {
