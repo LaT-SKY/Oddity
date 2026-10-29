@@ -22,6 +22,8 @@ const backend = vi.hoisted(() => ({
   stopResize: vi.fn(),
   invoke: vi.fn(),
   handler: (_status: GameStatus) => {},
+  playtimeStarted: () => {},
+  playtimeUnlisten: vi.fn(),
   downloadHandler: (_status: DownloadStatus) => {},
   downloadStatus: {} as DownloadStatus,
   startStatus: null as DownloadStatus | null,
@@ -41,6 +43,10 @@ vi.mock("../../src/core/api", () => ({
   listenGameState: (handler: (status: GameStatus) => void) => {
     backend.handler = handler;
     return backend.unlisten;
+  },
+  listenPlaytimeStarted: (handler: () => void) => {
+    backend.playtimeStarted = handler;
+    return backend.playtimeUnlisten;
   },
   listenDownloadState: (handler: (status: DownloadStatus) => void) => {
     backend.downloadHandler = handler;
@@ -1478,6 +1484,34 @@ describe("游戏会话", () => {
     await flushPromises();
     expect(reads()).toBe(2);
     expect(c.playtime.history).not.toBeNull();
+    expect(c.playtime.history?.active).toEqual(active);
+  });
+
+  it("running 先于会话创建时, 会话创建后补读记录", async () => {
+    const c = await boot();
+    backend.playtimeHistory = { sessions: [], active: null };
+    c.showPage("records");
+    await flushPromises();
+    const reads = () =>
+      backend.invoke.mock.calls.filter(
+        ([command]) => command === "playtime_history",
+      ).length;
+    expect(reads()).toBe(1);
+    // 游戏先进入 running, 后端尚未创建活动会话。
+    backend.handler(session({ running: true, pid: 123 }));
+    await flushPromises();
+    expect(c.playtime.history?.active).toBeNull();
+    const before = reads();
+    const active = {
+      startedAt: Date.now(),
+      lastSeenAt: Date.now(),
+      mode: "background",
+      distribution: "cn" as const,
+    };
+    backend.playtimeHistory = { sessions: [], active };
+    backend.playtimeStarted();
+    await flushPromises();
+    expect(reads()).toBe(before + 1);
     expect(c.playtime.history?.active).toEqual(active);
   });
 

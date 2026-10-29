@@ -15,7 +15,13 @@ import type {
   PlaytimeHistory,
   Settings,
 } from "../types/launcher";
-import { invoke, isTauri, listenGameState, listenDownloadState } from "./api";
+import {
+  invoke,
+  isTauri,
+  listenGameState,
+  listenDownloadState,
+  listenPlaytimeStarted,
+} from "./api";
 import { notify, resetNotifications } from "./notifications";
 export { notify, notifications } from "./notifications";
 import { latestSession, formatPlaytime } from "./playtime";
@@ -2048,6 +2054,13 @@ export async function init() {
   setLaunchState("idle");
   disposers.push(
     listenGameState((status) => applyGameStatus(status, { announce: true })),
+  );
+  disposers.push(
+    // 会话创建可能晚于 running, 收到通知后补读一次记录。
+    listenPlaytimeStarted(() => {
+      playtimeRequestedAt = 0;
+      void loadPlaytime();
+    }),
   );
   disposers.push(listenDownloadState(applyDownloadStatus));
   watchWindowShape();
