@@ -96,6 +96,26 @@ test("按住导航连续跨图标、缝隙与反向滑动，松手不回跳", as
   );
 });
 
+test("导航可以从设置拖回主页并关闭抽屉", async ({ page }) => {
+  await page.goto("/#settings");
+  const home = await center(page, '.rail-item[data-page="home"]');
+  const settings = await center(page, '.rail-item[data-page="settings"]');
+  await expect(page.locator("#page-settings")).toBeVisible();
+  await page.mouse.move(settings.x, settings.y);
+  await page.mouse.down();
+  await page.mouse.move(home.x, home.y, { steps: 20 });
+  await expect(page.locator('[data-page="home"]')).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
+  await page.mouse.up();
+  await expect(page.locator("#page-home")).toBeVisible();
+  await expect(page.locator(".rail__nav")).toHaveAttribute(
+    "data-scrubbing",
+    "false",
+  );
+});
+
 test("导航纵向移出、Escape 与指针取消撤销切换", async ({ page }) => {
   await page.goto("/");
   const home = await center(page, '.rail-item[data-page="home"]');

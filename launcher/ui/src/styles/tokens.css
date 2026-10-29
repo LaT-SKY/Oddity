@@ -44,6 +44,12 @@
   --signal-strong: #354c65;
   --signal-ink: #202e3d;
   --signal-dim: rgba(53, 76, 101, 0.12);
+  --heat-0: rgba(53, 76, 101, 0.08);
+  --heat-1: rgba(53, 76, 101, 0.18);
+  --heat-2: rgba(53, 76, 101, 0.34);
+  --heat-3: rgba(53, 76, 101, 0.54);
+  --heat-4: rgba(53, 76, 101, 0.76);
+  --heat-5: #354c65;
   --accent-text: #354c65;
   --nav-active-color: #293e54;
   --nav-active-bg: rgba(53, 76, 101, 0.16);
@@ -178,7 +184,8 @@
 
 .app[data-theme="dark"],
 .modal[data-theme="dark"],
-.control-popover[data-theme="dark"] {
+.control-popover[data-theme="dark"],
+.task-tooltip[data-theme="dark"] {
   color-scheme: dark;
 
   --bg: #10151c;
@@ -205,6 +212,12 @@
   --signal-strong: #d5e0ec;
   --signal-ink: #172434;
   --signal-dim: rgba(176, 200, 225, 0.16);
+  --heat-0: rgba(213, 224, 236, 0.08);
+  --heat-1: rgba(213, 224, 236, 0.18);
+  --heat-2: rgba(213, 224, 236, 0.34);
+  --heat-3: rgba(213, 224, 236, 0.54);
+  --heat-4: rgba(213, 224, 236, 0.76);
+  --heat-5: #d5e0ec;
   --accent-text: #d5e0ec;
   --nav-active-color: #d5e0ec;
   --nav-active-bg: rgba(176, 200, 225, 0.07);

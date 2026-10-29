@@ -15,7 +15,7 @@ test("游戏模式分类、搜索、禁用状态与设置页布局一致", async
       .evaluateAll((items) =>
         items.map((item) => (item as HTMLElement).dataset.page),
       ),
-  ).toEqual(["home", "update", "game-mode", "bulletin", "settings"]);
+  ).toEqual(["home", "update", "game-mode", "bulletin", "records", "settings"]);
   await panel.getByRole("button", { name: "重新检测", exact: true }).click();
   await page.getByRole("button", { name: "关闭通知", exact: true }).click();
   await expect(page.locator(".notification-card")).toHaveCount(0);
@@ -74,7 +74,7 @@ test("游戏模式分类、搜索、禁用状态与设置页布局一致", async
   await expect(panel.locator('[data-category="general"]')).toBeFocused();
   await page.keyboard.press("ArrowDown");
   await expect(panel.locator('[data-category="cpu"]')).toBeFocused();
-  await page.keyboard.press("Control+5");
+  await page.keyboard.press("Control+6");
   const settings = page.locator("#page-settings");
   await expect(settings).toBeVisible();
   expect((await settings.locator("#settings-title").boundingBox())!.y).toBe(

@@ -9,6 +9,7 @@ const items = [
   { page: "update", label: "更新", icon: "download-simple" },
   { page: "game-mode", label: "游戏模式", icon: "game-controller" },
   { page: "bulletin", label: "公告", icon: "newspaper-clipping" },
+  { page: "records", label: "记录", icon: "clock" },
   { page: "settings", label: "设置", icon: "gear-six" },
 ] as const;
 const nav = ref<HTMLElement | null>(null);

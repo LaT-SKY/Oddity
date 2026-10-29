@@ -39,6 +39,7 @@ mod environment_commands;
 mod game_mode_commands;
 mod log_commands;
 mod native_session;
+mod playtime_commands;
 
 const APP_IDENTIFIER: &str = "io.github.oddity.Launcher";
 
@@ -65,6 +66,8 @@ struct GameSession {
     exe: String,
     started_at: u64,
     log: String,
+    mode: String,
+    distribution: Distribution,
     closing: bool,
     exit_notified: bool,
     game_alive: Arc<AtomicBool>,
@@ -290,7 +293,7 @@ fn terminate_process_group(pgid: i32) -> Result<(), String> {
 }
 
 /// 游戏进程结束后是否按设置显示主界面。
-fn should_show_launcher_after_exit(app: &AppHandle) -> bool {
+fn should_show_launcher_after_exit<R: tauri::Runtime>(app: &AppHandle<R>) -> bool {
     app.try_state::<AppState>()
         .and_then(|state| {
             state
@@ -420,7 +423,7 @@ fn game_main_process_alive(root_pid: u32) -> bool {
     GameProcessWatch::new(root_pid).alive()
 }
 
-fn finish_game_early(app: &AppHandle, session: &GameSession) {
+fn finish_game_early<R: tauri::Runtime>(app: &AppHandle<R>, session: &GameSession) {
     if let Some(mode) = &session.game_mode {
         if let Ok(mut mode) = mode.lock() {
             mode.release();
@@ -452,8 +455,8 @@ fn finish_game_early(app: &AppHandle, session: &GameSession) {
 }
 
 /// 游戏退出后立即显示界面, 安装保护保留到后台清理结束。
-fn watch_game_exit(
-    app: AppHandle,
+fn watch_game_exit<R: tauri::Runtime>(
+    app: AppHandle<R>,
     session: GameSession,
     done: Arc<AtomicBool>,
     alive: Arc<AtomicBool>,
@@ -461,8 +464,13 @@ fn watch_game_exit(
     thread::spawn(move || {
         let mut seen = false;
         let mut watch = GameProcessWatch::new(session.pid);
+        let playtime = app.try_state::<playtime_commands::Playtime>();
+        let mut playtime_started = false;
+        let mut start_retry_at = Instant::now();
+        let mut last_touch = Instant::now();
         while !done.load(Ordering::Acquire) {
-            let running = watch.alive()
+            let game_running = watch.alive();
+            let running = game_running
                 || session
                     .background
                     .as_ref()
@@ -480,6 +488,42 @@ fn watch_game_exit(
                     }
                 }
             }
+            if game_running && !playtime_started && Instant::now() >= start_retry_at {
+                let started = if let Some(playtime) = &playtime {
+                    match playtime.start(
+                        playtime_commands::now_millis(),
+                        &session.mode,
+                        session.distribution.as_str(),
+                    ) {
+                        Ok(()) => true,
+                        Err(error) => {
+                            eprintln!("开始记录游玩时长失败: {error}");
+                            start_retry_at = Instant::now() + Duration::from_secs(30);
+                            false
+                        }
+                    }
+                } else {
+                    true
+                };
+                if started {
+                    playtime_started = true;
+                    last_touch = Instant::now();
+                }
+            } else if playtime_started && !game_running {
+                if let Some(playtime) = &playtime {
+                    if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
+                        eprintln!("结束游玩记录失败: {error}");
+                    }
+                }
+                playtime_started = false;
+            } else if playtime_started && last_touch.elapsed() >= Duration::from_secs(30) {
+                if let Some(playtime) = &playtime {
+                    if let Err(error) = playtime.touch(playtime_commands::now_millis()) {
+                        eprintln!("更新游玩记录心跳失败: {error}");
+                    }
+                }
+                last_touch = Instant::now();
+            }
             alive.store(running, Ordering::Release);
             if running {
                 seen = true;
@@ -488,6 +532,13 @@ fn watch_game_exit(
                 return;
             }
             thread::sleep(Duration::from_millis(500));
+        }
+        if playtime_started {
+            if let Some(playtime) = &playtime {
+                if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
+                    eprintln!("结束游玩记录失败: {error}");
+                }
+            }
         }
     });
 }
@@ -520,6 +571,11 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
             result
         };
         done.store(true, Ordering::Release);
+        if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
+            if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
+                eprintln!("结束游玩记录失败: {error}");
+            }
+        }
         if let Some(mode) = &session.game_mode {
             if let Ok(mut mode) = mode.lock() {
                 mode.release();
@@ -1917,6 +1973,7 @@ async fn launch_official(
         tracker.starting = true;
         settings = current_settings.clone();
     }
+    let distribution = settings.distribution;
 
     let invocation =
         match tauri::async_runtime::spawn_blocking(move || launch_impl(&settings)).await {
@@ -1949,6 +2006,8 @@ async fn launch_official(
             exe: invocation.result.exe.clone(),
             started_at: invocation.result.started_at,
             log: invocation.result.log.clone(),
+            mode: invocation.result.mode.clone(),
+            distribution,
             closing: false,
             exit_notified: false,
             game_alive: Arc::new(AtomicBool::new(true)),
@@ -2032,6 +2091,11 @@ async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameSt
                 if !session_alive(session) {
                     tracker.session = None;
                     drop(tracker);
+                    if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
+                        if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
+                            eprintln!("结束游玩记录失败: {error}");
+                        }
+                    }
                     let status = GameStatus::idle();
                     let _ = app.emit("game-state", status.clone());
                     return Ok(status);
@@ -2071,6 +2135,14 @@ async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameSt
         Ok(result) => result,
         Err(error) => Err(format!("关闭任务失败：{error}")),
     };
+
+    if result.is_ok() {
+        if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
+            if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
+                eprintln!("结束游玩记录失败: {error}");
+            }
+        }
+    }
 
     {
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;
@@ -2181,7 +2253,7 @@ fn configure_graphics() {
     }
 }
 
-fn show_main(app: &tauri::AppHandle) {
+fn show_main<R: tauri::Runtime>(app: &AppHandle<R>) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();
@@ -2277,6 +2349,7 @@ fn main() {
             window.transparent = false;
         }
     }
+    let playtime = playtime_commands::Playtime::load(&data_dir());
     launcher_builder()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             show_main(app);
@@ -2285,6 +2358,7 @@ fn main() {
             settings: Mutex::new(settings),
             game: Mutex::new(GameTracker::default()),
         })
+        .manage(playtime)
         .manage(download_commands::DownloadManager::default())
         .manage(background_server::BackgroundServer::start())
         .on_window_event(|window, event| {
@@ -2346,6 +2420,8 @@ fn main() {
             open_url,
             launch_official,
             game_status,
+            playtime_commands::playtime_history,
+            playtime_commands::playtime_export_poster,
             game_mode_status,
             game_mode_commands::game_mode_gpu_info,
             game_mode_commands::game_mode_gpu_apply,

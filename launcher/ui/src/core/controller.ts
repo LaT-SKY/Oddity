@@ -12,11 +12,13 @@ import type {
   DownloadStatus,
   BulletinFeed,
   LauncherBackgroundMedia,
+  PlaytimeHistory,
   Settings,
 } from "../types/launcher";
 import { invoke, isTauri, listenGameState, listenDownloadState } from "./api";
 import { notify, resetNotifications } from "./notifications";
 export { notify, notifications } from "./notifications";
+import { latestSession, formatPlaytime } from "./playtime";
 import { settingsNavigation, type SettingsCategory } from "./settingsCatalog";
 import { APP_VERSION } from "./version";
 
@@ -317,6 +319,66 @@ export async function saveAttendancePreferences() {
   )
     return;
   await attendanceAction(() => invoke("attendance_configure", { preferences }));
+}
+
+export const playtime = reactive({
+  history: null as PlaytimeHistory | null,
+  loading: false,
+  loaded: false,
+  error: "",
+});
+let playtimeRequest = 0;
+let lastLaunchStartedAt: number | null = null;
+const PLAYTIME_RECENT_MS = 5 * 60 * 1000;
+
+export async function loadPlaytime(): Promise<PlaytimeHistory | null> {
+  const epoch = generation;
+  const request = ++playtimeRequest;
+  playtime.loading = true;
+  try {
+    const next = await invoke("playtime_history");
+    if (epoch !== generation || request !== playtimeRequest) return null;
+    playtime.history = next;
+    playtime.loaded = true;
+    playtime.error = "";
+    return next;
+  } catch (cause) {
+    if (epoch === generation && request === playtimeRequest) {
+      playtime.error =
+        cause && typeof cause === "object" && "message" in cause
+          ? String(cause.message)
+          : String(cause);
+    }
+    return null;
+  } finally {
+    if (epoch === generation && request === playtimeRequest)
+      playtime.loading = false;
+  }
+}
+
+async function announcePlaytimeExit(fallback: string) {
+  const epoch = generation;
+  const history = await loadPlaytime();
+  if (epoch !== generation) return;
+  const last = history ? latestSession(history) : null;
+  const recent = Boolean(
+    last &&
+    Date.now() - last.endedAt < PLAYTIME_RECENT_MS &&
+    (lastLaunchStartedAt === null || last.endedAt >= lastLaunchStartedAt),
+  );
+  if (!recent || !last) {
+    notify(fallback);
+    return;
+  }
+  notify(
+    `游戏已退出 · 本次游玩 ${formatPlaytime(last.endedAt - last.startedAt)}`,
+    "ok",
+    7000,
+    {
+      key: "game-exit",
+      secondary: { label: "查看记录", run: () => showPage("records") },
+    },
+  );
 }
 
 export const form = reactive({
@@ -1348,7 +1410,7 @@ function applyGameStatus(
   state.session = null;
   setLaunchState("idle");
   if (announce && !status.error && previous === "running")
-    notify("游戏已退出。");
+    void announcePlaytimeExit("游戏已退出。");
 }
 
 async function syncGameStatus() {
@@ -1378,6 +1440,7 @@ async function launchGame() {
   if (!isTauri()) notify("浏览器预览：模拟启动流程。", "ok", 2600);
   setLaunchState("launching");
   const startedAt = performance.now();
+  lastLaunchStartedAt = Date.now();
   try {
     const result = await invoke("launch_official");
     if (epoch !== generation) return;
@@ -1426,7 +1489,7 @@ async function closeGame() {
     const status = await invoke("close_game");
     if (epoch !== generation) return;
     applyGameStatus(status, { force: true });
-    notify("游戏已关闭。");
+    if (!status.running) void announcePlaytimeExit("游戏已关闭。");
   } catch (error) {
     if (epoch !== generation) return;
     let status = null;
@@ -1761,7 +1824,14 @@ export async function openUrl(url: string) {
 
 function hashPage() {
   const value = window.location.hash.replace(/^#/, "");
-  return ["home", "update", "game-mode", "bulletin", "settings"].includes(value)
+  return [
+    "home",
+    "update",
+    "game-mode",
+    "bulletin",
+    "records",
+    "settings",
+  ].includes(value)
     ? value
     : "home";
 }
@@ -1793,11 +1863,19 @@ export function openSettings(category: SettingsCategory) {
 export function showPage(name: string | undefined, syncHash = true) {
   if (
     !name ||
-    !["home", "update", "game-mode", "bulletin", "settings"].includes(name)
+    ![
+      "home",
+      "update",
+      "game-mode",
+      "bulletin",
+      "records",
+      "settings",
+    ].includes(name)
   )
     return;
   const changed = state.page !== name;
   state.page = name;
+  if (name === "records") void loadPlaytime();
   // 封面与播放起点一致, 返回主页时不恢复到缩放动画的中途。
   if (changed) applyHeroMedia(state.heroMedia);
   void nextTick(syncScrollEdges);
@@ -1895,10 +1973,14 @@ function bindInteractions() {
 
   onDocument("keydown", (event) => {
     if (!event.ctrlKey || event.altKey || event.metaKey) return;
-    const index = ["1", "2", "3", "4", "5"].indexOf(event.key);
+    const index = ["1", "2", "3", "4", "5", "6"].indexOf(event.key);
     if (index >= 0) {
       event.preventDefault();
-      showPage(["home", "update", "game-mode", "bulletin", "settings"][index]);
+      showPage(
+        ["home", "update", "game-mode", "bulletin", "records", "settings"][
+          index
+        ],
+      );
     }
   });
 
@@ -1907,6 +1989,7 @@ function bindInteractions() {
   onWindow("focus", () => {
     if (state.game === "launching" || state.game === "closing") return;
     syncGameStatus();
+    if (state.page === "records") void loadPlaytime();
   });
 }
 
@@ -1944,6 +2027,7 @@ export async function init() {
   bindInteractions();
   showPage(hashPage(), false);
   setLaunchState("idle");
+  playtime.loading = false;
   disposers.push(
     listenGameState((status) => applyGameStatus(status, { announce: true })),
   );
@@ -2016,6 +2100,14 @@ export function dispose() {
   introWaiters.length = 0;
   ui.introStarted = false;
   ui.introDone = false;
+  playtimeRequest++;
+  lastLaunchStartedAt = null;
+  Object.assign(playtime, {
+    history: null,
+    loading: false,
+    loaded: false,
+    error: "",
+  });
   resetNotifications();
   Object.assign(state, {
     bootstrap: null,

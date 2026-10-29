@@ -322,6 +322,8 @@ fn commands_reject_overlapping_tasks_and_running_games() {
         exe: EXE.into(),
         started_at: 0,
         log: String::new(),
+        mode: "background".into(),
+        distribution: Distribution::Cn,
         closing: false,
         exit_notified: false,
         game_alive: Arc::new(AtomicBool::new(false)),
