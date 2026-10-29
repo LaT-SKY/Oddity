@@ -71,6 +71,8 @@ beforeEach(() => {
   );
   Element.prototype.scrollIntoView = vi.fn();
   gamepad.active = true;
+  gamepad.deviceError = "";
+  gamepad.feedbackError = "";
   gamepad.notification = false;
   gamepad.windowControls = false;
   gamepad.navigation = false;
@@ -612,10 +614,18 @@ it("轮询处理重获焦点、按键边缘、重复、摇杆、切换输入与�
   window.dispatchEvent(new Event("blur"));
   snapshot.error = "device issue";
   await vi.advanceTimersByTimeAsync(20);
-  expect(gamepad.error).toBe("device issue");
+  expect(gamepad.deviceError).toBe("device issue");
+  gamepad.device = snapshot.device;
+  gamepad.active = true;
+  bridge.invoke.mockRejectedValueOnce(new Error("feedback failed"));
+  await gamepadFeedback("confirm");
+  expect(gamepad.feedbackError).toContain("feedback failed");
   snapshot.error = null;
   await vi.advanceTimersByTimeAsync(20);
-  expect(gamepad.error).toBe("");
+  expect(gamepad.deviceError).toBe("");
+  expect(gamepad.feedbackError).toContain("feedback failed");
+  await gamepadFeedback("confirm");
+  expect(gamepad.feedbackError).toBe("");
   bridge.invoke.mockRejectedValueOnce(new Error("poll failed"));
   await vi.advanceTimersByTimeAsync(20);
   stop();
@@ -626,5 +636,5 @@ it("轮询处理重获焦点、按键边缘、重复、摇杆、切换输入与�
   gamepad.active = true;
   bridge.invoke.mockRejectedValueOnce(new Error("feedback failed"));
   await gamepadFeedback("confirm");
-  expect(gamepad.error).toContain("feedback failed");
+  expect(gamepad.feedbackError).toContain("feedback failed");
 });

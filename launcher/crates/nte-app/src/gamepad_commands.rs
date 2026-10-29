@@ -55,6 +55,8 @@ struct Playback {
 struct Input {
     _sdl: sdl3::Sdl,
     audio: Option<sdl3::AudioSubsystem>,
+    // 区分尚未匹配与已确认没有匹配设备, 避免空结果反复扫描.
+    matched_audio: Option<Option<AudioDeviceID>>,
     events: sdl3::EventPump,
     subsystem: sdl3::GamepadSubsystem,
     pads: BTreeMap<JoystickId, Gamepad>,
@@ -80,6 +82,7 @@ impl Input {
         Ok(Self {
             _sdl: sdl,
             audio,
+            matched_audio: None,
             events,
             subsystem,
             pads: BTreeMap::new(),
@@ -91,31 +94,38 @@ impl Input {
             idle_reported: None,
         })
     }
-    fn audio_device(&self) -> Option<AudioDeviceID> {
-        let audio = self.audio.as_ref()?;
+    fn audio_device(&mut self) -> Option<AudioDeviceID> {
+        if let Some(device) = self.matched_audio {
+            return device;
+        }
         // 只在唯一的 Sony 设备可以匹配四声道音频时开放音频触觉.
-        if self
+        let unique_sony = self
             .pads
             .values()
             .filter(|p| p.vendor_id() == Some(0x054c))
             .count()
-            != 1
-        {
-            return None;
-        }
-        audio
-            .audio_playback_device_ids()
-            .ok()?
-            .into_iter()
-            .find(|&id| {
-                let device = AudioDevice::new(id, audio.clone());
-                device
-                    .name()
-                    .is_ok_and(|name| name.to_lowercase().contains("dualsense"))
-                    && device
-                        .format()
-                        .is_ok_and(|(spec, _)| spec.channels == Some(4))
-            })
+            == 1;
+        let device = self
+            .audio
+            .as_ref()
+            .filter(|_| unique_sony)
+            .and_then(|audio| {
+                audio
+                    .audio_playback_device_ids()
+                    .ok()?
+                    .into_iter()
+                    .find(|&id| {
+                        let device = AudioDevice::new(id, audio.clone());
+                        device
+                            .name()
+                            .is_ok_and(|name| name.to_lowercase().contains("dualsense"))
+                            && device
+                                .format()
+                                .is_ok_and(|(spec, _)| spec.channels == Some(4))
+                    })
+            });
+        self.matched_audio = Some(device);
+        device
     }
     fn device(&self, id: JoystickId, audio: bool) -> Device {
         let pad = &self.pads[&id];
@@ -233,11 +243,20 @@ impl Input {
                 {
                     self.active = Some(which);
                 }
+                Event::AudioDeviceAdded {
+                    iscapture: false, ..
+                }
+                | Event::AudioDeviceRemoved {
+                    iscapture: false, ..
+                } => {
+                    self.matched_audio = None;
+                }
                 _ => {}
             }
         }
         let disconnected = self.pads.iter().any(|(_, pad)| !pad.connected());
         if disconnected {
+            self.matched_audio = None;
             self.idle.clear();
             self.idle_reported = None;
             self.stop();
@@ -249,6 +268,7 @@ impl Input {
                 match self.subsystem.open(id) {
                     Ok(pad) => {
                         entry.insert(pad);
+                        self.matched_audio = None;
                     }
                     Err(error) => open_error = Some(error.to_string()),
                 }

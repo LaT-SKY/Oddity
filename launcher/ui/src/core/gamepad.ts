@@ -22,7 +22,8 @@ export const gamepad = reactive({
   devices: [] as GamepadDevice[],
   active: false,
   pressing: false,
-  error: "",
+  deviceError: "",
+  feedbackError: "",
   idle: { requested: false, error: null as string | null },
   notification: false,
   windowControls: false,
@@ -87,9 +88,13 @@ export function gamepadFeedback(effect: Feedback | "stop") {
   return invoke("gamepad_feedback", {
     deviceId: gamepad.device.id,
     effect,
-  }).catch((error) => {
-    gamepad.error = String(error);
-  });
+  })
+    .then(() => {
+      if (effect !== "stop") gamepad.feedbackError = "";
+    })
+    .catch((error) => {
+      gamepad.feedbackError = String(error);
+    });
 }
 
 export function createGamepadNavigation() {
@@ -691,7 +696,7 @@ export function startGamepad() {
     (active) => {
       if (!active && isTauri())
         void invoke("gamepad_release_idle").catch((error) => {
-          gamepad.error = String(error);
+          gamepad.deviceError = String(error);
         });
     },
   );
@@ -727,7 +732,7 @@ export function startGamepad() {
   );
   async function poll() {
     const snapshot = await invoke("gamepad_poll").catch((error) => {
-      gamepad.error = String(error);
+      gamepad.deviceError = String(error);
       return null;
     });
     if (stopped) return;
@@ -743,7 +748,7 @@ export function startGamepad() {
     gamepad.idle = snapshot.idle;
     gamepad.devices = snapshot.devices;
     gamepad.device = snapshot.device;
-    gamepad.error = snapshot.error ?? "";
+    gamepad.deviceError = snapshot.error ?? "";
     const held = new Set(snapshot.buttons);
     const [x, y, , scroll] = snapshot.axes;
     const dead = form.gamepad.deadZone;

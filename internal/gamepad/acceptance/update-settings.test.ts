@@ -51,6 +51,8 @@ beforeEach(() => {
     notification: false,
     editing: null,
     device: null,
+    deviceError: "",
+    feedbackError: "",
   });
   Element.prototype.scrollIntoView = vi.fn();
   Element.prototype.scrollBy = vi.fn();
@@ -93,6 +95,20 @@ async function reach(id: string) {
     await navigation.press(12);
   expect(gamepadTarget.value?.id).toBe(id);
 }
+it("设备错误清除后仍显示独立的反馈失败原因", async () => {
+  settingsNavigation.category = "gamepad";
+  gamepad.deviceError = "设备打开失败";
+  gamepad.feedbackError = "振动调用失败";
+  await nextTick();
+  expect(
+    wrapper.findAll(".gamepad-settings-hint").map((item) => item.text()),
+  ).toEqual(["设备打开失败", "振动调用失败"]);
+  gamepad.deviceError = "";
+  await nextTick();
+  expect(
+    wrapper.findAll(".gamepad-settings-hint").map((item) => item.text()),
+  ).toEqual(["振动调用失败"]);
+});
 it("从分类进入更新设置, 展开项目可达, 返回恢复分类", async () => {
   navigation.refresh();
   expect(gamepadTarget.value?.dataset.category).toBe("game");

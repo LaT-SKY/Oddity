@@ -737,6 +737,7 @@ async function previewInvoke(
     case "gamepad_feedback":
       return null;
     case "browse_files":
+      throw new Error("请在 Oddity 桌面应用中浏览文件.");
     case "gamepad_profile_validate":
       throw new Error("请在 Oddity 桌面应用中导入反馈配置.");
     case "gamepad_profile_load":

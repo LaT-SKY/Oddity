@@ -17,6 +17,35 @@ fn virtual_controllers_poll_feedback_stream_and_profile_files() {
     let mut input = Input::new().unwrap();
     let options = Options::default();
     input.poll(false, &options).unwrap();
+    assert_eq!(input.matched_audio, Some(None));
+    let cached_audio = input
+        .audio
+        .as_ref()
+        .unwrap()
+        .audio_playback_device_ids()
+        .unwrap()[0];
+    input.matched_audio = Some(Some(cached_audio));
+    input.poll(false, &options).unwrap();
+    assert_eq!(input.audio_device(), Some(cached_audio));
+    for (event_type, capture) in [
+        (sdl3::sys::events::SDL_EVENT_AUDIO_DEVICE_ADDED, true),
+        (sdl3::sys::events::SDL_EVENT_AUDIO_DEVICE_ADDED, false),
+        (sdl3::sys::events::SDL_EVENT_AUDIO_DEVICE_REMOVED, false),
+    ] {
+        input.matched_audio = Some(Some(cached_audio));
+        let mut event = sdl3::sys::events::SDL_Event {
+            adevice: sdl3::sys::events::SDL_AudioDeviceEvent {
+                r#type: event_type,
+                which: cached_audio.id(),
+                recording: capture,
+                ..Default::default()
+            },
+        };
+        assert!(unsafe { sdl3::sys::events::SDL_PushEvent(&mut event) });
+        input.poll(false, &options).unwrap();
+        assert_eq!(input.audio_device(), capture.then_some(cached_audio));
+    }
+    input.matched_audio = Some(Some(cached_audio));
     let mut attached = Vec::new();
     for (vendor, product, name) in [
         (0x054c, 0x0ce6, "PS5"),
@@ -48,6 +77,7 @@ fn virtual_controllers_poll_feedback_stream_and_profile_files() {
         attached.push((raw, stick));
         input.error = Some("触觉播放失败".into());
         let snapshot = input.poll(true, &options).unwrap();
+        assert_eq!(input.matched_audio, Some(None));
         assert_eq!(snapshot.error.as_deref(), Some("触觉播放失败"));
         assert!(!snapshot.devices.is_empty());
         let id = JoystickId::new(raw.0);
@@ -140,6 +170,7 @@ fn virtual_controllers_poll_feedback_stream_and_profile_files() {
             input.stop();
         }
     }
+    input.matched_audio = Some(Some(cached_audio));
     for (raw, stick) in attached {
         unsafe {
             joystick::SDL_CloseJoystick(stick);
@@ -147,6 +178,7 @@ fn virtual_controllers_poll_feedback_stream_and_profile_files() {
         }
     }
     input.poll(true, &options).unwrap();
+    assert_eq!(input.matched_audio, Some(None));
     input.poll(false, &options).unwrap();
     let dir = crate::tests::TempDir::new("gamepad-profiles");
     let path = dir.join("profile.json").display().to_string();

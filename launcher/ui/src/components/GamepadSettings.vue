@@ -89,8 +89,15 @@ const iconOptions = [
           /><output>{{ form.gamepad.strength }}%</output>
         </div></SettingRow
       >
-      <p v-if="gamepad.error" class="gamepad-settings-hint" role="status">
-        {{ gamepad.error }}
+      <p v-if="gamepad.deviceError" class="gamepad-settings-hint" role="status">
+        {{ gamepad.deviceError }}
+      </p>
+      <p
+        v-if="gamepad.feedbackError"
+        class="gamepad-settings-hint"
+        role="status"
+      >
+        {{ gamepad.feedbackError }}
       </p>
     </SettingGroup>
   </section>
