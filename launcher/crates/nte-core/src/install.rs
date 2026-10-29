@@ -289,6 +289,21 @@ mod tests {
     }
 
     #[test]
+    fn debug_build_can_override_launcher_version_url() {
+        let mut env = crate::testing::EnvGuard::new();
+        env.set(
+            "ODDITY_LAUNCHER_VERSION_URL",
+            "http://127.0.0.1:9/Version.ini",
+        );
+        assert_eq!(
+            launcher_version_urls(Distribution::Cn),
+            vec!["http://127.0.0.1:9/Version.ini".to_string()]
+        );
+        env.set("ODDITY_LAUNCHER_VERSION_URL", "  ");
+        assert!(!launcher_version_urls(Distribution::Cn).is_empty());
+    }
+
+    #[test]
     fn mirrors_use_the_selected_region() {
         assert_eq!(
             mirror_url("https://yhcdn1.wmupd.com/file", Distribution::Cn),

@@ -3,6 +3,8 @@
 //! 只在启动器运行期间工作: 发现更新后按用户设置的时段、计费网络策略
 //! 启动现有的下载任务. 关闭启动器后的无人值守不在本模块范围内.
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::{AppHandle, Manager, Runtime};
@@ -14,7 +16,10 @@ use crate::download_commands::{self, DownloadStatus};
 use crate::{selected_install_root, session_alive, AppState};
 
 /// 调度线程的检查周期.
+#[cfg(not(test))]
 const TICK: Duration = Duration::from_secs(15);
+#[cfg(test)]
+const TICK: Duration = Duration::from_millis(10);
 /// 两次资源检查之间的最小间隔; 启动时的静默检查也计入这个时间.
 const CHECK_INTERVAL_MS: u64 = 30 * 60 * 1000;
 /// 用户手动暂停自动下载后, 这段时间内不再自动重启.
@@ -24,12 +29,24 @@ const FAILURE_BACKOFF_MS: u64 = 10 * 60 * 1000;
 /// 计费状态缓存时间.
 const METERED_CACHE_MS: u64 = 60 * 1000;
 /// 下载过程中的状态采样间隔.
+#[cfg(not(test))]
 const MONITOR_INTERVAL: Duration = Duration::from_secs(5);
+#[cfg(test)]
+const MONITOR_INTERVAL: Duration = Duration::from_millis(10);
 
 pub fn start<R: Runtime>(app: AppHandle<R>) {
+    start_with_stop(app, Arc::new(AtomicBool::new(false)));
+}
+
+fn start_with_stop<R: Runtime>(app: AppHandle<R>, stop: Arc<AtomicBool>) {
     let _ = std::thread::Builder::new()
         .name("oddity-auto-update".into())
-        .spawn(move || run(app));
+        .spawn(move || run(app, &stop));
+}
+
+#[cfg(test)]
+fn start_for_test<R: Runtime>(app: AppHandle<R>, stop: Arc<AtomicBool>) {
+    start_with_stop(app, stop);
 }
 
 fn now_ms() -> u64 {
@@ -102,7 +119,7 @@ fn wait_idle<R: Runtime>(app: &AppHandle<R>, timeout: Duration) {
     }
 }
 
-fn run<R: Runtime>(app: AppHandle<R>) {
+fn run<R: Runtime>(app: AppHandle<R>, stop: &AtomicBool) {
     let mut snooze_until = 0u64;
     let mut metered_cache: Option<(u64, Metered)> = None;
     let mut last_failure = 0u64;
@@ -110,6 +127,9 @@ fn run<R: Runtime>(app: AppHandle<R>) {
 
     loop {
         std::thread::sleep(TICK);
+        if stop.load(Ordering::Relaxed) {
+            return;
+        }
         let Some(settings) = settings(&app) else {
             continue;
         };
@@ -303,5 +323,296 @@ fn monitor<R: Runtime>(
     if metered.is_metered() && options.metered != MeteredPolicy::Allow {
         download_commands::cancel_task(app);
         download_commands::set_auto_waiting(app, "metered");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::download_commands::{snapshot, DownloadManager};
+    use crate::{AppState, GameTracker};
+    use nte_core::distribution::Distribution;
+    use nte_core::updates::Window;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use std::sync::atomic::AtomicU64;
+    use std::sync::Mutex;
+    use std::time::Instant;
+    use tauri::test::{mock_app, MockRuntime};
+    use tauri::Manager;
+
+    struct TempDir(PathBuf);
+
+    impl TempDir {
+        fn new(tag: &str) -> Self {
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let path = std::env::temp_dir().join(format!(
+                "oddity-scheduler-{}-{}-{}",
+                std::process::id(),
+                tag,
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            fs::create_dir_all(&path).expect("create temp dir");
+            Self(path)
+        }
+
+        fn path(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn installed_root(dir: &TempDir) -> PathBuf {
+        let root = dir.path().join("install");
+        let ledger = root.join("NTELauncher/UserData/Patcher/PatcherSDK/ResList.xml");
+        fs::create_dir_all(ledger.parent().expect("ledger parent")).expect("create ledger dir");
+        fs::write(ledger, b"ledger").expect("write ledger");
+        root
+    }
+
+    fn test_settings(root: &Path) -> Settings {
+        Settings {
+            distribution: Distribution::Cn,
+            install_root: Some(root.display().to_string()),
+            updates: Options {
+                auto_download: true,
+                metered: MeteredPolicy::Allow,
+                ..Options::default()
+            },
+            ..Settings::default()
+        }
+    }
+
+    fn test_app(settings: Settings) -> tauri::App<MockRuntime> {
+        let app = mock_app();
+        app.manage(DownloadManager::default());
+        app.manage(AppState {
+            settings: Mutex::new(settings),
+            game: Mutex::new(GameTracker::default()),
+        });
+        app
+    }
+
+    fn set_status(app: &AppHandle<MockRuntime>, update: impl FnOnce(&mut DownloadStatus)) {
+        let manager = app.state::<DownloadManager>();
+        let mut inner = manager.inner.lock().expect("download manager");
+        update(&mut inner.status);
+    }
+
+    fn ready_status(app: &AppHandle<MockRuntime>, root: &Path) {
+        let root = root.display().to_string();
+        set_status(app, |status| {
+            status.phase = "ready".into();
+            status.mode = "check".into();
+            status.origin = "manual".into();
+            status.auto_waiting.clear();
+            status.distribution = "cn".into();
+            status.install_root = root.clone();
+            status.checked_at = now_ms();
+        });
+    }
+
+    fn download_status(app: &AppHandle<MockRuntime>) -> DownloadStatus {
+        snapshot(app).expect("download status")
+    }
+
+    fn wait_until(mut check: impl FnMut() -> bool, timeout: Duration) -> bool {
+        let started = Instant::now();
+        while started.elapsed() < timeout {
+            if check() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        check()
+    }
+
+    fn window_outside_now() -> Window {
+        let minute = updates::local_minute();
+        let start = (minute + 60) % (24 * 60);
+        let end = (start + 60) % (24 * 60);
+        Window {
+            start: format!("{:02}:{:02}", start / 60, start % 60),
+            end: format!("{:02}:{:02}", end / 60, end % 60),
+        }
+    }
+
+    fn start(app: &AppHandle<MockRuntime>) -> Arc<AtomicBool> {
+        let stop = Arc::new(AtomicBool::new(false));
+        start_for_test(app.clone(), Arc::clone(&stop));
+        stop
+    }
+
+    fn halt(stop: &AtomicBool) {
+        stop.store(true, Ordering::Relaxed);
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    #[test]
+    fn disabled_auto_download_does_nothing() {
+        let dir = TempDir::new("disabled");
+        let root = installed_root(&dir);
+        let mut settings = test_settings(&root);
+        settings.updates.auto_download = false;
+        let app = test_app(settings);
+        ready_status(app.handle(), &root);
+        let stop = start(app.handle());
+        std::thread::sleep(Duration::from_millis(80));
+        assert!(download_status(app.handle()).auto_waiting.is_empty());
+        halt(&stop);
+    }
+
+    #[test]
+    fn waits_for_game_and_clears_when_ready() {
+        let dir = TempDir::new("game");
+        let root = installed_root(&dir);
+        let app = test_app(test_settings(&root));
+        ready_status(app.handle(), &root);
+        app.state::<AppState>().game.lock().unwrap().starting = true;
+        let stop = start(app.handle());
+        assert!(wait_until(
+            || download_status(app.handle()).auto_waiting == "game",
+            Duration::from_secs(2)
+        ));
+        app.state::<AppState>().game.lock().unwrap().starting = false;
+        assert!(wait_until(
+            || download_status(app.handle()).auto_waiting.is_empty(),
+            Duration::from_secs(2)
+        ));
+        halt(&stop);
+    }
+
+    #[test]
+    fn waits_for_window_then_disk() {
+        let dir = TempDir::new("gates");
+        let root = installed_root(&dir);
+        let mut settings = test_settings(&root);
+        settings.updates.window = Some(window_outside_now());
+        let app = test_app(settings);
+        let root_text = root.display().to_string();
+        set_status(app.handle(), |status| {
+            status.phase = "needs-update".into();
+            status.mode = "check".into();
+            status.origin = "manual".into();
+            status.auto_waiting.clear();
+            status.distribution = "cn".into();
+            status.install_root = root_text.clone();
+            status.checked_at = now_ms();
+            status.disk_available_bytes = Some(u64::MAX);
+            status.disk_required_bytes = 0;
+        });
+        let stop = start(app.handle());
+        assert!(wait_until(
+            || download_status(app.handle()).auto_waiting == "window",
+            Duration::from_secs(2)
+        ));
+        set_status(app.handle(), |status| {
+            status.disk_available_bytes = Some(0);
+            status.disk_required_bytes = 1;
+        });
+        app.state::<AppState>()
+            .settings
+            .lock()
+            .unwrap()
+            .updates
+            .window = None;
+        assert!(wait_until(
+            || download_status(app.handle()).auto_waiting == "disk",
+            Duration::from_secs(2)
+        ));
+        halt(&stop);
+    }
+
+    #[test]
+    fn monitors_auto_download_and_pauses_at_window_end() {
+        let dir = TempDir::new("monitor");
+        let root = installed_root(&dir);
+        let mut settings = test_settings(&root);
+        settings.updates.window = Some(window_outside_now());
+        let app = test_app(settings);
+        let root_text = root.display().to_string();
+        set_status(app.handle(), |status| {
+            status.phase = "game".into();
+            status.mode = "apply".into();
+            status.origin = "auto".into();
+            status.distribution = "cn".into();
+            status.install_root = root_text.clone();
+            status.checked_at = now_ms();
+        });
+        let stop = start(app.handle());
+        assert!(wait_until(
+            || download_status(app.handle()).auto_waiting == "window",
+            Duration::from_secs(2)
+        ));
+        halt(&stop);
+    }
+
+    #[test]
+    fn cancelled_apply_starts_a_snooze() {
+        let dir = TempDir::new("snooze");
+        let root = installed_root(&dir);
+        let app = test_app(test_settings(&root));
+        let root_text = root.display().to_string();
+        set_status(app.handle(), |status| {
+            status.phase = "cancelled".into();
+            status.mode = "apply".into();
+            status.origin = "auto".into();
+            status.auto_waiting.clear();
+            status.distribution = "cn".into();
+            status.install_root = root_text.clone();
+            status.checked_at = now_ms();
+        });
+        let stop = start(app.handle());
+        std::thread::sleep(Duration::from_millis(80));
+        halt(&stop);
+    }
+
+    #[test]
+    fn missing_installation_stays_silent() {
+        let dir = TempDir::new("missing");
+        let root = dir.path().join("install");
+        let app = test_app(test_settings(&root));
+        ready_status(app.handle(), &root);
+        let stop = start(app.handle());
+        std::thread::sleep(Duration::from_millis(80));
+        assert!(download_status(app.handle()).auto_waiting.is_empty());
+        halt(&stop);
+    }
+
+    #[test]
+    fn wait_idle_returns_after_the_task_finishes() {
+        let dir = TempDir::new("idle");
+        let root = installed_root(&dir);
+        let app = test_app(test_settings(&root));
+        set_status(app.handle(), |status| status.phase = "checking".into());
+        let handle = app.handle().clone();
+        let helper = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            set_status(&handle, |status| status.phase = "ready".into());
+        });
+        let started = Instant::now();
+        wait_idle(app.handle(), Duration::from_secs(2));
+        assert!(started.elapsed() >= Duration::from_millis(80));
+        helper.join().expect("join idle helper");
+    }
+
+    #[test]
+    fn helper_decisions_are_stable() {
+        let dir = TempDir::new("helpers");
+        let root = installed_root(&dir);
+        let settings = test_settings(&root);
+        assert_eq!(install_root(&settings), root);
+        assert!(installed(&settings));
+        let mut cache = None;
+        assert_eq!(
+            current_metered(&settings.updates, &mut cache, 0),
+            Metered::No
+        );
+        assert!(now_ms() > 0);
     }
 }

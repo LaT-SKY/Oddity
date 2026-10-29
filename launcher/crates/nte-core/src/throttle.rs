@@ -87,6 +87,7 @@ mod tests {
     #[test]
     fn unlimited_transfers_do_not_wait() {
         let limiter = RateLimiter::new(0);
+        assert_eq!(limiter.limit(), 0);
         let started = Instant::now();
         assert!(limiter.acquire(1024 * 1024 * 1024, &|| false));
         assert!(started.elapsed() < Duration::from_millis(100));
