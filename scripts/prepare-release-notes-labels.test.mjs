@@ -121,7 +121,8 @@ test("收敛 Release 说明：将同周期跟随 PR 合并入父功能，移除�
   );
   assert.ok(!output.includes("### 体验优化\n* perf: 优化记录页与设置页"));
   // 父 PR 不在本次发布范围内的跟随条目应保持原样，不被误删
-  assert.ok(output.includes("https://github.com/LaT-SKY/Oddity/pull/200"));
+  assert.ok(output.includes("孤立修复父 PR 不在本次发布的跟随条目"));
+  assert.match(output, /\/pull\/200\b/);
 
   // 二次收敛保持幂等，不会重复追加 (含 ...)
   const doubleOutput = consolidateReleaseNotes(
