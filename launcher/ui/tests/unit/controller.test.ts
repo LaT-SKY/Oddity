@@ -57,6 +57,10 @@ vi.mock("../../src/core/gamepad", async (original) => ({
   ...(await original<typeof import("../../src/core/gamepad")>()),
   startGamepad: () => () => {},
 }));
+// 控制器测试不推进手柄选择层的逐帧布局测量。
+vi.mock("../../src/components/GamepadOverlay.vue", () => ({
+  default: { render: () => null },
+}));
 const notificationProjection = vi.hoisted(() => ({
   items: [] as import("../../src/core/notifications").NotificationItem[],
 }));
@@ -491,14 +495,16 @@ describe("启动与设置", () => {
       },
     });
     expect(c.ui.saveState).toBe("saved");
-    await vi.advanceTimersByTimeAsync(2000);
+    vi.advanceTimersByTime(2000);
+    await flushPromises();
     expect(c.ui.saveState).toBe("idle");
     Object.assign(c.form, { installRoot: "", globalInstallRoot: "" });
     backend.invoke.mockRejectedValueOnce(new Error("disk full"));
     await c.saveSettings();
     expect(noticeMessage()).toBe("disk full");
     expect(c.ui.saveState).toBe("error");
-    await vi.advanceTimersByTimeAsync(6000);
+    vi.advanceTimersByTime(6000);
+    await flushPromises();
     expect(document.querySelector(".notification-stack")).toBeNull();
   });
 
