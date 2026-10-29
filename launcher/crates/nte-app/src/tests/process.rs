@@ -2,6 +2,103 @@ use super::EnvGuard;
 use crate::*;
 use std::time::Instant;
 
+mod playtime_export {
+    use crate::playtime_commands::playtime_export_poster;
+    use base64::{engine::general_purpose::STANDARD, Engine as _};
+    use std::fs;
+
+    const PNG: &[u8] = b"\x89PNG\r\n\x1a\noddity";
+
+    fn export(path: &std::path::Path, data: String) -> Result<String, String> {
+        tauri::async_runtime::block_on(playtime_export_poster(
+            path.display().to_string(),
+            data,
+        ))
+    }
+
+    #[test]
+    fn replaces_existing_poster_and_leaves_no_temporary_files() {
+        let dir = super::super::TempDir::new("playtime-export-replace");
+        let path = dir.write("poster.png", b"old image");
+        assert_eq!(
+            export(&path, STANDARD.encode(PNG)).unwrap(),
+            path.display().to_string()
+        );
+        assert_eq!(fs::read(path).unwrap(), PNG);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn normalizes_extensions_and_preserves_uppercase_png() {
+        let dir = super::super::TempDir::new("playtime-export-extensions");
+        for (requested, expected) in [
+            ("poster", "poster.png"),
+            ("poster.jpg", "poster.png"),
+            ("poster.PNG", "poster.PNG"),
+        ] {
+            let path = dir.join(expected);
+            assert_eq!(
+                export(&dir.join(requested), STANDARD.encode(PNG)).unwrap(),
+                path.display().to_string()
+            );
+            assert_eq!(fs::read(path).unwrap(), PNG);
+        }
+    }
+
+    #[test]
+    fn invalid_data_cannot_overwrite_an_existing_poster() {
+        let dir = super::super::TempDir::new("playtime-export-invalid");
+        let path = dir.write("poster.png", PNG);
+        for data in [
+            String::new(),
+            "invalid base64!".into(),
+            STANDARD.encode(b"not png"),
+            STANDARD.encode(&PNG[..7]),
+        ] {
+            assert!(export(&path, data).is_err());
+            assert_eq!(fs::read(&path).unwrap(), PNG);
+            assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        }
+    }
+
+    #[test]
+    fn rejects_directory_created_by_extension_normalization() {
+        let dir = super::super::TempDir::new("playtime-export-normalized-dir");
+        let occupied = dir.join("poster.png");
+        fs::create_dir(&occupied).unwrap();
+        let error = export(&dir.join("poster.jpg"), STANDARD.encode(PNG)).unwrap_err();
+        assert!(error.contains("文件夹"));
+        assert!(occupied.is_dir());
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn rejects_a_file_as_the_parent_directory() {
+        let dir = super::super::TempDir::new("playtime-export-parent-file");
+        let parent = dir.write("parent", b"keep");
+        let error = export(&parent.join("poster.png"), STANDARD.encode(PNG)).unwrap_err();
+        assert!(error.contains("文件夹不存在"));
+        assert_eq!(fs::read(parent).unwrap(), b"keep");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn enforces_the_decoded_size_limit() {
+        let dir = super::super::TempDir::new("playtime-export-size");
+        let path = dir.join("poster.png");
+        let limit = 20 * 1024 * 1024;
+        let mut bytes = vec![0; limit];
+        bytes[..8].copy_from_slice(&PNG[..8]);
+        export(&path, STANDARD.encode(&bytes)).unwrap();
+        assert_eq!(fs::metadata(&path).unwrap().len(), limit as u64);
+        bytes.push(0);
+        let error = export(&path, STANDARD.encode(&bytes)).unwrap_err();
+        assert!(error.contains("大小上限"));
+        assert_eq!(fs::metadata(path).unwrap().len(), limit as u64);
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+}
+
 #[test]
 fn game_mode_status_reports_capabilities_and_releases_the_finished_session() {
     use nte_core::game_mode::{Effect, Options, Session};

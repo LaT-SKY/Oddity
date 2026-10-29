@@ -338,6 +338,49 @@ describe("原生命令和事件", () => {
   });
 });
 
+it("游玩记录预览在运行时返回活动会话并隔离快照", async () => {
+  const { invoke } = await import("../../src/core/api");
+  const before = await invoke("playtime_history");
+  expect(before.active).toBeNull();
+  expect(
+    before.sessions.every(
+      (entry) => entry.startedAt < entry.endedAt && entry.endedAt <= Date.now(),
+    ),
+  ).toBe(true);
+  await invoke("environment_create", {
+    distribution: "cn",
+    name: "测试",
+    protonPath: "/proton",
+    sourceId: null,
+  });
+  await invoke("launch_official");
+  const running = await invoke("playtime_history");
+  expect(running.active).toMatchObject({
+    mode: "background",
+    distribution: "cn",
+    lastSeenAt: Date.now(),
+  });
+  expect(running.active?.startedAt).toBe(
+    (await invoke("game_status")).startedAt,
+  );
+  running.sessions.length = 0;
+  running.active!.mode = "mutated";
+  const fresh = await invoke("playtime_history");
+  expect(fresh.sessions).toEqual(before.sessions);
+  expect(fresh.active?.mode).toBe("background");
+  const closing = invoke("close_game");
+  await vi.advanceTimersByTimeAsync(850);
+  await closing;
+  const finished = await invoke("playtime_history");
+  expect(finished.active).toBeNull();
+  expect(finished.sessions).toHaveLength(before.sessions.length + 1);
+  expect(finished.sessions.at(-1)).toMatchObject({
+    endedAt: Date.now(),
+    mode: "background",
+    distribution: "cn",
+  });
+});
+
 it("游戏状态预览覆盖全部账号, 保留零次周本且不改变签到状态", async () => {
   const { invoke } = await import("../../src/core/api");
   expect((await invoke("attendance_refresh_game_records")).accounts).toEqual(

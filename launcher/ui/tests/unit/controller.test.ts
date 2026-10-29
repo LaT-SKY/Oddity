@@ -1396,6 +1396,79 @@ describe("更新检查", () => {
 });
 
 describe("游戏会话", () => {
+  it.each([5 * 60_000 - 1, 5 * 60_000])(
+    "退出记录距今 %i 毫秒时遵守五分钟提示边界",
+    async (age) => {
+      await boot();
+      const endedAt = Date.now() - age;
+      backend.playtimeHistory = {
+        sessions: [
+          {
+            startedAt: endedAt - 60_000,
+            endedAt,
+            mode: "background",
+            distribution: "cn",
+          },
+        ],
+        active: null,
+      };
+      backend.handler(session({ running: true, pid: 123 }));
+      backend.handler(session());
+      await flushPromises();
+      expect(noticeMessage()).toBe(
+        age < 5 * 60_000 ? "游戏已退出 · 本次游玩 1 分钟" : "游戏已退出。",
+      );
+    },
+  );
+
+  it("读取游玩记录失败时仍提示游戏退出", async () => {
+    await boot();
+    backend.handler(session({ running: true, pid: 123 }));
+    const original = backend.invoke.getMockImplementation()!;
+    backend.invoke.mockImplementation((command, args) =>
+      command === "playtime_history"
+        ? Promise.reject(new Error("history offline"))
+        : original(command, args),
+    );
+    backend.handler(session());
+    await flushPromises();
+    expect(noticeMessage()).toBe("游戏已退出。");
+  });
+
+  it("退出提示选择最后结束的会话并可进入记录页", async () => {
+    const c = await boot();
+    const endedAt = Date.now() - 1000;
+    backend.playtimeHistory = {
+      sessions: [
+        {
+          startedAt: endedAt - 3 * 3_600_000,
+          endedAt,
+          mode: "background",
+          distribution: "cn",
+        },
+        {
+          startedAt: endedAt - 2 * 3_600_000,
+          endedAt: endedAt - 3_600_000,
+          mode: "official",
+          distribution: "cn",
+        },
+      ],
+      active: null,
+    };
+    backend.handler(session({ running: true, pid: 123 }));
+    backend.handler(session());
+    await flushPromises();
+    expect(noticeMessage()).toBe("游戏已退出 · 本次游玩 3 小时");
+    const notice = c.notifications.find((item) =>
+      item.message.includes("本次游玩"),
+    )!;
+    expect(notice.secondary?.label).toBe("查看记录");
+    notice.secondary?.run();
+    await flushPromises();
+    expect(c.state.page).toBe("records");
+    expect(window.location.hash).toBe("#records");
+  });
+
   it("启动反馈期间忽略事件和重复操作, 启动成功后收起窗口", async () => {
     const c = await boot();
     c.handleLaunchAction();
