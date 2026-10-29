@@ -613,6 +613,9 @@ it("轮询处理重获焦点、按键边缘、重复、摇杆、切换输入与�
   snapshot.error = "device issue";
   await vi.advanceTimersByTimeAsync(20);
   expect(gamepad.error).toBe("device issue");
+  snapshot.error = null;
+  await vi.advanceTimersByTimeAsync(20);
+  expect(gamepad.error).toBe("");
   bridge.invoke.mockRejectedValueOnce(new Error("poll failed"));
   await vi.advanceTimersByTimeAsync(20);
   stop();

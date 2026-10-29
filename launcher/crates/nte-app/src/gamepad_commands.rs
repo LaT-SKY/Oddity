@@ -243,13 +243,14 @@ impl Input {
             self.stop();
         }
         self.pads.retain(|_, pad| pad.connected());
+        let mut open_error = None;
         for id in self.subsystem.gamepads().map_err(|e| e.to_string())? {
             if let std::collections::btree_map::Entry::Vacant(entry) = self.pads.entry(id) {
                 match self.subsystem.open(id) {
                     Ok(pad) => {
                         entry.insert(pad);
                     }
-                    Err(error) => self.error = Some(error.to_string()),
+                    Err(error) => open_error = Some(error.to_string()),
                 }
             }
         }
@@ -319,7 +320,7 @@ impl Input {
             pressed,
             axes: if focused { axes } else { [0.0; 6] },
             focused,
-            error: self.error.clone(),
+            error: open_error.or_else(|| self.error.clone()),
             idle: self.idle.status(),
         })
     }

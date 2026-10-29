@@ -46,7 +46,9 @@ fn virtual_controllers_poll_feedback_stream_and_profile_files() {
         let stick = unsafe { joystick::SDL_OpenJoystick(raw) };
         assert!(!stick.is_null());
         attached.push((raw, stick));
+        input.error = Some("触觉播放失败".into());
         let snapshot = input.poll(true, &options).unwrap();
+        assert_eq!(snapshot.error.as_deref(), Some("触觉播放失败"));
         assert!(!snapshot.devices.is_empty());
         let id = JoystickId::new(raw.0);
         input.active = Some(id);
@@ -74,6 +76,7 @@ fn virtual_controllers_poll_feedback_stream_and_profile_files() {
             input.playback.as_mut().unwrap().started = Instant::now() - Duration::from_secs(1);
             input.tick_feedback().unwrap();
             assert!(input.playback.is_none());
+            assert!(input.poll(true, &options).unwrap().error.is_none());
         }
         assert!(input
             .feedback(raw.0 + 10000, Profile::default(), &options)

@@ -743,7 +743,7 @@ export function startGamepad() {
     gamepad.idle = snapshot.idle;
     gamepad.devices = snapshot.devices;
     gamepad.device = snapshot.device;
-    if (snapshot.error) gamepad.error = snapshot.error;
+    gamepad.error = snapshot.error ?? "";
     const held = new Set(snapshot.buttons);
     const [x, y, , scroll] = snapshot.axes;
     const dead = form.gamepad.deadZone;
