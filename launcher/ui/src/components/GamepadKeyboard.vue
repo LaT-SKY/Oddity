@@ -7,6 +7,10 @@ import BaseButton from "./BaseButton.vue";
 const draft = ref("");
 const shift = ref(false);
 const symbols = ref(false);
+const error = ref("");
+watch(draft, () => {
+  error.value = "";
+});
 const { surface, control } = useControlMotion();
 watch(
   () => gamepad.editing,
@@ -15,17 +19,23 @@ watch(
       draft.value = field.value;
       shift.value = false;
       symbols.value = false;
+      error.value = "";
     }
   },
 );
 const numeric = computed(
   () =>
     gamepad.editing instanceof HTMLInputElement &&
-    ["number", "tel"].includes(gamepad.editing.type),
+    ["number", "tel", "time"].includes(gamepad.editing.type),
+);
+const time = computed(
+  () =>
+    gamepad.editing instanceof HTMLInputElement &&
+    gamepad.editing.type === "time",
 );
 const rows = computed(() =>
   numeric.value
-    ? ["123", "456", "789", "0.-"]
+    ? ["123", "456", "789", time.value ? "0:" : "0.-"]
     : symbols.value
       ? ["!@#$%^&*()", "_-+=[]{}", ":;\"'/?\\", ".,<>|~`"]
       : ["1234567890", "qwertyuiop", "asdfghjkl", "zxcvbnm"],
@@ -34,11 +44,15 @@ const display = computed(() =>
   gamepad.editing instanceof HTMLInputElement &&
   gamepad.editing.type === "password"
     ? "•".repeat(draft.value.length)
-    : draft.value || "输入内容",
+    : draft.value || (time.value ? "HH:mm" : "输入内容"),
 );
 function commit() {
   const field = gamepad.editing;
   if (!field) return;
+  if (time.value && !/^([01]\d|2[0-3]):[0-5]\d$/.test(draft.value)) {
+    error.value = "请输入 24 小时时间 (HH:mm).";
+    return;
+  }
   field.value = draft.value;
   field.dispatchEvent(new Event("input", { bubbles: true }));
   field.dispatchEvent(new Event("change", { bubbles: true }));
@@ -57,13 +71,13 @@ function commit() {
       class="pad-keyboard"
       role="dialog"
       aria-modal="true"
-      aria-label="屏幕键盘"
+      :aria-label="time ? '设置时间' : '屏幕键盘'"
       :initial="{ opacity: 0, y: 24 }"
       :animate="{ opacity: 1, y: 0 }"
       :transition="surface"
     >
       <header>
-        <h2>屏幕键盘</h2>
+        <h2>{{ time ? "设置时间" : "屏幕键盘" }}</h2>
         <BaseButton
           icon="i-x"
           icon-only
@@ -74,6 +88,7 @@ function commit() {
         />
       </header>
       <output class="pad-keyboard__display">{{ display }}</output>
+      <p v-if="error" class="field__hint" role="alert">{{ error }}</p>
       <div class="pad-keyboard__keys">
         <div
           v-for="(row, index) in rows"
@@ -98,6 +113,13 @@ function commit() {
             symbols ? "字母" : "符号"
           }}</BaseButton
           ><BaseButton v-if="!numeric" @click="draft += ' '">空格</BaseButton
+          ><BaseButton
+            v-if="time"
+            @click="
+              draft = '';
+              error = '';
+            "
+            >清空</BaseButton
           ><BaseButton @click="draft = draft.slice(0, -1)">删除</BaseButton
           ><BaseButton variant="primary" @click="commit">完成</BaseButton>
         </div>

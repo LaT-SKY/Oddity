@@ -23,6 +23,12 @@ export const settings: Settings = {
     gamescope: { ...defaultGamescope },
   },
   gamepad: defaultGamepadOptions(),
+  updates: {
+    autoDownload: false,
+    metered: "ask",
+    limitBytesPerSecond: 0,
+    window: null,
+  },
   language: "zh-CN",
   reduceMotion: true,
   stackBulletins: false,

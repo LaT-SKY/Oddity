@@ -179,6 +179,12 @@ const mock: Bootstrap = {
       overlay: false,
       gamescope: { ...defaultGamescope },
     },
+    updates: {
+      autoDownload: false,
+      metered: "ask",
+      limitBytesPerSecond: 0,
+      window: null,
+    },
     language: "zh-CN",
     reduceMotion: false,
     stackBulletins: false,
@@ -416,6 +422,9 @@ export function listenDownloadState(handler: (status: DownloadStatus) => void) {
 const mockDownload: DownloadStatus = {
   mode: "check",
   phase: "idle",
+  origin: "manual",
+  autoWaiting: "",
+  checkedAt: 0,
   distribution: "cn",
   installRoot: preview.installRoot,
   installed: true,

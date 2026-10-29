@@ -24,7 +24,9 @@ mod paths;
 pub mod playtime;
 pub mod recovery;
 pub mod settings;
+pub mod throttle;
 pub mod update;
+pub mod updates;
 pub mod version;
 
 pub(crate) mod http;
