@@ -134,7 +134,9 @@ async function generatePoster() {
       return;
     }
   } catch (cause) {
-    error.value = `生成海报失败: ${String(cause)}`;
+    // 旧轮次的失败不应显示在新一轮的骨架或预览旁。
+    if (run === posterRun && props.open)
+      error.value = `生成海报失败: ${String(cause)}`;
   } finally {
     if (run === posterRun) generating.value = false;
   }

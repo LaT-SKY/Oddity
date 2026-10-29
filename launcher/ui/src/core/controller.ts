@@ -1402,7 +1402,12 @@ export async function fetchBulletins(silent = true, force = false) {
 }
 
 function setLaunchState(next: GamePhase) {
+  const previous = state.game;
   state.game = next;
+  if (next !== "running" || previous === "running") return;
+  // 启动流程直接进入 running, 在这里统一刷新活动会话。
+  playtimeRequestedAt = 0;
+  void loadPlaytimeIfStale();
 }
 
 function applyGameStatus(
@@ -1413,9 +1418,6 @@ function applyGameStatus(
   // 启动和关闭期间由命令维护按钮状态, 避免事件覆盖中间反馈。
   const previous = state.game;
   if (!force && (previous === "launching" || previous === "closing")) return;
-  // 游戏状态变化会改变活动会话, 不再复用进入页面时的读取结果。
-  const wasRunning = previous === "running" || previous === "closing";
-  if (status.running !== wasRunning) playtimeRequestedAt = 0;
   if (announce && status.error) notify(status.error, "error", 7500);
   if (status.running) {
     state.session = status;

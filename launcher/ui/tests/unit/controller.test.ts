@@ -1457,29 +1457,28 @@ describe("游戏会话", () => {
     expect(noticeMessage()).toBe("游戏已退出。");
   });
 
-  it("游戏开始后重新读取游玩记录, 不复用进入页面时的结果", async () => {
+  it("记录页打开时启动游戏会刷新活动会话", async () => {
     const c = await boot();
     backend.playtimeHistory = { sessions: [], active: null };
-    await c.loadPlaytimeIfStale();
+    c.showPage("records");
+    await flushPromises();
     const reads = () =>
       backend.invoke.mock.calls.filter(
         ([command]) => command === "playtime_history",
       ).length;
     expect(reads()).toBe(1);
-    backend.playtimeHistory = {
-      sessions: [],
-      active: {
-        startedAt: Date.now(),
-        lastSeenAt: Date.now(),
-        mode: "background",
-        distribution: "cn",
-      },
+    const active = {
+      startedAt: Date.now(),
+      lastSeenAt: Date.now(),
+      mode: "background",
+      distribution: "cn" as const,
     };
+    backend.playtimeHistory = { sessions: [], active };
     backend.handler(session({ running: true, pid: 123 }));
     await flushPromises();
-    const history = await c.loadPlaytimeIfStale();
     expect(reads()).toBe(2);
-    expect(history?.active).not.toBeNull();
+    expect(c.playtime.history).not.toBeNull();
+    expect(c.playtime.history?.active).toEqual(active);
   });
 
   it("退出提示选择最后结束的会话并可进入记录页", async () => {
