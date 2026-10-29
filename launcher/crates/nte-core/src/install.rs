@@ -288,6 +288,7 @@ mod tests {
         assert!(plan_launcher_with_urls(Distribution::Cn, dir.path(), false, &[&missing]).is_err());
     }
 
+    #[cfg(debug_assertions)]
     #[test]
     fn debug_build_can_override_launcher_version_url() {
         let mut env = crate::testing::EnvGuard::new();

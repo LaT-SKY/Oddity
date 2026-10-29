@@ -588,6 +588,9 @@ mod tests {
         });
         let stop = start(app.handle());
         std::thread::sleep(Duration::from_millis(80));
+        let status = download_status(app.handle());
+        assert_eq!(status.phase, "cancelled");
+        assert_eq!(status.mode, "apply");
         halt(&stop);
     }
 
