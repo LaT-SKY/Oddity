@@ -740,6 +740,39 @@ describe("启动与设置", () => {
     expect(wrapper!.find(".settings-lock").exists()).toBe(false);
   });
 
+  it("自动检查完成不提示下载完成, 自动更新完成才提示", async () => {
+    const c = await boot();
+    backend.downloadStatus = {
+      ...backend.downloadStatus,
+      origin: "auto",
+      mode: "check",
+      phase: "checking",
+      autoWaiting: "",
+    };
+    backend.downloadHandler({ ...backend.downloadStatus, phase: "ready" });
+    await nextTick();
+    await flushPromises();
+    expect(
+      c.notifications.some((item) => item.key === "auto-download-done"),
+    ).toBe(false);
+
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      mode: "apply",
+      phase: "checking",
+    });
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      mode: "apply",
+      phase: "ready",
+    });
+    await nextTick();
+    await flushPromises();
+    expect(
+      c.notifications.some((item) => item.key === "auto-download-done"),
+    ).toBe(true);
+  });
+
   it("保存中的连续修改串行提交最新快照", async () => {
     const c = await boot();
     let finish!: (data: Bootstrap) => void;

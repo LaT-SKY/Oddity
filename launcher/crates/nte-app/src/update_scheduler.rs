@@ -176,16 +176,6 @@ fn run<R: Runtime>(app: AppHandle<R>, stop: &AtomicBool) {
             snooze_until = 0;
         }
 
-        if game_busy(&app) {
-            download_commands::set_auto_waiting(&app, "game");
-            continue;
-        }
-        if !installed(&settings) {
-            // 首次安装必须由用户发起; 目录未就绪时保持静默.
-            download_commands::set_auto_waiting(&app, "");
-            continue;
-        }
-
         let root = install_root(&settings).display().to_string();
         let same_target =
             status.distribution == settings.distribution.as_str() && status.install_root == root;
@@ -195,6 +185,22 @@ fn run<R: Runtime>(app: AppHandle<R>, stop: &AtomicBool) {
         ) && same_target
             && status.checked_at > 0
             && now.saturating_sub(status.checked_at) < CHECK_INTERVAL_MS;
+
+        if game_busy(&app) {
+            // 最近一次检查已确认就绪时不再提示等待下载.
+            let waiting = if recent && status.phase == "ready" {
+                ""
+            } else {
+                "game"
+            };
+            download_commands::set_auto_waiting(&app, waiting);
+            continue;
+        }
+        if !installed(&settings) {
+            // 首次安装必须由用户发起; 目录未就绪时保持静默.
+            download_commands::set_auto_waiting(&app, "");
+            continue;
+        }
 
         // 检查不写入游戏文件, 时段外也照常进行, 以便提前告知有待下载的更新.
         let status = if recent {
@@ -472,18 +478,31 @@ mod tests {
         let dir = TempDir::new("game");
         let root = installed_root(&dir);
         let app = test_app(test_settings(&root));
-        ready_status(app.handle(), &root);
+        let root_text = root.display().to_string();
+        set_status(app.handle(), |status| {
+            status.phase = "idle".into();
+            status.mode = "check".into();
+            status.distribution = "cn".into();
+            status.install_root = root_text;
+            status.checked_at = 0;
+            status.auto_waiting.clear();
+        });
         app.state::<AppState>().game.lock().unwrap().starting = true;
         let stop = start(app.handle());
         assert!(wait_until(
             || download_status(app.handle()).auto_waiting == "game",
             Duration::from_secs(2)
         ));
-        app.state::<AppState>().game.lock().unwrap().starting = false;
+
+        // 游戏仍在运行, 但最近一次检查已确认就绪, 不再提示等待下载.
+        ready_status(app.handle(), &root);
         assert!(wait_until(
             || download_status(app.handle()).auto_waiting.is_empty(),
             Duration::from_secs(2)
         ));
+
+        app.state::<AppState>().game.lock().unwrap().starting = false;
+        assert!(download_status(app.handle()).auto_waiting.is_empty());
         halt(&stop);
     }
 

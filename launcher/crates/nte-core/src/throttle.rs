@@ -21,8 +21,9 @@ struct State {
 
 impl RateLimiter {
     pub fn new(limit: u64) -> Self {
-        // 允许约四分之一秒的突发, 避免固定大小的读缓冲把速率切成台阶.
-        let capacity = (limit / 4).max(1024 * 1024);
+        // 通常允许约四分之一秒的突发; 极小限速下保留 4 KiB,
+        // 避免一次 1 MiB 读缓冲直接获得整秒级额度.
+        let capacity = (limit / 4).max(4 * 1024);
         Self::with_capacity(limit, capacity)
     }
 
@@ -92,6 +93,11 @@ mod tests {
         assert!(limiter.acquire(1024 * 1024 * 1024, &|| false));
         assert!(started.elapsed() < Duration::from_millis(100));
         assert!(!limiter.acquire(1, &|| true));
+    }
+
+    #[test]
+    fn very_small_limits_use_a_small_bucket() {
+        assert_eq!(RateLimiter::new(8 * 1024).capacity, 4 * 1024);
     }
 
     #[test]

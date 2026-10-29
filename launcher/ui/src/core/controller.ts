@@ -1263,7 +1263,7 @@ function applyDownloadStatus(status: DownloadStatus) {
     });
   }
   if (status.phase === "ready" && previous !== "ready") {
-    if (status.origin === "auto")
+    if (status.origin === "auto" && status.mode === "apply")
       notify("游戏资源已自动更新完成.", "ok", 5000, {
         key: "auto-download-done",
       });
