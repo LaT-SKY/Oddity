@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { motion } from "motion-v";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import BaseButton from "../../components/BaseButton.vue";
@@ -17,6 +17,9 @@ const props = defineProps<{
 }>();
 const emit = defineEmits<{ "update:open": [value: boolean] }>();
 const { reduced } = useControlMotion();
+const reducedMotion = computed(
+  () => Boolean(props.reduceMotion) || reduced.value,
+);
 
 const generating = ref(false);
 const saving = ref(false);
@@ -32,11 +35,15 @@ interface PosterCache {
   url: string;
 }
 let posterCache: PosterCache | null = null;
+// 每次打开或重新生成都会推进轮次, 异步步骤返回后据此丢弃过期结果。
+let posterRun = 0;
 
 watch(
   () => props.open,
   async (open) => {
     if (!open) {
+      posterRun++;
+      generating.value = false;
       posterUrl.value = "";
       savedPath.value = "";
       error.value = "";
@@ -61,6 +68,7 @@ function nextPaint() {
 }
 
 function posterSignature(stats: PlaytimeStats) {
+  const today = new Date();
   return JSON.stringify([
     stats.totalMs,
     stats.sessionCount,
@@ -71,47 +79,64 @@ function posterSignature(stats: PlaytimeStats) {
     stats.heatmap.start,
     stats.heatmap.weeks.map((week) => week.map((day) => day.ms)),
     stats.months.map((month) => [month.ms, month.sessions]),
+    // 海报底部绘制当天日期, 跨日打开需要重新生成。
+    `${today.getFullYear()}-${today.getMonth() + 1}-${today.getDate()}`,
   ]);
 }
 
 async function generatePoster() {
-  if (generating.value) return;
+  if (generating.value || !props.open) return;
+  const run = ++posterRun;
   generating.value = true;
   posterUrl.value = "";
   posterBlob = null;
   savedPath.value = "";
   error.value = "";
+  const stale = (signature: string) =>
+    run !== posterRun ||
+    !props.open ||
+    signature !== posterSignature(props.stats);
   try {
-    const signature = posterSignature(props.stats);
-    if (posterCache?.signature === signature) {
-      posterBlob = posterCache.blob;
-      posterUrl.value = posterCache.url;
+    let signature = posterSignature(props.stats);
+    while (true) {
+      if (posterCache?.signature === signature) {
+        posterBlob = posterCache.blob;
+        posterUrl.value = posterCache.url;
+        return;
+      }
+      await document.fonts?.ready;
+      const wallpaper = await loadWallpaper();
+      if (stale(signature)) return;
+      const canvas = document.createElement("canvas");
+      canvas.width = 1080;
+      canvas.height = 1440;
+      drawPoster(canvas.getContext("2d"), props.stats, wallpaper);
+      const blob = await canvasToBlob(canvas);
+      if (stale(signature)) return;
+      // 绘制期间记录发生变化时, 用最新数据重画。
+      if (posterSignature(props.stats) !== signature) {
+        signature = posterSignature(props.stats);
+        continue;
+      }
+      const url = URL.createObjectURL(blob);
+      // 等图片解码完成再撤下骨架, 避免预览位置闪一帧空白。
+      await decodePoster(url);
+      if (stale(signature)) {
+        URL.revokeObjectURL(url);
+        if (!props.open || run !== posterRun) return;
+        signature = posterSignature(props.stats);
+        continue;
+      }
+      if (posterCache) URL.revokeObjectURL(posterCache.url);
+      posterCache = { signature, blob, url };
+      posterBlob = blob;
+      posterUrl.value = url;
       return;
     }
-    await document.fonts?.ready;
-    const wallpaper = await loadWallpaper();
-    if (!props.open) return;
-    const canvas = document.createElement("canvas");
-    canvas.width = 1080;
-    canvas.height = 1440;
-    drawPoster(canvas.getContext("2d"), props.stats, wallpaper);
-    const blob = await canvasToBlob(canvas);
-    if (!props.open) return;
-    const url = URL.createObjectURL(blob);
-    // 等图片解码完成再撤下骨架, 避免预览位置闪一帧空白。
-    await decodePoster(url);
-    if (!props.open) {
-      URL.revokeObjectURL(url);
-      return;
-    }
-    if (posterCache) URL.revokeObjectURL(posterCache.url);
-    posterCache = { signature, blob, url };
-    posterBlob = blob;
-    posterUrl.value = url;
   } catch (cause) {
     error.value = `生成海报失败: ${String(cause)}`;
   } finally {
-    generating.value = false;
+    if (run === posterRun) generating.value = false;
   }
 }
 
@@ -581,8 +606,11 @@ function pad(value: number) {
         <motion.div
           class="playtime-poster__skeleton-body"
           aria-hidden="true"
-          :animate="{ opacity: reduced ? 0.6 : [0.45, 0.85, 0.45] }"
-          :transition="{ duration: 1.6, repeat: reduced ? 0 : Infinity }"
+          :animate="{ opacity: reducedMotion ? 0.6 : [0.45, 0.85, 0.45] }"
+          :transition="{
+            duration: 1.6,
+            repeat: reducedMotion ? 0 : Infinity,
+          }"
         >
           <span class="playtime-poster__skeleton-hero" />
           <span class="playtime-poster__skeleton-metrics" />

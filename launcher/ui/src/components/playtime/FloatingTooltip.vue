@@ -26,6 +26,7 @@ let placeFrame = 0;
 let moveFrame = 0;
 let attempts = 0;
 let observer: ResizeObserver | undefined;
+let observed: HTMLElement | null = null;
 
 function tipElement() {
   const value = tip.value as unknown as
@@ -75,10 +76,15 @@ async function place() {
 }
 
 function observe(element: HTMLElement) {
-  if (observer || typeof ResizeObserver === "undefined") return;
+  if (typeof ResizeObserver === "undefined") return;
+  if (observer && observed === element) return;
+  observer?.disconnect();
+  observed = element;
   observer = new ResizeObserver(() => {
     if (!props.open) return;
-    if (measure(element)) apply(element);
+    // 提示可能重新挂载, 以当前元素为准。
+    const current = tipElement();
+    if (current && measure(current)) apply(current);
   });
   observer.observe(element);
 }
@@ -125,7 +131,13 @@ watch(
 watch(
   tip,
   (element) => {
-    if (element && props.open) {
+    if (!element) {
+      observer?.disconnect();
+      observer = undefined;
+      observed = null;
+      return;
+    }
+    if (props.open) {
       attempts = 0;
       schedule();
     }
@@ -137,6 +149,7 @@ onBeforeUnmount(() => {
   if (moveFrame) cancelAnimationFrame(moveFrame);
   observer?.disconnect();
   observer = undefined;
+  observed = null;
 });
 </script>
 

@@ -356,3 +356,27 @@ it("相同记录再次打开时复用已生成的海报", async () => {
   expect(encode).toHaveBeenCalledOnce();
   expect(wrapper.get("img").attributes("src")).toBe(blobUrl);
 });
+
+it("跨日重新打开时重新生成海报", async () => {
+  await generate();
+  await wrapper.setProps({ open: false });
+  await flushPromises();
+  vi.setSystemTime(new Date(2026, 9, 29, 12).getTime());
+  await wrapper.setProps({ open: true });
+  await vi.advanceTimersByTimeAsync(50);
+  await flushPromises();
+  expect(encode).toHaveBeenCalledTimes(2);
+  expect(wrapper.find("img").exists()).toBe(true);
+});
+
+it("重新打开期间旧生成不发布结果", async () => {
+  await render();
+  expect(images).toHaveLength(1);
+  await wrapper.setProps({ open: false });
+  await wrapper.setProps({ open: true });
+  await vi.advanceTimersByTimeAsync(50);
+  images[0].onload?.();
+  await flushPromises();
+  expect(encode).toHaveBeenCalledOnce();
+  expect(wrapper.get("img").attributes("src")).toBe(blobUrl);
+});

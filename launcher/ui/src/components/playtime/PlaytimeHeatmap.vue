@@ -48,7 +48,7 @@ let activeCell: HTMLElement | null = null;
 
 // 格子本身不参与动画, 悬停放大交给两个覆盖层, 只让合成层变化。
 const grid = ref<HTMLElement | null>(null);
-let geometry: { cell: number; gap: number; label: number } | null = null;
+let geometry: { cell: number; gap: number; left: number } | null = null;
 const layerA = ref<HoverLayer | null>(null);
 const layerB = ref<HoverLayer | null>(null);
 const elementA = ref<HTMLElement | null>(null);
@@ -71,7 +71,8 @@ function measureGrid() {
   if (width <= 0) return null;
   const gap = 3;
   const label = 18;
-  geometry = { cell: (width - label - gap * 52) / 53, gap, label };
+  // 54 列之间有 53 个间隙, 格子从标签列之后的一个间隙开始。
+  geometry = { cell: (width - label - gap * 53) / 53, gap, left: label + gap };
   return geometry;
 }
 
@@ -131,7 +132,7 @@ function showLayer(index: number) {
   const slot = activeSlot === 0 ? 1 : 0;
   shrink(activeSlot);
   grow(slot, {
-    x: box ? box.label + Math.floor(index / 7) * (box.cell + box.gap) : 0,
+    x: box ? box.left + Math.floor(index / 7) * (box.cell + box.gap) : 0,
     y: box ? (index % 7) * (box.cell + box.gap) : 0,
     size: box?.cell ?? 0,
     level: day.level,

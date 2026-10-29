@@ -1413,6 +1413,9 @@ function applyGameStatus(
   // 启动和关闭期间由命令维护按钮状态, 避免事件覆盖中间反馈。
   const previous = state.game;
   if (!force && (previous === "launching" || previous === "closing")) return;
+  // 游戏状态变化会改变活动会话, 不再复用进入页面时的读取结果。
+  const wasRunning = previous === "running" || previous === "closing";
+  if (status.running !== wasRunning) playtimeRequestedAt = 0;
   if (announce && status.error) notify(status.error, "error", 7500);
   if (status.running) {
     state.session = status;
@@ -2037,9 +2040,10 @@ export async function init() {
   }
   applyReduceMotion(storedReduceMotion);
   bindInteractions();
+  // 先清理上一代状态, 首次进入记录页的读取才能保持加载状态。
+  playtime.loading = false;
   showPage(hashPage(), false);
   setLaunchState("idle");
-  playtime.loading = false;
   disposers.push(
     listenGameState((status) => applyGameStatus(status, { announce: true })),
   );

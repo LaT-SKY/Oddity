@@ -93,6 +93,29 @@ it("尚无可测量宽度时保持隐藏且有限次重试", async () => {
   expect(tip().style.visibility).toBe("visible");
 });
 
+it("重新打开后观察新的提示元素", async () => {
+  const observed: Element[] = [];
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      constructor(_callback: () => void) {}
+      observe(element: Element) {
+        observed.push(element);
+      }
+      disconnect() {}
+    },
+  );
+  await render(200, 100);
+  const first = tip();
+  await wrapper.setProps({ open: false });
+  await vi.advanceTimersByTimeAsync(200);
+  await wrapper.setProps({ open: true });
+  await vi.advanceTimersByTimeAsync(20);
+  expect(observed).toHaveLength(2);
+  expect(observed[1]).toBe(tip());
+  expect(observed[1]).not.toBe(first);
+});
+
 it("卸载时取消待执行的定位帧", async () => {
   await render(200, 100);
   const cancel = vi.spyOn(window, "cancelAnimationFrame");
