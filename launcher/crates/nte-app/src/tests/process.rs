@@ -10,10 +10,7 @@ mod playtime_export {
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\noddity";
 
     fn export(path: &std::path::Path, data: String) -> Result<String, String> {
-        tauri::async_runtime::block_on(playtime_export_poster(
-            path.display().to_string(),
-            data,
-        ))
+        tauri::async_runtime::block_on(playtime_export_poster(path.display().to_string(), data))
     }
 
     #[test]
