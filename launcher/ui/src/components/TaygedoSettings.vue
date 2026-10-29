@@ -20,6 +20,7 @@ import {
 } from "../core/controller";
 import BaseSelect from "./BaseSelect.vue";
 import TaygedoAccountDialog from "./TaygedoAccountDialog.vue";
+import { settingsNavigation } from "../core/settingsCatalog";
 const open = ref(false);
 const scheduleExpanded = ref(true);
 const tasksExpanded = ref(true);
@@ -73,6 +74,8 @@ let poll: ReturnType<typeof setInterval>;
 onMounted(() => {
   void loadAttendance();
   poll = setInterval(() => {
+    // 只在账号分类可见时轮询, 其他分类不产生后台读取。
+    if (settingsNavigation.category !== "account") return;
     void loadAttendance();
   }, 5000);
 });

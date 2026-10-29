@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { motion, useAnimate } from "motion-v";
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick, reactive, ref, watch } from "vue";
 import {
   state,
   ui,
@@ -36,6 +36,15 @@ import LogExport from "../components/LogExport.vue";
 const root = ref<HTMLElement | null>(null);
 const { control, surface, reduced } = useControlMotion();
 const [, animate] = useAnimate();
+// 分类面板按首次访问挂载, 避免启动时构建全部设置项。
+const visited = reactive(new Set<SettingsCategory>(["appearance"]));
+watch(
+  () => [state.page, navigation.category] as const,
+  ([page, category]) => {
+    if (page === "settings") visited.add(category);
+  },
+  { immediate: true },
+);
 const themeOptions = [
   { label: "亮色", value: "light" },
   { label: "暗色", value: "dark" },
@@ -86,6 +95,7 @@ function chooseCategory(category: SettingsCategory) {
   navigation.query = "";
 }
 async function locate(item: SettingsEntry) {
+  visited.add(item.category);
   chooseCategory(item.category);
   await nextTick();
   const target = root.value!.querySelector<HTMLElement>(
@@ -307,7 +317,9 @@ function resultKeys(event: KeyboardEvent) {
               }"
               :transition="surface"
             >
-              <template v-if="category.id === 'appearance'">
+              <template
+                v-if="visited.has(category.id) && category.id === 'appearance'"
+              >
                 <SettingGroup title="外观">
                   <SettingRow
                     data-setting="theme"
@@ -421,7 +433,9 @@ function resultKeys(event: KeyboardEvent) {
                   </SettingRow>
                 </SettingGroup>
               </template>
-              <template v-else-if="category.id === 'game'">
+              <template
+                v-else-if="visited.has(category.id) && category.id === 'game'"
+              >
                 <SettingGroup title="游戏安装">
                   <p
                     v-if="settingsPathsLocked"
@@ -495,13 +509,19 @@ function resultKeys(event: KeyboardEvent) {
                 ></SettingGroup>
               </template>
               <div
-                v-else-if="category.id === 'runtime'"
+                v-else-if="
+                  visited.has(category.id) && category.id === 'runtime'
+                "
                 data-setting="runtime"
                 tabindex="-1"
               >
                 <RuntimeEnvironments />
               </div>
-              <template v-else-if="category.id === 'account'">
+              <template
+                v-else-if="
+                  visited.has(category.id) && category.id === 'account'
+                "
+              >
                 <div data-setting="account" tabindex="-1">
                   <TaygedoSettings
                     v-if="
@@ -524,7 +544,7 @@ function resultKeys(event: KeyboardEvent) {
                   >
                 </div>
               </template>
-              <template v-else>
+              <template v-else-if="visited.has(category.id)">
                 <div data-setting="logs" tabindex="-1"><LogExport /></div>
                 <div data-setting="diagnostics" tabindex="-1">
                   <SettingGroup title="运行诊断"
