@@ -45,21 +45,22 @@ const groups = computed(() => {
   return [...result.entries()];
 });
 const { surface } = useControlMotion();
+const isActive = computed(() => state.page === "bulletin");
 </script>
 <template>
   <motion.section
     class="page bulletin-page"
     id="page-bulletin"
-    :inert="state.page !== 'bulletin'"
-    :aria-hidden="state.page !== 'bulletin' || undefined"
+    :inert="!isActive"
+    :aria-hidden="!isActive || undefined"
     :initial="false"
     :animate="{
-      opacity: state.page === 'bulletin' ? 1 : 0,
-      x: state.page === 'bulletin' ? 0 : 22,
-      visibility: state.page === 'bulletin' ? 'visible' : 'hidden',
+      opacity: isActive ? 1 : 0,
+      x: isActive ? 0 : 22,
+      visibility: isActive ? 'visible' : 'hidden',
     }"
     :transition="surface"
-    :class="{ 'is-active': state.page === 'bulletin' }"
+    :class="{ 'is-active': isActive }"
     aria-labelledby="bulletin-title"
   >
     <header class="page-head">

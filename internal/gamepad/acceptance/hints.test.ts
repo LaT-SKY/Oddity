@@ -10,7 +10,7 @@ vi.mock("../../../launcher/ui/src/core/gamepad", async () => {
   };
 });
 describe("手柄提示更新", () => {
-  it("只替换文字或位置改变的项目, 保留其他项目的 DOM", async () => {
+  it("更新文字时复用提示节点, 移动项目时保留未变化的位置", async () => {
     const items = [
       { id: "confirm", buttons: ["confirm"] as const, label: "操作" },
       { id: "back", buttons: ["back"] as const, label: "返回" },
@@ -32,7 +32,8 @@ describe("手柄提示更新", () => {
         { ...items[2], buttons: ["r3"] },
       ],
     });
-    expect(wrapper.get('[data-hint="confirm"]').element).not.toBe(original);
+    expect(wrapper.get('[data-hint="confirm"]').element).toBe(original);
+    expect(wrapper.get('[data-hint="confirm"]').text()).toContain("进入");
     expect(wrapper.get('[data-hint="back"]').element).toBe(back);
     expect(wrapper.get('[data-hint="primary"]').element).toBe(primary);
     const confirm = wrapper.get('[data-hint="confirm"]').element;

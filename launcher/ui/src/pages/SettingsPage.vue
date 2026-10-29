@@ -162,20 +162,21 @@ function resultKeys(event: KeyboardEvent) {
     else buttons[Math.min(next, buttons.length - 1)]?.focus();
   }
 }
+const isActive = computed(() => state.page === "settings");
 </script>
 
 <template>
   <motion.section
     id="page-settings"
     class="page settings-page"
-    :class="{ 'is-active': state.page === 'settings' }"
-    :inert="state.page !== 'settings'"
-    :aria-hidden="state.page !== 'settings' || undefined"
+    :class="{ 'is-active': isActive }"
+    :inert="!isActive"
+    :aria-hidden="!isActive || undefined"
     :initial="false"
     :animate="{
-      opacity: state.page === 'settings' ? 1 : 0,
-      x: state.page === 'settings' ? 0 : 22,
-      visibility: state.page === 'settings' ? 'visible' : 'hidden',
+      opacity: isActive ? 1 : 0,
+      x: isActive ? 0 : 22,
+      visibility: isActive ? 'visible' : 'hidden',
     }"
     :transition="surface"
     aria-labelledby="settings-title"
@@ -275,6 +276,7 @@ function resultKeys(event: KeyboardEvent) {
               v-if="navigation.category === category.id"
               class="settings-category__focus category-tab__selection"
               layout-id="settings-category-focus"
+              :layout-dependency="navigation.category"
               :animate="{ opacity: searching ? 0.35 : 1 }"
               :transition="control"
             />
@@ -532,9 +534,7 @@ function resultKeys(event: KeyboardEvent) {
               >
                 <div data-setting="account" tabindex="-1">
                   <TaygedoSettings
-                    v-if="
-                      state.page === 'settings' && form.distribution === 'cn'
-                    "
+                    v-if="isActive && form.distribution === 'cn'"
                   />
                   <SettingGroup
                     v-else-if="form.distribution === 'global'"

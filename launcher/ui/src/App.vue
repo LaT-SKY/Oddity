@@ -37,7 +37,7 @@ watch(
     playerExpanded.value = false;
     const scrubbing = navigationScrubbing.value;
     await nextTick();
-    if (scrubbing || navigationScrubbing.value) return;
+    if (scrubbing || navigationScrubbing.value || gamepad.active) return;
     if (page !== "home") {
       content.value
         ?.querySelector<HTMLElement>(".page.is-active h2")

@@ -173,7 +173,7 @@
   --z-grain: 80;
   --z-notification: 1020;
   --z-modal: 1000;
-  --z-tooltip: 1010;
+  --z-tooltip: 1110;
 }
 
 /* 深色主题只覆盖颜色类变量, 间距、字体、圆角、动效和层级沿用 :root。 */

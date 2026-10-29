@@ -74,6 +74,7 @@ function keydown(event: KeyboardEvent) {
         class="control-tabs__selection"
         :class="{ 'category-tab__selection': variant === 'navigation' }"
         :layout-id="`${uid}-selection`"
+        :layout-dependency="modelValue"
         :transition="control"
       />
       <span class="control-tabs__label">{{ option.label }}</span>

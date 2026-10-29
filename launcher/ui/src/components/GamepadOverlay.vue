@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { motion, useReducedMotion } from "motion-v";
 import { createTimeline } from "animejs";
 import { gamepad, gamepadTarget, gamepadViewport } from "../core/gamepad";
@@ -20,39 +20,18 @@ const browsing = ref(false);
 const primaryLabel = ref("");
 const clip = ref("inset(0px)");
 let frame = 0;
+let resize: ResizeObserver | undefined;
+let mutations: MutationObserver | undefined;
+let ancestors: HTMLElement[] = [];
 let timeline: ReturnType<typeof createTimeline> | undefined;
 const spring = computed(() =>
   reduced.value
     ? { duration: 0 }
     : { type: "spring" as const, stiffness: 410, damping: 25, mass: 0.8 },
 );
-watch(gamepadTarget, (target, previous) => {
-  timeline?.cancel();
-  const a = previous?.getBoundingClientRect(),
-    b = target?.getBoundingClientRect();
-  const horizontal = a && b ? Math.abs(b.x - a.x) > Math.abs(b.y - a.y) : false;
-  const distance = a && b ? Math.hypot(b.x - a.x, b.y - a.y) : 0;
-  const amount = reduced.value ? 0 : distance > 250 ? 0.025 : 0.055;
-  shape.value = {
-    scaleX: horizontal ? 1 + amount : 1 - amount / 2,
-    scaleY: horizontal ? 1 - amount / 2 : 1 + amount,
-  };
-  detail.value = false;
-  timeline = createTimeline();
-  timeline.call(
-    () => {
-      detail.value = true;
-    },
-    reduced.value ? 0 : 30,
-  );
-  timeline.call(
-    () => {
-      shape.value = { scaleX: 1, scaleY: 1 };
-    },
-    reduced.value ? 0 : 85,
-  );
-});
+let measuredOwner: HTMLElement | null = null;
 function measure() {
+  frame = 0;
   const owner = gamepadTarget.value;
   browsing.value = owner?.hasAttribute("data-pad-browsing") ?? false;
   primaryLabel.value =
@@ -96,6 +75,35 @@ function measure() {
         width: rect.width + 10,
         height: rect.height + 8,
       };
+      if (measuredOwner !== owner) {
+        measuredOwner = owner ?? null;
+        timeline?.cancel();
+        const horizontal = box.value
+          ? Math.abs(next.x - box.value.x) > Math.abs(next.y - box.value.y)
+          : false;
+        const distance = box.value
+          ? Math.hypot(next.x - box.value.x, next.y - box.value.y)
+          : 0;
+        const amount = reduced.value ? 0 : distance > 250 ? 0.025 : 0.055;
+        shape.value = {
+          scaleX: horizontal ? 1 + amount : 1 - amount / 2,
+          scaleY: horizontal ? 1 - amount / 2 : 1 + amount,
+        };
+        detail.value = false;
+        timeline = createTimeline();
+        timeline.call(
+          () => {
+            detail.value = true;
+          },
+          reduced.value ? 0 : 30,
+        );
+        timeline.call(
+          () => {
+            shape.value = { scaleX: 1, scaleY: 1 };
+          },
+          reduced.value ? 0 : 85,
+        );
+      }
       if (
         !box.value ||
         Object.entries(next).some(
@@ -106,13 +114,77 @@ function measure() {
         box.value = next;
     } else box.value = null;
   } else box.value = null;
-  frame = requestAnimationFrame(measure);
+  // 过渡中的目标仍逐帧跟随, 静止后等待布局事件。
+  if (
+    selectOpen.value ||
+    ancestors.some((element) =>
+      element
+        .getAnimations()
+        .some((animation) => animation.playState === "running"),
+    )
+  )
+    schedule();
 }
-onMounted(() => {
-  frame = requestAnimationFrame(measure);
-});
+function schedule() {
+  if (!frame) frame = requestAnimationFrame(measure);
+}
+watch(
+  () => [gamepad.active, gamepadTarget.value, state.page],
+  () => {
+    resize?.disconnect();
+    mutations?.disconnect();
+    cancelAnimationFrame(frame);
+    frame = 0;
+    ancestors = [];
+    const owner = gamepadTarget.value;
+    if (!gamepad.active || !owner) {
+      box.value = null;
+      return;
+    }
+    resize = new ResizeObserver(schedule);
+    mutations = new MutationObserver(schedule);
+    const attributes = [
+      "style",
+      "class",
+      "hidden",
+      "inert",
+      "aria-expanded",
+      "aria-activedescendant",
+      "data-pad-browsing",
+      "data-pad-action",
+    ];
+    for (
+      let element: HTMLElement | null = owner;
+      element && element !== document.body;
+      element = element.parentElement
+    ) {
+      ancestors.push(element);
+      resize.observe(element);
+      mutations.observe(element, {
+        attributes: true,
+        attributeFilter: attributes,
+      });
+    }
+    const content = owner.closest(".page,.modal,.notification-stack") ?? owner;
+    mutations.observe(content, {
+      attributes: true,
+      attributeFilter: attributes,
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    schedule();
+  },
+  { immediate: true, flush: "post" },
+);
+document.addEventListener("scroll", schedule, true);
+window.addEventListener("resize", schedule);
 onBeforeUnmount(() => {
   cancelAnimationFrame(frame);
+  resize?.disconnect();
+  mutations?.disconnect();
+  document.removeEventListener("scroll", schedule, true);
+  window.removeEventListener("resize", schedule);
   timeline?.cancel();
 });
 const local = computed(
@@ -210,6 +282,7 @@ const hints = computed<GamepadHint[]>(() => {
         />
         <motion.span
           v-if="
+            !browsing &&
             !gamepadTarget?.classList.contains('control-button') &&
             gamepadTarget?.id !== 'launch-btn' &&
             !gamepadTarget?.classList.contains('game-records__capsule')

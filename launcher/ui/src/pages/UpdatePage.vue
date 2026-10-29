@@ -246,20 +246,21 @@ const budgetVisible = computed(
     !active.value &&
     Boolean(state.download?.pendingFiles || state.download?.unverifiedFiles),
 );
+const isActive = computed(() => state.page === "update");
 </script>
 
 <template>
   <motion.section
     class="page page--update"
-    :class="{ 'is-active': state.page === 'update' }"
+    :class="{ 'is-active': isActive }"
     id="page-update"
-    :inert="state.page !== 'update'"
-    :aria-hidden="state.page !== 'update' || undefined"
+    :inert="!isActive"
+    :aria-hidden="!isActive || undefined"
     :initial="false"
     :animate="{
-      opacity: state.page === 'update' ? 1 : 0,
-      x: state.page === 'update' ? 0 : 22,
-      visibility: state.page === 'update' ? 'visible' : 'hidden',
+      opacity: isActive ? 1 : 0,
+      x: isActive ? 0 : 22,
+      visibility: isActive ? 'visible' : 'hidden',
     }"
     :transition="surface"
     aria-labelledby="update-title"

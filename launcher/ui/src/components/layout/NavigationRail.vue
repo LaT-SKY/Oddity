@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from "vue";
 import { motion } from "motion-v";
 import { state, showPage } from "../../core/controller";
 import { navigationScrubbing } from "../../composables/navigationGesture";
@@ -12,6 +12,13 @@ const items = [
   { page: "records", label: "记录", icon: "clock" },
   { page: "settings", label: "设置", icon: "gear-six" },
 ] as const;
+const itemWidth = 40;
+const itemGap = 8;
+const activeIndex = computed(() =>
+  items.findIndex((item) => item.page === state.page),
+);
+const hoveredPage = ref<string | null>(null);
+const pressedPage = ref<string | null>(null);
 const nav = ref<HTMLElement | null>(null);
 let gesture: { id: number; x: number; y: number; page: string } | undefined;
 let suppressClick = false;
@@ -151,6 +158,8 @@ function key(event: KeyboardEvent) {
   });
 }
 function blur() {
+  hoveredPage.value = null;
+  pressedPage.value = null;
   cancel();
 }
 onMounted(() => {
@@ -183,10 +192,27 @@ onBeforeUnmount(() => {
       @lostpointercapture="lost"
       @mousedown.stop
       @dragstart.prevent
+      :style="{
+        '--rail-item-width': `${itemWidth}px`,
+        '--rail-item-gap': `${itemGap}px`,
+      }"
     >
+      <motion.span
+        class="nav-focus"
+        aria-hidden="true"
+        :initial="false"
+        :animate="{
+          x: activeIndex * (itemWidth + itemGap),
+          y: hoveredPage === state.page ? -2 : 0,
+          scale:
+            pressedPage === state.page ? 0.88 : navigationScrubbing ? 1.09 : 1,
+        }"
+        :transition="{ type: 'spring', stiffness: 420, damping: 32 }"
+      />
       <motion.button
         v-for="item in items"
         :key="item.page"
+        v-memo="[state.page === item.page, navigationScrubbing]"
         type="button"
         :while-hover="{ y: -2 }"
         :while-press="{ scale: 0.88 }"
@@ -201,13 +227,27 @@ onBeforeUnmount(() => {
         :class="{ 'is-active': state.page === item.page }"
         :aria-current="state.page === item.page ? 'page' : undefined"
         @click="click($event, item.page)"
+        @pointerenter="
+          (event) => {
+            if (event.pointerType === 'mouse') hoveredPage = item.page;
+          }
+        "
+        @pointerleave="
+          hoveredPage = null;
+          pressedPage = null;
+        "
+        @pointerdown="pressedPage = item.page"
+        @pointerup="pressedPage = null"
+        @pointercancel="pressedPage = null"
+        @keydown="
+          (event) => {
+            if (event.key === 'Enter' || event.key === ' ')
+              pressedPage = item.page;
+          }
+        "
+        @keyup="pressedPage = null"
+        @blur="pressedPage = null"
       >
-        <motion.span
-          v-if="state.page === item.page"
-          layout-id="navigation-focus"
-          class="nav-focus"
-          :transition="{ type: 'spring', stiffness: 420, damping: 32 }"
-        />
         <svg class="icon" viewBox="0 0 256 256" aria-hidden="true">
           <use :href="`#i-${item.icon}`" />
         </svg>

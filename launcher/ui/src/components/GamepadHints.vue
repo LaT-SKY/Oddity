@@ -57,7 +57,6 @@ onBeforeUnmount(() => timeline?.cancel());
     >
       <motion.span
         v-if="slot.hint"
-        :key="slot.key"
         class="gamepad-hints__item"
         :data-hint="slot.hint.id"
         :initial="{

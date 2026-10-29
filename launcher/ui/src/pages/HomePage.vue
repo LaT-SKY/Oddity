@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { motion } from "motion-v";
 import {
   state,
@@ -12,14 +13,15 @@ import { playerExpanded } from "../composables/useSceneMotion";
 import HomeGameRecords from "../components/HomeGameRecords.vue";
 import { gamepad } from "../core/gamepad";
 import GamepadGlyph from "../components/GamepadGlyph.vue";
+const isActive = computed(() => state.page === "home");
 </script>
 
 <template>
   <section
     class="page page--home"
-    :class="{ 'is-active': state.page === 'home' }"
+    :class="{ 'is-active': isActive }"
     id="page-home"
-    :inert="state.page !== 'home'"
+    :inert="!isActive"
     aria-labelledby="home-title"
   >
     <div class="hero">
@@ -29,7 +31,7 @@ import GamepadGlyph from "../components/GamepadGlyph.vue";
           class="hero__content"
           :initial="{ opacity: 0, y: 22 }"
           :animate="{
-            opacity: state.page !== 'home' ? 0.25 : playerExpanded ? 0.65 : 1,
+            opacity: !isActive ? 0.25 : playerExpanded ? 0.65 : 1,
             y: 0,
           }"
           :transition="{
