@@ -52,6 +52,47 @@ chmod +x ./oddity-*.AppImage
 
 Nix 和 Gentoo 用户分别参阅 [Nix 指南](nix.md)和 [Gentoo 指南](gentoo.md).
 
+## 验证安装包
+
+启用签名和不可变发布后, Release 会同时提供 `SHA256SUMS` 和 `SHA256SUMS.sigstore.json`. 校验和只能说明文件没有损坏, 不能说明来源; 签名和不可变 Release 用来确认安装包属于本项目的 Release 且摘要未被替换.
+
+启用后发布的版本会同时满足:
+
+- Release 的附件在发布后不能修改或删除, tag 也不能移动; Release 页面标题下方会显示 `Immutable`.
+- `SHA256SUMS` 由发布 workflow 通过 Sigstore 无密钥签名, 签名记录在公开透明日志中.
+
+下载安装包时同时下载 `SHA256SUMS` 与 `SHA256SUMS.sigstore.json`, 然后验证签名 (需要 [cosign](https://docs.sigstore.dev/cosign/installation/) 3.x):
+
+```bash
+tag=oddity-v0.1.0-alpha.3
+cosign verify-blob \
+  --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity "https://github.com/LaT-SKY/Oddity/.github/workflows/release.yml@refs/tags/$tag" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  SHA256SUMS
+```
+
+这里的 `tag` 必须与下载的 Release 一致.
+
+看到 `Verified OK` 后, 用校验和核对下载的文件. 确认输出中待安装文件名对应的行以 `OK` 结尾; 如果没有该行, 不要安装该文件:
+
+```bash
+sha256sum -c --ignore-missing SHA256SUMS
+```
+
+也可以使用 [GitHub CLI](https://cli.github.com/) 直接验证文件属于对应的不可变 Release (需要 2.79 或更高版本):
+
+```bash
+tag=oddity-v0.1.0-alpha.3
+gh release verify-asset --repo LaT-SKY/Oddity "$tag" ./oddity_0.1.0.alpha.3_amd64.deb
+```
+
+`gh release verify-asset` 只说明文件摘要与指定 Release 证明中的附件一致; `cosign` 验证 `SHA256SUMS` 由本仓库的发布 workflow 在对应 release tag 上签名, 再由 `sha256sum` 验证安装包摘要与这份签名清单一致. 这些步骤只确认 Release 归属和摘要匹配, 不证明安装包由发布 workflow 构建, 也不证明内容安全.
+
+上面的版本号和文件名只是示例, 请替换为实际下载的 Release 和文件.
+
+未启用不可变发布的旧版本没有签名和 Release 证明, 只能核对 `SHA256SUMS`, 不能完成上述验证.
+
 ## 可选的游戏模式功能
 
 主导航中的“游戏模式”页面提供独立选项, 默认关闭, 修改后在下次启动游戏时应用:

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要发布的 tag，例如 oddity-v0.1.0-alpha.1'
+        description: '要发布的 tag，必须从该 tag 触发 workflow'
         required: true
         type: string
 
@@ -45,8 +45,17 @@ jobs:
         shell: bash
         env:
           TAG: ${{ inputs.tag || github.ref_name }}
+          INPUT_TAG: ${{ inputs.tag }}
         run: |
           set -euo pipefail
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            echo "::error::请从要发布的 tag 触发该 workflow"
+            exit 1
+          fi
+          if [[ -n "$INPUT_TAG" && "$INPUT_TAG" != "$GITHUB_REF_NAME" ]]; then
+            echo "::error::输入的 tag 与触发引用不一致: $INPUT_TAG != $GITHUB_REF_NAME"
+            exit 1
+          fi
           if [[ ! "$TAG" =~ ^oddity-v(.+)$ ]]; then
             echo "::error::tag 必须以 oddity-v 开头: $TAG"
             exit 1
@@ -142,6 +151,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      id-token: write
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
@@ -178,6 +188,26 @@ jobs:
             exit 1
           fi
 
+      - name: 安装 cosign
+        uses: sigstore/cosign-installer@v4
+        with:
+          cosign-release: v3.1.4
+
+      - name: 签名校验和
+        shell: bash
+        env:
+          IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/tags/${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes \
+            --bundle dist/SHA256SUMS.sigstore.json \
+            dist/SHA256SUMS
+          cosign verify-blob \
+            --bundle dist/SHA256SUMS.sigstore.json \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            dist/SHA256SUMS
+
       - name: 清洗待发布 PR 排除标签
         run: node scripts/prepare-release-notes-labels.mjs
 
@@ -204,6 +234,13 @@ jobs:
             echo '- Debian / Ubuntu: 下载 .deb，执行 sudo apt install ./oddity_*.deb'
             echo '- Fedora / openSUSE: 下载 .rpm，执行 sudo dnf install ./oddity-*.rpm 或 sudo zypper install ./oddity-*.rpm'
             echo '- AppImage: 执行 chmod +x oddity-*.AppImage && ./oddity-*.AppImage'
+          } >> release-notes.md
+          {
+            echo
+            echo "### 验证"
+            echo
+            echo "- 使用 GitHub CLI 验证附件 (Release 显示 \`Immutable\` 时): \`gh release verify-asset --repo ${GITHUB_REPOSITORY} ${TAG} <文件>\`"
+            echo "- 使用 Sigstore 验证校验和: 见[安装指南](https://github.com/${GITHUB_REPOSITORY}/blob/main/docs/install.md#验证安装包)"
           } >> release-notes.md
           {
             echo "### Oddity ${VERSION}"
