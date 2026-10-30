@@ -37,6 +37,13 @@ export const settingsEntries = [
     keywords: "壁纸 背景 视频 照片 封面",
   },
   {
+    id: "adaptive-theme",
+    category: "appearance",
+    label: "跟随主视觉",
+    description: "用主页主视觉的色相生成界面主题色.",
+    keywords: "主题色 自适应 取色 磨砂 颜色 主视觉",
+  },
+  {
     id: "bulletins",
     category: "appearance",
     label: "堆叠公告",

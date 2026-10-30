@@ -10,6 +10,7 @@ import {
 import { MotionConfig, motion } from "motion-v";
 import { init, ui, form, state, showPage, dispose } from "./core/controller";
 import { useSceneMotion, playerExpanded } from "./composables/useSceneMotion";
+import { useScenePalette } from "./composables/useScenePalette";
 import { navigationScrubbing } from "./composables/navigationGesture";
 import NotificationCenter from "./components/NotificationCenter.vue";
 import TitleBar from "./components/layout/TitleBar.vue";
@@ -30,6 +31,7 @@ const scene = useTemplateRef<HTMLElement>("scene");
 const drawer = useTemplateRef<HTMLElement>("drawer");
 const shade = useTemplateRef<HTMLElement>("shade");
 const { opened } = useSceneMotion(scene, drawer, shade);
+useScenePalette();
 const content = ref<HTMLElement | null>(null);
 watch(
   () => state.page,

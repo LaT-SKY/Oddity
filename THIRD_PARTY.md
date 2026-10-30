@@ -18,6 +18,14 @@ Rust 依赖见 [Cargo.lock](launcher/Cargo.lock), 许可证检查配置见 [deny
 
 游戏差分补丁使用 [hdiffpatch-rs](https://github.com/TwintailTeam/hdiffpatch-rs), 许可证为 MIT.
 
+## 颜色计算
+
+| 用途       | 来源                                                                                                              | 许可证          |
+|----------|-----------------------------------------------------------------------------------------------------------------|--------------|
+| Oklab 颜色空间 | [Björn Ottosson, A perceptual color space for image processing (2020)](https://bottosson.github.io/posts/oklab/) | Public domain |
+
+主视觉取色在 `launcher/ui/src/core/palette.ts` 中实现, 只使用 Oklab 的公开转换矩阵, 不引入额外依赖.
+
 ## 图像与素材
 
 | 素材 | 位置 | 授权 |

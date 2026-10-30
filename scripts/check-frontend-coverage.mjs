@@ -23,7 +23,9 @@ try {
     if (file === "total") continue;
     const isUi =
       file.endsWith(".vue") ||
-      /\/composables\/(useNotificationArrival|usePlayerMotion)\.ts$/.test(file);
+      /\/composables\/(useNotificationArrival|usePlayerMotion|useScenePalette)\.ts$/.test(
+        file,
+      );
     groups[isUi ? "ui" : "core"].push(metrics);
   }
   if (!groups.core.length || !groups.ui.length)

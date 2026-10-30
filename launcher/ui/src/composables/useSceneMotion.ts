@@ -58,7 +58,7 @@ export function useSceneMotion(
       .add(
         shade.value,
         {
-          opacity: entering ? 0.48 : focus ? 0.26 : 0,
+          opacity: entering ? 0.34 : focus ? 0.26 : 0,
           duration: reduced.value ? 0 : 320,
           ease: "out(3)",
         },

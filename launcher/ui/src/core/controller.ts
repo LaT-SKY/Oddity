@@ -424,6 +424,7 @@ export const form = reactive({
   },
   theme: "light",
   heroMedia: "video",
+  adaptiveTheme: true,
   reduceMotion: false,
   stackBulletins: false,
   minimizeToTrayOnClose: true,
@@ -1182,6 +1183,7 @@ function applyBootstrap(
   form.updates.windowStart = settings.updates?.window?.start || "02:00";
   form.updates.windowEnd = settings.updates?.window?.end || "07:00";
   form.stackBulletins = settings.stackBulletins;
+  form.adaptiveTheme = settings.adaptiveTheme ?? true;
   applyReduceMotion(Boolean(settings.reduceMotion));
   applyHeroMedia(settings.heroMedia || "video");
   form.minimizeToTrayOnClose = settings.minimizeToTrayOnClose ?? true;
@@ -1680,6 +1682,7 @@ function currentSettings(): Settings {
     stackBulletins: form.stackBulletins,
     theme: THEMES.has(form.theme) ? form.theme : "light",
     heroMedia: HERO_MEDIA.has(form.heroMedia) ? form.heroMedia : "video",
+    adaptiveTheme: form.adaptiveTheme,
     minimizeToTrayOnClose: form.minimizeToTrayOnClose,
     showLauncherAfterGameExit: form.showLauncherAfterGameExit,
     snapshotSuccessMinutes: form.snapshotSuccessMinutes,
