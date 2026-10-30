@@ -613,6 +613,7 @@ fn has_session_token(path: &Path, token: &str) -> bool {
 mod tests {
     use super::*;
     use crate::tests::TempDir;
+    use tauri::Manager;
 
     fn session(directory: &TempDir) -> Arc<NativeSession> {
         let mut session = NativeSession::prepare(
@@ -668,6 +669,78 @@ def record(text):
             assert!(Instant::now() < deadline, "condition timed out");
             thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    #[test]
+    fn close_failure_keeps_the_session_available_for_retry() {
+        let directory = TempDir::new("native-session-close-retry");
+        let background = session(&directory);
+        fs::create_dir(&background.cancel).unwrap();
+
+        let child = Command::new("/bin/true").spawn().unwrap();
+        let pid = child.id() as i32;
+        let game = crate::GameSession {
+            id: 77,
+            pid: pid as u32,
+            pgid: pid,
+            exe: "/game/HTGame.exe".into(),
+            started_at: 1,
+            log: String::new(),
+            mode: "background".into(),
+            distribution: crate::Distribution::Cn,
+            closing: true,
+            exit_notified: false,
+            game_alive: Arc::new(AtomicBool::new(false)),
+            _install_lock: None,
+            _prefix_lock: None,
+            background: Some(Arc::clone(&background)),
+            game_mode: None,
+            snapshot: None,
+            snapshot_success_after_ms: nte_core::snapshots::SUCCESS_AFTER_MS,
+            launcher_root: None,
+        };
+        let app = tauri::test::mock_app();
+        app.manage(crate::AppState {
+            settings: Mutex::new(nte_core::settings::Settings::default()),
+            game: Mutex::new(crate::GameTracker {
+                session: Some(game.clone()),
+                ..Default::default()
+            }),
+        });
+        crate::spawn_game_monitor(app.handle().clone(), child, game);
+
+        wait_until(|| {
+            app.state::<crate::AppState>()
+                .game
+                .lock()
+                .unwrap()
+                .session
+                .as_ref()
+                .is_some_and(|current| !current.closing)
+        });
+        let retained = app
+            .state::<crate::AppState>()
+            .game
+            .lock()
+            .unwrap()
+            .session
+            .is_some();
+        assert!(retained);
+        assert!(!background.finished());
+
+        fs::remove_dir(&background.cancel).unwrap();
+        let status =
+            tauri::async_runtime::block_on(crate::close_game(app.handle().clone(), app.state()))
+                .unwrap();
+        assert!(!status.running);
+        assert!(background.finished());
+        assert!(app
+            .state::<crate::AppState>()
+            .game
+            .lock()
+            .unwrap()
+            .session
+            .is_none());
     }
 
     #[test]

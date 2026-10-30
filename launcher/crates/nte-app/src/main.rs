@@ -614,7 +614,7 @@ fn session_alive(session: &GameSession) -> bool {
 }
 
 /// 后台会话按实际游戏生命周期结束, 无需等待共享 wineserver 退出.
-fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
+fn spawn_game_monitor<R: Runtime>(app: AppHandle<R>, mut child: Child, session: GameSession) {
     let stage_app = app.clone();
     let session_id = session.id;
     thread::spawn(move || {
@@ -627,7 +627,7 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
             Arc::clone(&alive),
         );
         let on_stage = |stage: LaunchStage| publish_launch_stage(&stage_app, session_id, stage);
-        let (result, exit_code) = if let Some(background) = &session.background {
+        let (mut result, exit_code) = if let Some(background) = &session.background {
             if session.closing {
                 // 取消请求可能早于监控线程启动, 这里补上会话关闭信号。
                 (background.close(), None)
@@ -644,6 +644,48 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
             }
             (result, exit_code)
         };
+        if session.closing && result.is_err() {
+            if let Some(background) = &session.background {
+                // 清理失败时保留监控和会话, 让 close_game 仍可重试。
+                {
+                    let state = app.state::<AppState>();
+                    if let Ok(mut tracker) = state.game.lock() {
+                        if tracker.session.as_ref().map(|current| current.id) == Some(session.id) {
+                            if let Some(current) = tracker.session.as_mut() {
+                                current.closing = false;
+                            }
+                            if let Some(launch) = tracker.launch.as_mut() {
+                                launch.cancelling = false;
+                            }
+                        }
+                    }
+                    emit_game_status(&app, &state);
+                }
+                // 等游戏进程退出后再补一次清理; 取消信号已经发出。
+                while !background.finished() {
+                    match background.game_alive() {
+                        Ok(false) => break,
+                        Ok(true) => thread::sleep(Duration::from_millis(500)),
+                        Err(_) => break,
+                    }
+                }
+                if !background.finished() {
+                    result = background.close();
+                }
+                if background.finished() {
+                    result = Ok(());
+                }
+                if result.is_err() && !background.finished() {
+                    // 仍无法清理时保留 watch_game_exit 和会话, 由 close_game 重试.
+                    if child.try_wait().ok().flatten().is_none() {
+                        thread::spawn(move || {
+                            let _ = child.wait();
+                        });
+                    }
+                    return;
+                }
+            }
+        }
         done.store(true, Ordering::Release);
         if let Some(snapshots) = app.try_state::<snapshot_commands::Snapshots>() {
             if let Some(id) = session.snapshot.as_deref() {
@@ -736,7 +778,7 @@ fn advance_launch(tracker: &mut GameTracker, session_id: u64, stage: LaunchStage
 }
 
 /// 监控线程只更新本轮会话的阶段, 防止迟到的旧回调覆盖新启动。
-fn publish_launch_stage(app: &AppHandle, session_id: u64, stage: LaunchStage) {
+fn publish_launch_stage<R: Runtime>(app: &AppHandle<R>, session_id: u64, stage: LaunchStage) {
     let state = app.state::<AppState>();
     let changed = match state.game.lock() {
         Ok(mut tracker) => advance_launch(&mut tracker, session_id, stage),
