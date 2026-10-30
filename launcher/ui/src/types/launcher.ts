@@ -1,3 +1,10 @@
+import type { FileListing } from "../core/filePicker";
+import type {
+  GamepadOptions,
+  GamepadSnapshot,
+  Profile,
+  Feedback,
+} from "./gamepad";
 export type AttendanceTrigger = "off" | "launch" | "boot" | "daily" | "manual";
 export interface AttendanceTasks {
   communitySign: boolean;
@@ -116,6 +123,17 @@ export interface GameModeStatus {
   capabilities: GameModeFeatureStatus[];
   session: GameModeFeatureStatus[] | null;
 }
+export type MeteredPolicy = "ask" | "pause" | "allow";
+export interface UpdateWindow {
+  start: string;
+  end: string;
+}
+export interface UpdateSettings {
+  autoDownload: boolean;
+  metered: MeteredPolicy;
+  limitBytesPerSecond: number;
+  window: UpdateWindow | null;
+}
 export interface Settings {
   installRoot: string | null;
   globalInstallRoot: string | null;
@@ -125,6 +143,8 @@ export interface Settings {
   stableEnvironment: string | null;
   launchMode: string;
   gameMode: GameModeOptions;
+  gamepad: GamepadOptions;
+  updates: UpdateSettings;
   language: string;
   reduceMotion: boolean;
   stackBulletins: boolean;
@@ -132,6 +152,7 @@ export interface Settings {
   heroMedia: string;
   minimizeToTrayOnClose: boolean;
   showLauncherAfterGameExit: boolean;
+  snapshotSuccessMinutes: number;
 }
 export interface PlaytimeSession {
   startedAt: number;
@@ -240,6 +261,12 @@ export type DownloadPhase =
 export interface DownloadStatus {
   mode: "check" | "apply";
   phase: DownloadPhase;
+  /** manual 或 auto, 用于区分手动与自动任务. */
+  origin: "manual" | "auto";
+  /** 自动下载的等待原因, 空字符串表示没有等待. */
+  autoWaiting: string;
+  /** 最近一次资源检查完成时间 (Unix 毫秒), 0 表示尚未检查. */
+  checkedAt: number;
   distribution: "cn" | "global";
   installRoot: string;
   /** 官方本地清单存在时视为已安装。 */
@@ -291,7 +318,70 @@ export interface LogPreview {
   normalizedFiles: number;
 }
 
+export type SnapshotStatus =
+  "starting" | "running" | "success" | "failed" | "interrupted";
+export type SnapshotFailureReason = "spawn" | "earlyExit" | "interrupted";
+export interface SnapshotFailure {
+  reason: SnapshotFailureReason;
+  exitCode: number | null;
+  detail: string | null;
+}
+export interface SnapshotSummary {
+  id: string;
+  capturedAt: number;
+  status: SnapshotStatus;
+  durationMs: number | null;
+  failure: SnapshotFailure | null;
+  environment: string | null;
+  proton: string | null;
+  distribution: "cn" | "global";
+  mode: string;
+}
+export interface SnapshotReference {
+  label: string;
+  savedAt: number;
+  capturedAt: number;
+  environment: string | null;
+  proton: string | null;
+  distribution: "cn" | "global";
+  mode: string;
+}
+export interface SnapshotOverview {
+  baseline: SnapshotSummary | null;
+  reference: SnapshotReference | null;
+  latest: SnapshotSummary | null;
+  attempts: number;
+}
+export type SnapshotDiffStatus =
+  "same" | "changed" | "unknown" | "added" | "removed";
+export interface SnapshotDiffRow {
+  key: string;
+  section: string;
+  label: string;
+  baseline: string | null;
+  current: string | null;
+  status: SnapshotDiffStatus;
+}
+export interface SnapshotComparison {
+  target: "baseline" | "reference";
+  targetLabel: string;
+  targetTime: number;
+  targetEnvironment: string | null;
+  currentEnvironment: string | null;
+  rows: SnapshotDiffRow[];
+  changed: number;
+  unknown: number;
+  unchanged: number;
+}
+
 export interface Commands {
+  browse_files: FileListing;
+  gamepad_poll: GamepadSnapshot;
+  gamepad_release_idle: null;
+  gamepad_feedback: null;
+  gamepad_profile_validate: Profile;
+  gamepad_profile_load: Profile;
+  gamepad_profile_save: void;
   attendance_status: AttendanceStatus;
   attendance_refresh_game_records: AttendanceStatus;
   attendance_login: AttendanceStatus;
@@ -312,6 +402,11 @@ export interface Commands {
   prepare_log_export: LogPreview;
   save_log_export: string;
   discard_log_export: void;
+  environment_snapshot_overview: SnapshotOverview;
+  environment_snapshot_compare: SnapshotComparison;
+  environment_snapshot_save_reference: SnapshotReference;
+  environment_snapshot_delete_reference: void;
+  environment_snapshot_clear_history: void;
   open_directory: null;
   open_url: null;
   launch_official: LaunchResult;
@@ -334,6 +429,13 @@ export interface Commands {
   win_drag: null;
 }
 export interface CommandArgs {
+  browse_files: { path: string | null };
+  gamepad_poll: undefined;
+  gamepad_release_idle: undefined;
+  gamepad_feedback: { deviceId: number; effect: Feedback | "stop" };
+  gamepad_profile_validate: { profile: Profile };
+  gamepad_profile_load: { path: string };
+  gamepad_profile_save: { path: string; profile: Profile };
   attendance_status: undefined;
   attendance_refresh_game_records: undefined;
   attendance_send_code: { phone: string };
@@ -366,6 +468,14 @@ export interface CommandArgs {
   prepare_log_export: undefined;
   save_log_export: { id: string; destination: string };
   discard_log_export: { id: string };
+  environment_snapshot_overview: undefined;
+  environment_snapshot_compare: { target: "baseline" | "reference" };
+  environment_snapshot_save_reference: {
+    label: string | null;
+    attemptId: string | null;
+  };
+  environment_snapshot_delete_reference: undefined;
+  environment_snapshot_clear_history: undefined;
   open_directory: { path: string };
   open_url: { url: string };
   launch_official: undefined;

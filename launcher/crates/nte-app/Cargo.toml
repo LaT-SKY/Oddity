@@ -26,6 +26,9 @@ libc = "0.2"
 zeroize = "1"
 base64 = "0.23"
 tauri-plugin-dialog = "2"
+sdl3 = { version = "0.20.0", features = ["build-from-source-static"] }
+sdl3-sys = { version = "0.7.2", features = ["sdl-unix-console-build", "no-sdl-video", "no-sdl-gpu", "no-sdl-render", "no-sdl-camera", "no-sdl-dialog", "no-sdl-tray"] }
+tokio = { version = "1", features = ["sync"] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }

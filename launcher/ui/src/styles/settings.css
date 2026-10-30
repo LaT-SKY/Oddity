@@ -169,9 +169,6 @@
   font-size: var(--text-md);
   letter-spacing: 0;
 }
-.settings-panel [data-setting]:focus {
-  outline-offset: -1px;
-}
 .settings-panel .runtime-environments__notice {
   margin-top: 12px;
 }

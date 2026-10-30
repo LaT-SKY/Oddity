@@ -62,7 +62,10 @@
         "depends": [
           "gstreamer1.0-plugins-good",
           "libsecret-1-0",
-          "xdg-utils"
+          "xdg-utils",
+          "libudev1",
+          "libpulse0",
+          "libasound2 | libasound2t64"
         ],
         "recommends": [
           "umu-launcher"
@@ -80,7 +83,10 @@
       "rpm": {
         "depends": [
           "libsecret-1.so.0()(64bit)",
-          "xdg-utils"
+          "xdg-utils",
+          "libudev.so.1()(64bit)",
+          "libpulse.so.0()(64bit)",
+          "libasound.so.2()(64bit)"
         ],
         "recommends": [
           "umu-launcher"

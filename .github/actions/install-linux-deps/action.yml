@@ -8,8 +8,8 @@ runs:
       uses: actions/cache@v6
       with:
         path: ~/.cache/oddity-apt
-        # 改动包列表后递增 v4
-        key: apt-archives-${{ runner.os }}-v4
+        # 改动包列表后递增 v5
+        key: apt-archives-${{ runner.os }}-v5
         restore-keys: |
           apt-archives-${{ runner.os }}-
 
@@ -36,6 +36,10 @@ runs:
         timeout --kill-after=10s 10m sudo apt-get "${apt_options[@]}" install -y --no-install-recommends \
           build-essential \
           pkg-config \
+          cmake \
+          libudev-dev \
+          libasound2-dev \
+          libpulse-dev \
           libssl-dev \
           libwebkit2gtk-4.1-dev \
           gstreamer1.0-plugins-good \

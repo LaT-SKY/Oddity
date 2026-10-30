@@ -5,7 +5,7 @@ import BaseButton from "./BaseButton.vue";
 import BaseModal from "./BaseModal.vue";
 import BaseDisclosure from "./BaseDisclosure.vue";
 import { onBeforeUnmount, ref } from "vue";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open } from "../core/filePicker";
 import { invoke, isTauri } from "../core/api";
 import { notify } from "../core/notifications";
 import type { LogPreview } from "../types/launcher";

@@ -125,6 +125,7 @@ impl Fixture {
             &self.app.state::<DownloadManager>(),
             mode,
             full,
+            "manual",
             &cancel,
         )?;
         run_plan(
@@ -248,6 +249,7 @@ fn cancellation_preserves_the_task_and_allows_a_fresh_attempt() {
         &fixture.app.state::<DownloadManager>(),
         "apply",
         true,
+        "manual",
         &cancel,
     )
     .unwrap();
@@ -271,14 +273,7 @@ fn cancellation_preserves_the_task_and_allows_a_fresh_attempt() {
 #[test]
 fn commands_reject_overlapping_tasks_and_running_games() {
     let fixture = Fixture::new(Distribution::Cn, true);
-    assert!(game_download_start(
-        fixture.app.handle().clone(),
-        fixture.app.state(),
-        fixture.app.state(),
-        "invalid".into(),
-        false
-    )
-    .is_err());
+    assert!(game_download_start(fixture.app.handle().clone(), "invalid".into(), false).is_err());
     fixture
         .app
         .state::<AppState>()
@@ -286,15 +281,11 @@ fn commands_reject_overlapping_tasks_and_running_games() {
         .lock()
         .unwrap()
         .starting = true;
-    assert!(game_download_start(
-        fixture.app.handle().clone(),
-        fixture.app.state(),
-        fixture.app.state(),
-        "apply".into(),
-        false
-    )
-    .unwrap_err()
-    .contains("游戏正在运行"));
+    assert!(
+        game_download_start(fixture.app.handle().clone(), "apply".into(), false)
+            .unwrap_err()
+            .contains("游戏正在运行")
+    );
     fixture
         .app
         .state::<AppState>()
@@ -331,28 +322,23 @@ fn commands_reject_overlapping_tasks_and_running_games() {
         _prefix_lock: None,
         game_mode: None,
         background: Some(background.clone()),
+        snapshot: None,
+        snapshot_success_after_ms: nte_core::snapshots::SUCCESS_AFTER_MS,
+        launcher_root: None,
     });
-    assert!(game_download_start(
-        fixture.app.handle().clone(),
-        fixture.app.state(),
-        fixture.app.state(),
-        "apply".into(),
-        false,
-    )
-    .unwrap_err()
-    .contains("游戏正在运行"));
+    assert!(
+        game_download_start(fixture.app.handle().clone(), "apply".into(), false,)
+            .unwrap_err()
+            .contains("游戏正在运行")
+    );
     background.close().unwrap();
     fixture.app.state::<AppState>().game.lock().unwrap().session = None;
     publish(fixture.app.handle(), |status| status.phase = "game".into());
-    assert!(game_download_start(
-        fixture.app.handle().clone(),
-        fixture.app.state(),
-        fixture.app.state(),
-        "check".into(),
-        false
-    )
-    .unwrap_err()
-    .contains("任务正在进行"));
+    assert!(
+        game_download_start(fixture.app.handle().clone(), "check".into(), false)
+            .unwrap_err()
+            .contains("任务正在进行")
+    );
 }
 
 #[test]
@@ -368,6 +354,7 @@ fn full_check_requirement_is_scoped_to_the_installation() {
         &fixture.app.state::<DownloadManager>(),
         "check",
         false,
+        "manual",
         &Arc::new(AtomicBool::new(false)),
     )
     .unwrap();
@@ -413,6 +400,7 @@ fn read_only_checks_do_not_block_launch_or_settings() {
         &fixture.app.state::<DownloadManager>(),
         "check",
         true,
+        "manual",
         &cancel,
     )
     .unwrap();
@@ -471,14 +459,7 @@ fn start_command_publishes_a_fast_worker_failure() {
             send.send(status).unwrap();
         }
     });
-    let initial = game_download_start(
-        fixture.app.handle().clone(),
-        fixture.app.state(),
-        fixture.app.state(),
-        "check".into(),
-        false,
-    )
-    .unwrap();
+    let initial = game_download_start(fixture.app.handle().clone(), "check".into(), false).unwrap();
     assert_eq!(initial.phase, "checking");
     let failed = receive.recv_timeout(Duration::from_secs(5)).unwrap();
     assert!(failed["error"].as_str().unwrap().contains("另一地区"));
@@ -502,6 +483,7 @@ fn automatic_check_uses_detection_without_persisting_it() {
         &fixture.app.state::<DownloadManager>(),
         "check",
         false,
+        "manual",
         &Arc::new(AtomicBool::new(false)),
     )
     .unwrap();

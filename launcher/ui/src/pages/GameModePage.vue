@@ -290,20 +290,21 @@ onBeforeUnmount(() => {
   disposed = true;
   if (timer) clearTimeout(timer);
 });
+const isActive = computed(() => state.page === "game-mode");
 </script>
 
 <template>
   <motion.section
     id="page-game-mode"
     class="page game-mode-page"
-    :class="{ 'is-active': state.page === 'game-mode' }"
-    :inert="state.page !== 'game-mode'"
-    :aria-hidden="state.page !== 'game-mode' || undefined"
+    :class="{ 'is-active': isActive }"
+    :inert="!isActive"
+    :aria-hidden="!isActive || undefined"
     :initial="false"
     :animate="{
-      opacity: state.page === 'game-mode' ? 1 : 0,
-      x: state.page === 'game-mode' ? 0 : 22,
-      visibility: state.page === 'game-mode' ? 'visible' : 'hidden',
+      opacity: isActive ? 1 : 0,
+      x: isActive ? 0 : 22,
+      visibility: isActive ? 'visible' : 'hidden',
     }"
     :transition="surface"
     aria-labelledby="game-mode-title"
@@ -327,6 +328,8 @@ onBeforeUnmount(() => {
             variant="ghost"
             icon="i-arrows-clockwise"
             :busy="loading"
+            data-pad-primary
+            data-pad-action="重新检测"
             @click="
               refresh();
               gpu?.reload();
@@ -402,6 +405,7 @@ onBeforeUnmount(() => {
               v-if="category === item.id"
               class="settings-category__focus category-tab__selection"
               layout-id="game-mode-category-focus"
+              :layout-dependency="category"
               :animate="{ opacity: searching ? 0.35 : 1 }"
               :transition="control"
             />

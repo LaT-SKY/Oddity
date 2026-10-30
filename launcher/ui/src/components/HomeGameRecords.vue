@@ -26,6 +26,8 @@ import {
 import { usePlayerMotion } from "../composables/usePlayerMotion";
 import { playerExpanded } from "../composables/useSceneMotion";
 import type { GameRecord } from "../types/launcher";
+import { gamepad } from "../core/gamepad";
+import GamepadGlyph from "./GamepadGlyph.vue";
 
 const panelId = useId();
 const triggerId = useId();
@@ -53,7 +55,9 @@ const { detailsReady, summaryReady, moving } = usePlayerMotion(
   surface,
   details,
 );
-const accounts = computed(() => attendance.status?.accounts ?? []);
+const accounts = computed(() =>
+  form.distribution === "global" ? [] : (attendance.status?.accounts ?? []),
+);
 const account = computed(
   () =>
     accounts.value.find((item) => item.id === selectedId.value) ??
@@ -200,6 +204,7 @@ function percent(data: GameRecord) {
           >
             <use href="#i-caret-down" />
           </motion.svg>
+          <GamepadGlyph v-if="gamepad.active" button="north" />
         </motion.button>
 
         <AnimatePresence
@@ -335,6 +340,12 @@ function percent(data: GameRecord) {
                   </motion.button>
                 </div>
               </motion.article>
+              <div
+                v-else-if="form.distribution === 'global'"
+                class="game-records__empty"
+              >
+                <p class="game-records__hint">当前地区暂无可读取的玩家信息.</p>
+              </div>
               <div v-else class="game-records__empty">
                 <span class="game-records__empty-mark" aria-hidden="true"
                   ><svg class="icon"><use href="#i-users" /></svg

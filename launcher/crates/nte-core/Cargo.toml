@@ -26,3 +26,7 @@ tempfile = "3"
 encoding_rs_io = "0.1"
 zbus = { version = "5.19", features = ["blocking-api"] }
 hdiffpatch-rs = { git = "https://github.com/TwintailTeam/hdiffpatch-rs", rev = "d58f4553b7d45acccd0b8e3b57badc26b9b04b6e" }
+
+[[test]]
+name = "gamepad"
+path = "../../../internal/gamepad/rust/src/lib.rs"

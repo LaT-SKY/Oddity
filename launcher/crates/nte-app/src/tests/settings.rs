@@ -15,6 +15,14 @@ fn settings_default_matches_the_ui_contract() {
     assert_eq!(settings.hero_media, "video");
     assert!(settings.minimize_to_tray_on_close);
     assert!(settings.show_launcher_after_game_exit);
+    assert_eq!(settings.snapshot_success_minutes, 1);
+    assert!(!settings.updates.auto_download);
+    assert_eq!(
+        settings.updates.metered,
+        nte_core::updates::MeteredPolicy::Ask
+    );
+    assert_eq!(settings.updates.limit_bytes_per_second, 0);
+    assert!(settings.updates.window.is_none());
 }
 
 #[test]
@@ -65,6 +73,7 @@ fn settings_round_trip_through_the_config_dir() {
         hero_media: "photo".to_string(),
         minimize_to_tray_on_close: false,
         show_launcher_after_game_exit: false,
+        snapshot_success_minutes: 10,
         ..Default::default()
     };
     persist_settings(&settings).expect("persist settings");
@@ -74,6 +83,7 @@ fn settings_round_trip_through_the_config_dir() {
     assert!(text.contains("\"reduceMotion\""), "{text}");
     assert!(text.contains("\"minimizeToTrayOnClose\""), "{text}");
     assert!(text.contains("\"showLauncherAfterGameExit\""), "{text}");
+    assert!(text.contains("\"snapshotSuccessMinutes\": 10"), "{text}");
     assert!(!dir.join("oddity/settings.json.tmp").exists());
 
     let loaded = load_settings();
@@ -90,7 +100,26 @@ fn settings_round_trip_through_the_config_dir() {
     assert_eq!(loaded.theme, "dark");
     assert_eq!(loaded.hero_media, "photo");
     assert!(!loaded.minimize_to_tray_on_close);
+    assert_eq!(loaded.snapshot_success_minutes, 10);
     assert!(!loaded.show_launcher_after_game_exit);
+    assert!(!loaded.updates.auto_download);
+    assert_eq!(
+        loaded.updates.metered,
+        nte_core::updates::MeteredPolicy::Ask
+    );
+}
+
+#[test]
+fn unsupported_snapshot_duration_falls_back_to_one_minute() {
+    let mut env = EnvGuard::new();
+    let dir = TempDir::new("settings-snapshot-duration");
+    env.set("XDG_CONFIG_HOME", dir.path());
+    persist_settings(&Settings {
+        snapshot_success_minutes: 7,
+        ..Default::default()
+    })
+    .expect("persist settings");
+    assert_eq!(load_settings().snapshot_success_minutes, 1);
 }
 
 #[test]
@@ -112,6 +141,8 @@ fn settings_fall_back_when_the_file_is_broken_or_partial() {
     assert_eq!(partial.hero_media, "video");
     assert!(partial.minimize_to_tray_on_close);
     assert!(partial.show_launcher_after_game_exit);
+    assert!(!partial.updates.auto_download);
+    assert!(partial.updates.window.is_none());
 }
 
 #[test]

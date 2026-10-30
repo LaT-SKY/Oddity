@@ -14,6 +14,8 @@ pub struct Settings {
     pub stable_environment: Option<String>,
     pub launch_mode: String,
     pub game_mode: crate::game_mode::Options,
+    pub gamepad: crate::gamepad::Options,
+    pub updates: crate::updates::Options,
     pub language: String,
     pub reduce_motion: bool,
     pub stack_bulletins: bool,
@@ -21,6 +23,7 @@ pub struct Settings {
     pub hero_media: String,
     pub minimize_to_tray_on_close: bool,
     pub show_launcher_after_game_exit: bool,
+    pub snapshot_success_minutes: u64,
 }
 
 impl Default for Settings {
@@ -34,6 +37,8 @@ impl Default for Settings {
             stable_environment: None,
             launch_mode: "background".to_string(),
             game_mode: crate::game_mode::Options::default(),
+            gamepad: crate::gamepad::Options::default(),
+            updates: crate::updates::Options::default(),
             language: "zh-CN".to_string(),
             reduce_motion: false,
             stack_bulletins: false,
@@ -41,6 +46,7 @@ impl Default for Settings {
             hero_media: "video".to_string(),
             minimize_to_tray_on_close: true,
             show_launcher_after_game_exit: true,
+            snapshot_success_minutes: crate::snapshots::DEFAULT_SUCCESS_MINUTES,
         }
     }
 }

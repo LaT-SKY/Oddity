@@ -146,6 +146,9 @@ fn game_mode_status_reports_capabilities_and_releases_the_finished_session() {
         _prefix_lock: None,
         background: None,
         game_mode: Some(mode.clone()),
+        snapshot: None,
+        snapshot_success_after_ms: nte_core::snapshots::SUCCESS_AFTER_MS,
+        launcher_root: None,
     };
     app.state::<AppState>().game.lock().unwrap().session = Some(session.clone());
     let running = tauri::async_runtime::block_on(game_mode_status(app.state())).unwrap();
@@ -188,6 +191,9 @@ fn game_status_reflects_the_session() {
         _prefix_lock: None,
         game_mode: None,
         background: None,
+        snapshot: None,
+        snapshot_success_after_ms: nte_core::snapshots::SUCCESS_AFTER_MS,
+        launcher_root: None,
     };
     let status = GameStatus::from_session(Some(&session));
     assert!(status.running);
@@ -443,6 +449,9 @@ fn tracks_playtime_while_the_game_process_is_alive() {
         _prefix_lock: None,
         background: None,
         game_mode: None,
+        snapshot: None,
+        snapshot_success_after_ms: nte_core::snapshots::SUCCESS_AFTER_MS,
+        launcher_root: None,
     };
     let done = Arc::new(AtomicBool::new(false));
     let alive = Arc::new(AtomicBool::new(true));

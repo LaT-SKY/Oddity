@@ -7,6 +7,10 @@
   pnpm,
   nodejs,
   pkg-config,
+  cmake,
+  udev,
+  alsa-lib,
+  libpulseaudio,
   wrapGAppsHook3,
   webkitgtk_4_1,
   gtk3,
@@ -64,10 +68,14 @@ rustPlatform.buildRustPackage (finalAttrs: {
     pnpm
     nodejs
     pkg-config
+    cmake
     wrapGAppsHook3
   ];
 
   buildInputs = [
+    udev
+    alsa-lib
+    libpulseaudio
     webkitgtk_4_1
     gtk3
     glib-networking
@@ -98,6 +106,7 @@ rustPlatform.buildRustPackage (finalAttrs: {
 
   preFixup = ''
     gappsWrapperArgs+=(
+      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ udev alsa-lib libpulseaudio ]}
       --prefix PATH : ${lib.makeBinPath [ xdg-utils umu-launcher ]}
       --set-default WEBKIT_GST_ALLOWED_URI_PROTOCOLS asset
       --set-default __NV_DISABLE_EXPLICIT_SYNC 1

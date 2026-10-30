@@ -1,3 +1,4 @@
+import { defaultGamepadOptions } from "../../src/types/gamepad";
 import { defaultGamescope } from "../../src/core/gameMode";
 import type {
   Bootstrap,
@@ -21,6 +22,13 @@ export const settings: Settings = {
     overlay: false,
     gamescope: { ...defaultGamescope },
   },
+  gamepad: defaultGamepadOptions(),
+  updates: {
+    autoDownload: false,
+    metered: "ask",
+    limitBytesPerSecond: 0,
+    window: null,
+  },
   language: "zh-CN",
   reduceMotion: true,
   stackBulletins: false,
@@ -28,6 +36,7 @@ export const settings: Settings = {
   heroMedia: "photo",
   minimizeToTrayOnClose: true,
   showLauncherAfterGameExit: true,
+  snapshotSuccessMinutes: 1,
 };
 export const bootstrap = (overrides: Partial<Bootstrap> = {}): Bootstrap => ({
   ok: true,

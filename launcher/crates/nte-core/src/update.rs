@@ -8,6 +8,7 @@ use md5::{Digest, Md5};
 use crate::http::HttpClient;
 use crate::manifest::{Manifest, ManifestFile};
 use crate::paths::{ensure_no_symlink, relative_path as safe_relative_path};
+use crate::throttle::RateLimiter;
 use crate::{Error, Result};
 
 #[derive(Debug, Default)]
@@ -192,6 +193,25 @@ pub fn apply_file_resumable(
     on_bytes: &mut dyn FnMut(u64),
     cancelled: &dyn Fn() -> bool,
 ) -> Result<u64> {
+    apply_file_resumable_limited(
+        root,
+        zip_bases,
+        file,
+        &RateLimiter::new(0),
+        on_bytes,
+        cancelled,
+    )
+}
+
+/// 与 [apply_file_resumable] 相同, 但按共享限速器控制启动器文件下载.
+pub fn apply_file_resumable_limited(
+    root: &Path,
+    zip_bases: &[String],
+    file: &ManifestFile,
+    limiter: &RateLimiter,
+    on_bytes: &mut dyn FnMut(u64),
+    cancelled: &dyn Fn() -> bool,
+) -> Result<u64> {
     let relative = safe_relative_path(&file.path)?;
     ensure_no_symlink(root, &relative)?;
     let key = file
@@ -266,6 +286,10 @@ pub fn apply_file_resumable(
             };
             if read == 0 {
                 break;
+            }
+            if !limiter.acquire(read as u64, cancelled) {
+                output.flush()?;
+                return Err(Error::Cancelled);
             }
             output.write_all(&buffer[..read])?;
             downloaded += read as u64;

@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use nte_core::config::LauncherConfig;
 use nte_core::game::check::CheckOptions;
 use nte_core::game::download::ApplyOptions;
+use nte_core::throttle::RateLimiter;
 use nte_core::{disk, game, install, update};
 
 use crate::{game_exe_for, selected_install_root, session_alive, AppState, Settings};
@@ -18,12 +19,16 @@ use crate::{game_exe_for, selected_install_root, session_alive, AppState, Settin
 pub struct DownloadStatus {
     pub(crate) phase: String,
     pub(crate) mode: String,
-    distribution: String,
-    install_root: String,
+    /// 本轮任务的触发来源: manual 或 auto.
+    pub(crate) origin: String,
+    /// 自动下载当前等待的原因, 空字符串表示没有等待.
+    pub(crate) auto_waiting: String,
+    pub(crate) distribution: String,
+    pub(crate) install_root: String,
     /// 官方本地清单存在时视为已安装，用于区分安装与更新。
-    installed: bool,
+    pub(crate) installed: bool,
     full: bool,
-    unverified_files: usize,
+    pub(crate) unverified_files: usize,
     current_file: String,
     current_file_bytes: u64,
     completed_files: usize,
@@ -36,11 +41,13 @@ pub struct DownloadStatus {
     full_bytes: u64,
     stage: String,
     remote_version: String,
-    pending_files: usize,
+    pub(crate) pending_files: usize,
+    /// 最近一次资源检查完成的时间 (Unix 毫秒), 0 表示尚未检查.
+    pub(crate) checked_at: u64,
     /// 检查时安装目录所在文件系统的可用字节, 读取失败时为空.
-    disk_available_bytes: Option<u64>,
+    pub(crate) disk_available_bytes: Option<u64>,
     /// 当前计划预计额外占用的字节.
-    disk_required_bytes: u64,
+    pub(crate) disk_required_bytes: u64,
     error: String,
 }
 
@@ -49,6 +56,8 @@ impl Default for DownloadStatus {
         Self {
             phase: "idle".into(),
             mode: "check".into(),
+            origin: "manual".into(),
+            auto_waiting: String::new(),
             distribution: "cn".into(),
             install_root: String::new(),
             installed: false,
@@ -67,6 +76,7 @@ impl Default for DownloadStatus {
             stage: String::new(),
             remote_version: String::new(),
             pending_files: 0,
+            checked_at: 0,
             disk_available_bytes: None,
             disk_required_bytes: 0,
             error: String::new(),
@@ -92,6 +102,13 @@ pub(crate) fn busy(phase: &str) -> bool {
 
 pub(crate) fn blocks_changes(status: &DownloadStatus) -> bool {
     busy(&status.phase) && status.mode == "apply"
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
 }
 
 fn publish<R: Runtime>(app: &AppHandle<R>, change: impl FnOnce(&mut DownloadStatus)) {
@@ -178,6 +195,7 @@ fn check_game<R: Runtime>(
         status.full_bytes = total_bytes.saturating_sub(patch_bytes);
         status.disk_available_bytes = disk_available_bytes;
         status.disk_required_bytes = disk_required_bytes;
+        status.checked_at = now_ms();
     });
     Ok(plan)
 }
@@ -213,11 +231,14 @@ const LAUNCHER_WORKERS: usize = 5;
 fn install_launcher_files<R: Runtime>(
     app: &AppHandle<R>,
     plan: &install::LauncherPlan,
+    limit_bytes_per_second: u64,
     cancel: &AtomicBool,
 ) -> Result<(), String> {
     let files = &plan.files;
     let root = &plan.root;
     let zip_bases = &plan.zip_bases;
+    let limiter = RateLimiter::new(limit_bytes_per_second);
+    let limiter = &limiter;
     let workers = LAUNCHER_WORKERS.min(files.len()).max(1);
     let next = AtomicUsize::new(0);
     let stop = AtomicBool::new(false);
@@ -241,10 +262,14 @@ fn install_launcher_files<R: Runtime>(
                     status.current_file_bytes = file.zip_size.unwrap_or(file.size);
                 });
                 let mut progress = |bytes| publish_bytes(&app, bytes);
-                let outcome =
-                    update::apply_file_resumable(root, zip_bases, file, &mut progress, &|| {
-                        cancel.load(Ordering::Relaxed) || stop_ref.load(Ordering::Relaxed)
-                    });
+                let outcome = update::apply_file_resumable_limited(
+                    root,
+                    zip_bases,
+                    file,
+                    limiter,
+                    &mut progress,
+                    &|| cancel.load(Ordering::Relaxed) || stop_ref.load(Ordering::Relaxed),
+                );
                 match outcome {
                     Ok(_) => publish(&app, |status| {
                         status.completed_files += 1;
@@ -312,7 +337,12 @@ fn run_plan<R: Runtime>(
     }
     if mode == "apply" && !launcher_plan.files.is_empty() {
         publish(app, |status| status.phase = "launcher".into());
-        install_launcher_files(app, &launcher_plan, cancel)?;
+        install_launcher_files(
+            app,
+            &launcher_plan,
+            settings.updates.limit_bytes_per_second,
+            cancel,
+        )?;
     }
     if cancel.load(Ordering::Relaxed) {
         publish_cancelled(app);
@@ -413,6 +443,7 @@ fn run_plan<R: Runtime>(
         &game_config,
         &plan,
         &ApplyOptions::default(),
+        settings.updates.limit_bytes_per_second,
         &mut on_file,
         &mut on_bytes,
         &mut on_stage,
@@ -442,6 +473,8 @@ fn run_plan<R: Runtime>(
         status.phase = "ready".into();
         status.completed_files = status.total_files;
         status.pending_files = 0;
+        status.auto_waiting.clear();
+        status.checked_at = now_ms();
         status.current_file.clear();
         status.current_file_bytes = 0;
         status.stage.clear();
@@ -463,6 +496,7 @@ fn prepare_task(
     manager: &DownloadManager,
     mode: &str,
     full: bool,
+    origin: &str,
     cancel: &Arc<AtomicBool>,
 ) -> Result<(DownloadStatus, Settings, bool), String> {
     if mode != "check" && mode != "apply" {
@@ -520,6 +554,7 @@ fn prepare_task(
         inner.status = DownloadStatus {
             phase: "checking".into(),
             mode: mode.into(),
+            origin: origin.into(),
             distribution: settings.distribution.as_str().into(),
             install_root,
             installed,
@@ -532,33 +567,31 @@ fn prepare_task(
     Ok((status, settings, full))
 }
 
-#[tauri::command]
-pub fn game_download_start<R: Runtime>(
-    app: AppHandle<R>,
-    state: State<'_, AppState>,
-    manager: State<'_, DownloadManager>,
-    mode: String,
+/// 启动一轮资源检查或下载, 命令与自动调度共用.
+pub(crate) fn start_task<R: Runtime>(
+    app: &AppHandle<R>,
+    mode: &str,
     full: bool,
+    origin: &str,
 ) -> Result<DownloadStatus, String> {
+    let state = app.state::<AppState>();
+    let manager = app.state::<DownloadManager>();
     let cancel = Arc::new(AtomicBool::new(false));
-    let (status, settings, full) = prepare_task(&state, &manager, &mode, full, &cancel)?;
+    let (status, settings, full) = prepare_task(&state, &manager, mode, full, origin, &cancel)?;
+    let app = app.clone();
+    let mode = mode.to_string();
     let _ = app.emit("game-download-state", status.clone());
     tauri::async_runtime::spawn_blocking(move || {
         let result = run_task(&app, &settings, &mode, full, &cancel);
         if let Err(error) = result {
+            let cancelled = cancel.load(Ordering::Relaxed);
+            if !cancelled {
+                eprintln!("资源任务失败: {error}");
+            }
             publish(&app, |status| {
                 refresh_disk_available(status);
-                status.phase = if cancel.load(Ordering::Relaxed) {
-                    "cancelled"
-                } else {
-                    "failed"
-                }
-                .into();
-                status.error = if cancel.load(Ordering::Relaxed) {
-                    String::new()
-                } else {
-                    error
-                };
+                status.phase = if cancelled { "cancelled" } else { "failed" }.into();
+                status.error = if cancelled { String::new() } else { error };
                 status.stage.clear();
             });
         }
@@ -573,6 +606,47 @@ pub fn game_download_start<R: Runtime>(
         }
     });
     Ok(status)
+}
+
+#[tauri::command]
+pub fn game_download_start<R: Runtime>(
+    app: AppHandle<R>,
+    mode: String,
+    full: bool,
+) -> Result<DownloadStatus, String> {
+    start_task(&app, &mode, full, "manual")
+}
+
+/// 记录自动下载的等待原因, 供界面解释为什么暂未开始.
+pub(crate) fn set_auto_waiting<R: Runtime>(app: &AppHandle<R>, reason: &str) {
+    let manager = app.state::<DownloadManager>();
+    let Ok(mut inner) = manager.inner.lock() else {
+        return;
+    };
+    if inner.status.auto_waiting == reason {
+        return;
+    }
+    inner.status.auto_waiting = reason.to_string();
+    let status = inner.status.clone();
+    let _ = app.emit("game-download-state", status);
+}
+
+/// 请求取消当前任务, 自动调度在暂停时使用.
+pub(crate) fn cancel_task<R: Runtime>(app: &AppHandle<R>) {
+    let manager = app.state::<DownloadManager>();
+    let guard = manager.inner.lock();
+    if let Ok(inner) = guard {
+        if let Some(cancel) = &inner.cancel {
+            cancel.store(true, Ordering::Relaxed);
+        }
+    }
+}
+
+/// 当前下载状态的快照, 自动调度据此决定下一步.
+pub(crate) fn snapshot<R: Runtime>(app: &AppHandle<R>) -> Option<DownloadStatus> {
+    let manager = app.try_state::<DownloadManager>()?;
+    let inner = manager.inner.lock().ok()?;
+    Some(inner.status.clone())
 }
 
 #[tauri::command]

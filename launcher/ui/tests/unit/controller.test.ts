@@ -53,6 +53,14 @@ vi.mock("../../src/core/api", () => ({
     return backend.downloadUnlisten;
   },
 }));
+vi.mock("../../src/core/gamepad", async (original) => ({
+  ...(await original<typeof import("../../src/core/gamepad")>()),
+  startGamepad: () => () => {},
+}));
+// 控制器测试不推进手柄选择层的逐帧布局测量。
+vi.mock("../../src/components/GamepadOverlay.vue", () => ({
+  default: { render: () => null },
+}));
 const notificationProjection = vi.hoisted(() => ({
   items: [] as import("../../src/core/notifications").NotificationItem[],
 }));
@@ -103,6 +111,9 @@ beforeEach(() => {
   backend.downloadStatus = {
     mode: "check",
     phase: "idle",
+    origin: "manual",
+    autoWaiting: "",
+    checkedAt: 0,
     distribution: "cn",
     installRoot: "/game",
     installed: true,
@@ -487,15 +498,54 @@ describe("启动与设置", () => {
       },
     });
     expect(c.ui.saveState).toBe("saved");
-    await vi.advanceTimersByTimeAsync(2000);
+    vi.advanceTimersByTime(2000);
+    await flushPromises();
     expect(c.ui.saveState).toBe("idle");
     Object.assign(c.form, { installRoot: "", globalInstallRoot: "" });
     backend.invoke.mockRejectedValueOnce(new Error("disk full"));
     await c.saveSettings();
     expect(noticeMessage()).toBe("disk full");
     expect(c.ui.saveState).toBe("error");
-    await vi.advanceTimersByTimeAsync(6000);
+    vi.advanceTimersByTime(6000);
+    await flushPromises();
     expect(document.querySelector(".notification-stack")).toBeNull();
+  });
+
+  it("下载限速支持自由填写并保留小数", async () => {
+    const c = await boot();
+    c.openSettings("game");
+    await nextTick();
+    backend.invoke.mockClear();
+
+    const input = document.querySelector<HTMLInputElement>(
+      "#set-download-limit",
+    )!;
+    input.value = "12.5";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(100);
+    await flushPromises();
+    const saved = backend.invoke.mock.calls
+      .filter(([command]) => command === "save_settings")
+      .at(-1);
+    expect(saved).toBeDefined();
+    expect(
+      (saved![1] as { settings: Settings }).settings.updates
+        .limitBytesPerSecond,
+    ).toBe(13107200);
+
+    input.value = "0";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(100);
+    await flushPromises();
+    const cleared = backend.invoke.mock.calls
+      .filter(([command]) => command === "save_settings")
+      .at(-1);
+    expect(
+      (cleared![1] as { settings: Settings }).settings.updates
+        .limitBytesPerSecond,
+    ).toBe(0);
   });
 
   it("文本输入防抖自动保存, 保存状态随后回到空闲", async () => {
@@ -698,6 +748,39 @@ describe("启动与设置", () => {
       document.querySelector<HTMLInputElement>("#set-install")!.disabled,
     ).toBe(false);
     expect(wrapper!.find(".settings-lock").exists()).toBe(false);
+  });
+
+  it("自动检查完成不提示下载完成, 自动更新完成才提示", async () => {
+    const c = await boot();
+    backend.downloadStatus = {
+      ...backend.downloadStatus,
+      origin: "auto",
+      mode: "check",
+      phase: "checking",
+      autoWaiting: "",
+    };
+    backend.downloadHandler({ ...backend.downloadStatus, phase: "ready" });
+    await nextTick();
+    await flushPromises();
+    expect(
+      c.notifications.some((item) => item.key === "auto-download-done"),
+    ).toBe(false);
+
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      mode: "apply",
+      phase: "checking",
+    });
+    backend.downloadHandler({
+      ...backend.downloadStatus,
+      mode: "apply",
+      phase: "ready",
+    });
+    await nextTick();
+    await flushPromises();
+    expect(
+      c.notifications.some((item) => item.key === "auto-download-done"),
+    ).toBe(true);
   });
 
   it("保存中的连续修改串行提交最新快照", async () => {
@@ -2537,7 +2620,7 @@ it("区服切换后隔离公告缓存并丢弃旧请求", async () => {
   expect(localStorage.getItem("nte.bulletins.v2.global")).toBeNull();
   expect(localStorage.getItem("nte.bulletins.v2.cn")).toBeNull();
   expect(wrapper!.findComponent({ name: "HomeGameRecords" }).exists()).toBe(
-    false,
+    true,
   );
 });
 

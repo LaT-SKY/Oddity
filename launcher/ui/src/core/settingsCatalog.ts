@@ -2,6 +2,7 @@ import { reactive } from "vue";
 
 export const settingsCategories = [
   { id: "appearance", label: "外观与交互", icon: "i-monitor" },
+  { id: "gamepad", label: "手柄", icon: "i-game-controller" },
   { id: "game", label: "游戏与启动", icon: "i-game-controller" },
   { id: "runtime", label: "运行环境", icon: "i-hard-drives" },
   { id: "account", label: "账号与签到", icon: "i-users" },
@@ -14,6 +15,13 @@ export const settingsNavigation = reactive<{
 }>({ category: "appearance", query: "" });
 
 export const settingsEntries = [
+  {
+    id: "gamepad",
+    category: "gamepad",
+    label: "手柄",
+    description: "配置手柄操作、按键图标与触觉反馈.",
+    keywords: "DS DualSense DualShock Xbox Switch 手柄 振动 反馈 摇杆",
+  },
   {
     id: "theme",
     category: "appearance",
@@ -85,6 +93,13 @@ export const settingsEntries = [
     keywords: "官方 登录 后台 前台 开发",
   },
   {
+    id: "updates",
+    category: "game",
+    label: "资源自动下载",
+    description: "发现更新后自动下载, 并设置限速、计费网络与时段.",
+    keywords: "自动 更新 下载 限速 带宽 计费 流量 时段 后台",
+  },
+  {
     id: "runtime",
     category: "runtime",
     label: "Proton 运行环境",
@@ -97,6 +112,13 @@ export const settingsEntries = [
     label: "塔吉多签到",
     description: "管理账号、自动签到、签到时机与每日时间.",
     keywords: "账号 登录 密码 验证码 签到 账号管理 社区",
+  },
+  {
+    id: "snapshots",
+    category: "maintenance",
+    label: "环境快照",
+    description: "设置成功判定时长, 对比当前环境与自动基准或参考快照.",
+    keywords: "快照 环境 对比 驱动 Proton prefix 历史 运行时长 判定 稳定",
   },
   {
     id: "logs",

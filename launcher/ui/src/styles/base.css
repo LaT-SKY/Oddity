@@ -74,9 +74,10 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* 手柄位置由 Select 表达, 禁止浏览器与键盘自动绘制外框. */
+:focus,
 :focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 3px;
+  outline: none;
 }
 
 ::-webkit-scrollbar {

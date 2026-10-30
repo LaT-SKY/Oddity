@@ -14,6 +14,7 @@ pub mod environment;
 pub mod error;
 pub mod game;
 pub mod game_mode;
+pub mod gamepad;
 pub mod install;
 pub mod install_lock;
 pub mod launch;
@@ -23,7 +24,10 @@ mod paths;
 pub mod playtime;
 pub mod recovery;
 pub mod settings;
+pub mod snapshots;
+pub mod throttle;
 pub mod update;
+pub mod updates;
 pub mod version;
 
 pub(crate) mod http;
