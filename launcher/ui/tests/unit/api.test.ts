@@ -242,7 +242,7 @@ describe("浏览器命令桥接", () => {
       sourceId: null,
     });
     expect(await invoke("launch_official")).toMatchObject({
-      mode: "official",
+      mode: "background",
       pid: 23140,
     });
     const snapshot = await invoke("game_status");

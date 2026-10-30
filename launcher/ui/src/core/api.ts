@@ -10,6 +10,8 @@ import type {
   CheckResult,
   Settings,
   GameStatus,
+  LaunchProgress,
+  LaunchStage,
   DownloadStatus,
   Commands,
   CommandArgs,
@@ -476,10 +478,55 @@ const previewGame = {
   startedAt: 0,
   exe: preview.gameExe,
   log: "",
+  launch: null as LaunchProgress | null,
 };
+const previewGameListeners = new Set<(status: GameStatus) => void>();
+let previewLaunchTimers: number[] = [];
 
 function previewGameStatus() {
   return clone(previewGame);
+}
+
+function emitPreviewGameStatus() {
+  const status = previewGameStatus();
+  for (const handler of previewGameListeners) handler(status);
+}
+
+function clearPreviewLaunchTimers() {
+  for (const timer of previewLaunchTimers) window.clearTimeout(timer);
+  previewLaunchTimers = [];
+}
+
+function startPreviewLaunch() {
+  clearPreviewLaunchTimers();
+  const startedAt = Date.now();
+  previewGame.running = true;
+  previewGame.closing = false;
+  previewGame.pid = 23140;
+  previewGame.startedAt = startedAt;
+  previewGame.launch = { stage: "preparing", startedAt, cancelling: false };
+  emitPreviewGameStatus();
+  const stages: { stage: LaunchStage; delay: number }[] = [
+    { stage: "helper", delay: 600 },
+    { stage: "resources", delay: 1300 },
+    { stage: "game", delay: 3000 },
+  ];
+  for (const item of stages) {
+    previewLaunchTimers.push(
+      window.setTimeout(() => {
+        if (!previewGame.launch || previewGame.launch.cancelling) return;
+        previewGame.launch = { ...previewGame.launch, stage: item.stage };
+        emitPreviewGameStatus();
+      }, item.delay),
+    );
+  }
+  previewLaunchTimers.push(
+    window.setTimeout(() => {
+      if (!previewGame.launch || previewGame.launch.cancelling) return;
+      previewGame.launch = null;
+      emitPreviewGameStatus();
+    }, 3700),
+  );
 }
 
 function previewSessions(): PlaytimeSession[] {
@@ -538,7 +585,12 @@ const previewAttendance: AttendanceStatus = {
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function listenGameState(handler: (status: GameStatus) => void) {
-  if (!isTauri()) return () => {};
+  if (!isTauri()) {
+    previewGameListeners.add(handler);
+    return () => {
+      previewGameListeners.delete(handler);
+    };
+  }
   let disposed = false;
   let unlisten: (() => void) | null = null;
   listen<GameStatus>("game-state", (event) => handler(event.payload))
@@ -1034,18 +1086,31 @@ async function previewInvoke(
     case "launch_official":
       if (!mock.settings.activeEnvironment)
         throw new Error("请先创建 Proton 运行环境");
-      previewGame.running = true;
-      previewGame.closing = false;
-      previewGame.pid = 23140;
-      previewGame.startedAt = Date.now();
+      startPreviewLaunch();
       return {
-        mode: "official",
+        mode: "background",
         pid: previewGame.pid,
         exe: previewGame.exe,
         prefix: mock.prefix,
         log: "",
         startedAt: previewGame.startedAt,
       };
+    case "cancel_launch":
+      clearPreviewLaunchTimers();
+      if (previewGame.launch) {
+        previewGame.launch = {
+          ...previewGame.launch,
+          cancelling: true,
+        };
+        emitPreviewGameStatus();
+      }
+      await delay(450);
+      previewGame.running = false;
+      previewGame.closing = false;
+      previewGame.pid = 0;
+      previewGame.launch = null;
+      emitPreviewGameStatus();
+      return previewGameStatus();
     case "game_mode_tuning_info":
       return { pinCores: null, parkCores: null, renice: null, ioprio: null };
     case "game_mode_tuning_apply":
@@ -1094,7 +1159,10 @@ async function previewInvoke(
       return destination;
     }
     case "close_game":
+      clearPreviewLaunchTimers();
       previewGame.closing = true;
+      previewGame.launch = null;
+      emitPreviewGameStatus();
       await delay(850);
       previewGame.running = false;
       previewGame.closing = false;
@@ -1105,6 +1173,7 @@ async function previewInvoke(
         mode: "background",
         distribution: "cn",
       });
+      emitPreviewGameStatus();
       return previewGameStatus();
     case "win_minimize":
     case "win_toggle_maximize":

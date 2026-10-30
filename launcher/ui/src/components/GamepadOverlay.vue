@@ -204,9 +204,21 @@ const hints = computed<GamepadHint[]>(() => {
       },
       { id: "back", buttons: ["back"], label: "返回" },
     ];
-  if (state.page === "home" && !local.value)
+  if (state.page === "home" && !local.value) {
+    const launching = state.game === "launching";
+    const running = state.game === "running";
+    const closing = state.game === "closing";
+    const launch = launching
+      ? state.launch?.cancelling
+        ? { id: "pause", label: "正在暂停" }
+        : { id: "pause", label: "暂停启动" }
+      : running
+        ? { id: "close", label: "关闭游戏" }
+        : closing
+          ? { id: "close", label: "正在关闭" }
+          : { id: "launch", label: "启动" };
     return [
-      { id: "launch", buttons: ["west"], label: "启动" },
+      { ...launch, buttons: ["west"] },
       {
         id: "player",
         buttons: ["north"],
@@ -214,6 +226,7 @@ const hints = computed<GamepadHint[]>(() => {
       },
       { id: "page", buttons: ["lb", "rb"], label: "切页" },
     ];
+  }
   if (selectOpen.value)
     return [
       { id: "move", buttons: ["move"], label: "选择" },

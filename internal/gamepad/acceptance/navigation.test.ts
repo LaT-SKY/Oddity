@@ -5,7 +5,7 @@ vi.mock("../../../launcher/ui/src/core/controller", async () => {
   const { reactive } = await import("vue");
   const { defaultGamepadOptions } =
     await import("../../../launcher/ui/src/types/gamepad");
-  const state = reactive({ page: "settings" });
+  const state = reactive({ page: "settings", game: "idle" });
   return {
     state,
     form: reactive({ gamepad: defaultGamepadOptions(), reduceMotion: true }),
@@ -247,6 +247,18 @@ describe("手柄导航", () => {
     await navigation.press(3);
     await navigation.press(1);
     expect(playerExpanded.value).toBe(false);
+  });
+  it("启动中默认焦点落在整个启动按钮上", async () => {
+    state.page = "home";
+    state.game = "launching";
+    region(
+      '<section class="page is-active"><div id="launch-region" data-pad-region tabindex="-1"><button id="launch-btn" aria-disabled="true">启动</button><button id="launch-pause-btn" data-pad-skip>暂停</button></div></section>',
+    );
+    navigation.refresh();
+    expect(gamepadTarget.value?.id).toBe("launch-region");
+    await navigation.press(12);
+    expect(gamepadTarget.value?.id).not.toBe("launch-pause-btn");
+    state.game = "idle";
   });
   it("肩键直接切页", async () => {
     region(
