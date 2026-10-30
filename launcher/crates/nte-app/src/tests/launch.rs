@@ -662,6 +662,35 @@ fn launch_records_an_environment_snapshot() {
 }
 
 #[test]
+fn snapshot_inputs_follow_the_managed_environment() {
+    let fixture = LaunchFixture::new("snapshot-inputs");
+    let config = fixture.launcher.join("UserData/Config");
+    std::fs::create_dir_all(&config).unwrap();
+    std::fs::write(config.join("Config.ini"), "[Game]\nVersion_=1.4.16\n").unwrap();
+
+    let inputs = snapshot_commands::current_inputs(&fixture.settings("direct"));
+    assert_eq!(inputs.distribution, Distribution::Cn);
+    assert_eq!(
+        inputs.environment_id.as_deref(),
+        Some(fixture.profile.id.as_str())
+    );
+    assert_eq!(inputs.environment_name.as_deref(), Some("测试环境"));
+    assert_eq!(inputs.proton_name.as_deref(), Some("GE-Proton9-1"));
+    assert!(inputs.proton_ok);
+    assert_eq!(inputs.prefix.as_deref(), Some(fixture.prefix.as_path()));
+    assert!(inputs.prefix_ok);
+    assert_eq!(inputs.game_version.as_deref(), Some("1.4.16"));
+    assert_eq!(inputs.launcher_version.as_deref(), Some("1.4.16"));
+    assert_eq!(
+        inputs.launcher_root.as_deref(),
+        Some(fixture.launcher.as_path())
+    );
+    assert_eq!(inputs.launch_mode, "direct");
+    assert!(!inputs.gamescope.enabled);
+    assert!(inputs.umu.is_some());
+}
+
+#[test]
 fn immediate_exit_marks_the_snapshot_failed() {
     let fixture = LaunchFixture::new("snapshot-failure");
     write_script(&fixture.dir.join("bin"), "umu-run", "#!/bin/sh\nexit 3\n");

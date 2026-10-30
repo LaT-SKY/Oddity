@@ -263,3 +263,121 @@ pub fn launch_mode_label(mode: &str) -> &str {
         other => other,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snapshot() -> Snapshot {
+        Snapshot {
+            launcher: Launcher {
+                version: "0.1.0".into(),
+                package: "系统安装".into(),
+            },
+            system: System {
+                os: Some("Test Linux".into()),
+                kernel: Some("6.0.0".into()),
+                session: Some("wayland".into()),
+                desktop: Some("KDE".into()),
+            },
+            graphics: Graphics {
+                gpus: vec![Gpu {
+                    pci_id: "10DE:2684".into(),
+                    slot: Some("0000:01:00.0".into()),
+                    driver: Some("nvidia".into()),
+                    driver_version: Some("550.54".into()),
+                }],
+                opengl: Some(Opengl {
+                    vendor: Some("NVIDIA Corporation".into()),
+                    renderer: Some("NVIDIA GeForce RTX 4090".into()),
+                    version: Some("4.6.0 NVIDIA 550.54".into()),
+                }),
+            },
+            game: Game {
+                distribution: Distribution::Cn,
+                install_root: Some("/game".into()),
+                launcher_root: Some("/game/NTELauncher".into()),
+                version: Some("1.0.7".into()),
+                launcher_version: Some("1.4.16".into()),
+            },
+            runtime: Runtime {
+                environment_id: Some("environment-a".into()),
+                environment_name: Some("稳定 A".into()),
+                proton_name: Some("GE-Proton9-20".into()),
+                proton_identity: Some("pin-a".into()),
+                proton_ok: true,
+                prefix: Some("/prefix".into()),
+                prefix_ok: true,
+                launch_mode: "direct".into(),
+                gamescope: Gamescope::default(),
+                umu: Some("/usr/bin/umu-run".into()),
+            },
+        }
+    }
+
+    #[test]
+    fn log_line_contains_session_graphics_and_game() {
+        let mut snapshot = snapshot();
+        let line = snapshot.log_line();
+        assert!(line.contains("oddity=0.1.0"));
+        assert!(line.contains("session=wayland/KDE"));
+        assert!(line.contains("graphics=NVIDIA GeForce RTX 4090 4.6.0 NVIDIA 550.54"));
+        assert!(line.contains("game=1.0.7"));
+
+        snapshot.system.desktop = None;
+        assert!(snapshot.log_line().contains("session=wayland"));
+
+        snapshot.system.session = None;
+        snapshot.graphics.opengl = None;
+        snapshot.graphics.gpus.clear();
+        snapshot.game.version = None;
+        let line = snapshot.log_line();
+        assert!(!line.contains("session="));
+        assert!(!line.contains("graphics="));
+        assert!(!line.contains("game="));
+    }
+
+    #[test]
+    fn graphics_summary_falls_back_to_gpu_driver() {
+        let mut snapshot = snapshot();
+        snapshot.graphics.opengl = None;
+        assert_eq!(snapshot.graphics.summary(), "nvidia 550.54");
+        snapshot.graphics.gpus[0].driver_version = None;
+        assert_eq!(snapshot.graphics.summary(), "nvidia");
+        snapshot.graphics.gpus.clear();
+        assert_eq!(snapshot.graphics.summary(), "");
+    }
+
+    #[test]
+    fn gamescope_and_labels_cover_fallbacks() {
+        assert_eq!(Gamescope::default().summary(), "关闭");
+        assert_eq!(
+            Gamescope {
+                enabled: true,
+                ..Default::default()
+            }
+            .summary(),
+            "开启 (默认分辨率, 不限帧)"
+        );
+        assert_eq!(
+            Gamescope {
+                enabled: true,
+                width: 1280,
+                height: 720,
+                fps: 60,
+            }
+            .summary(),
+            "开启 (1280x720, 60 FPS)"
+        );
+        assert_eq!(distribution_label(Distribution::Cn), "国服");
+        assert_eq!(distribution_label(Distribution::Global), "国际服");
+        assert_eq!(session_label("wayland"), "Wayland");
+        assert_eq!(session_label("x11"), "X11");
+        assert_eq!(session_label("tty"), "终端");
+        assert_eq!(session_label("other"), "other");
+        assert_eq!(launch_mode_label("direct"), "直接启动");
+        assert_eq!(launch_mode_label("background"), "后台启动");
+        assert_eq!(launch_mode_label("official"), "前台启动");
+        assert_eq!(launch_mode_label("other"), "other");
+    }
+}

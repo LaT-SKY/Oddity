@@ -22,6 +22,7 @@ mod presence;
 mod process;
 mod proton;
 mod settings;
+mod snapshots;
 
 /// 独占进程环境变量并在测试结束时恢复。
 pub struct EnvGuard {

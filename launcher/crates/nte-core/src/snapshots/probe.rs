@@ -319,4 +319,55 @@ mod tests {
         assert!(!is_card("renderD128"));
         assert!(!is_card("card"));
     }
+
+    #[test]
+    fn probes_system_and_gpu_inventory() {
+        let system = system();
+        assert!(system.kernel.is_some());
+        assert!(system.os.is_some());
+        assert!(matches!(
+            package().as_str(),
+            "AppImage" | "Flatpak" | "Nix" | "系统安装"
+        ));
+        for gpu in gpu_cards() {
+            assert!(!gpu.pci_id.is_empty());
+            assert!(gpu.slot.is_some());
+        }
+    }
+
+    #[test]
+    fn reads_trimmed_files_and_pci_ids() {
+        let dir = crate::testing::TempDir::new("snapshots-probe");
+        let value = dir.write("value", "  hello\n");
+        assert_eq!(read_trim(value.to_str().unwrap()).as_deref(), Some("hello"));
+        let empty = dir.write("empty", "\n");
+        assert_eq!(read_trim(empty.to_str().unwrap()), None);
+        assert_eq!(read_trim(dir.join("missing").to_str().unwrap()), None);
+
+        let device = dir.join("device");
+        fs::create_dir_all(&device).unwrap();
+        fs::write(device.join("vendor"), "0x10de\n").unwrap();
+        fs::write(device.join("device"), "0x2684\n").unwrap();
+        assert_eq!(pci_ids(&device).as_deref(), Some("10DE:2684"));
+        fs::write(device.join("device"), "bad\n").unwrap();
+        assert_eq!(pci_ids(&device), None);
+        fs::remove_file(device.join("vendor")).unwrap();
+        assert_eq!(pci_ids(&device), None);
+    }
+
+    #[test]
+    fn captures_command_output_and_timeouts() {
+        let output = probe_output("sh", &["-c", "printf 'hello'"], Duration::from_secs(1));
+        assert_eq!(output.as_deref(), Some("hello"));
+        assert!(probe_output("true", &[], Duration::from_secs(1)).is_none());
+        assert!(probe_output("sh", &["-c", "sleep 1"], Duration::from_millis(20)).is_none());
+        assert!(probe_output(
+            "definitely-missing-snapshot-command",
+            &[],
+            Duration::from_millis(20)
+        )
+        .is_none());
+        assert_eq!(driver_version("snapshot-probe-missing"), None);
+        assert_eq!(driver_version("bad/name"), None);
+    }
 }
