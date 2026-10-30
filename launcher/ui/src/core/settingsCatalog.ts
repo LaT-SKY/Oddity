@@ -114,6 +114,13 @@ export const settingsEntries = [
     keywords: "账号 登录 密码 验证码 签到 账号管理 社区",
   },
   {
+    id: "snapshots",
+    category: "maintenance",
+    label: "环境快照",
+    description: "对比当前环境与上次成功启动或参考快照.",
+    keywords: "快照 环境 对比 驱动 Proton prefix 历史",
+  },
+  {
     id: "logs",
     category: "maintenance",
     label: "导出日志",

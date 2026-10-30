@@ -32,6 +32,7 @@ import DirectoryField from "../components/DirectoryField.vue";
 import SettingGroup from "../components/settings/SettingGroup.vue";
 import SettingRow from "../components/settings/SettingRow.vue";
 import LogExport from "../components/LogExport.vue";
+import EnvironmentSnapshots from "../components/EnvironmentSnapshots.vue";
 import GamepadSettings from "../components/GamepadSettings.vue";
 import type { MeteredPolicy } from "../types/launcher";
 
@@ -40,10 +41,14 @@ const { control, surface, reduced } = useControlMotion();
 const [, animate] = useAnimate();
 // 分类面板按首次访问挂载, 避免启动时构建全部设置项。
 const visited = reactive(new Set<SettingsCategory>(["appearance"]));
+const snapshotRevision = ref(0);
 watch(
   () => [state.page, navigation.category] as const,
   ([page, category]) => {
     if (page === "settings") visited.add(category);
+    if (page === "settings" && category === "maintenance") {
+      snapshotRevision.value += 1;
+    }
   },
   { immediate: true },
 );
@@ -726,6 +731,9 @@ const isActive = computed(() => state.page === "settings");
                 </div>
               </template>
               <template v-else-if="visited.has(category.id)">
+                <div data-setting="snapshots" tabindex="-1">
+                  <EnvironmentSnapshots :revision="snapshotRevision" />
+                </div>
                 <div data-setting="logs" tabindex="-1"><LogExport /></div>
                 <div data-setting="diagnostics" tabindex="-1">
                   <SettingGroup title="运行诊断"

@@ -641,3 +641,43 @@ fn live_background_launch(distribution: Distribution, root_key: &str) {
     assert!(started, "official game did not start");
     assert!(monitored.is_ok(), "monitor: {monitored:?}");
 }
+
+#[test]
+fn launch_records_an_environment_snapshot() {
+    let fixture = LaunchFixture::new("snapshot-launch");
+    let snapshots = snapshot_commands::Snapshots::load(&data_dir());
+    let invocation = launch_impl_with_snapshots(&fixture.settings("direct"), &snapshots).unwrap();
+    let dump = fixture.dump();
+    assert!(dump.contains("HTGame.exe"), "{dump}");
+
+    let overview = snapshots.overview().unwrap();
+    let latest = overview.latest.expect("snapshot");
+    assert_eq!(latest.environment.as_deref(), Some("测试环境"));
+    assert_eq!(latest.proton.as_deref(), Some("GE-Proton9-1"));
+    assert_eq!(latest.mode, "direct");
+    assert_eq!(latest.status, nte_core::snapshots::Status::Starting);
+    let log = std::fs::read_to_string(&invocation.result.log).unwrap();
+    assert!(log.contains("oddity="), "{log}");
+    fixture.stop(invocation);
+}
+
+#[test]
+fn immediate_exit_marks_the_snapshot_failed() {
+    let fixture = LaunchFixture::new("snapshot-failure");
+    write_script(&fixture.dir.join("bin"), "umu-run", "#!/bin/sh\nexit 3\n");
+    let snapshots = snapshot_commands::Snapshots::load(&data_dir());
+    let error = expect_launch_error(launch_impl_with_snapshots(
+        &fixture.settings("direct"),
+        &snapshots,
+    ));
+    assert!(error.contains("退出码 3"), "{error}");
+
+    let latest = snapshots.overview().unwrap().latest.expect("snapshot");
+    assert_eq!(latest.status, nte_core::snapshots::Status::Failed);
+    let failure = latest.failure.expect("failure");
+    assert_eq!(
+        failure.reason,
+        nte_core::snapshots::FailureReason::EarlyExit
+    );
+    assert_eq!(failure.exit_code, Some(3));
+}

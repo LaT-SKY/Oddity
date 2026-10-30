@@ -1541,7 +1541,13 @@ async function launchGame() {
     if (epoch !== generation) return;
     if (status && !status.running) {
       setLaunchState("idle");
-      notify(status.error || "游戏进程已退出，启动未完成。", "error", 7000);
+      notify(status.error || "游戏进程已退出，启动未完成。", "error", 7000, {
+        primary: {
+          label: "查看环境差异",
+          icon: "i-shield-check",
+          run: () => openSettings("maintenance"),
+        },
+      });
       return;
     }
 
@@ -1564,6 +1570,13 @@ async function launchGame() {
       error instanceof Error ? error.message : String(error),
       "error",
       7500,
+      {
+        primary: {
+          label: "查看环境差异",
+          icon: "i-shield-check",
+          run: () => openSettings("maintenance"),
+        },
+      },
     );
   }
 }
