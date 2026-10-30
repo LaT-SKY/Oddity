@@ -7,6 +7,7 @@ import BaseModal from "./BaseModal.vue";
 import BaseSelect from "./BaseSelect.vue";
 import SettingGroup from "./settings/SettingGroup.vue";
 import SettingRow from "./settings/SettingRow.vue";
+import SnapshotDiffList from "./SnapshotDiffList.vue";
 import { invoke } from "../core/api";
 import { notify } from "../core/notifications";
 import type {
@@ -334,21 +335,6 @@ function statusLabel(status: SnapshotStatus) {
   }
 }
 
-function diffStatusLabel(status: SnapshotDiffRow["status"]) {
-  switch (status) {
-    case "same":
-      return "未变化";
-    case "changed":
-      return "已变化";
-    case "unknown":
-      return "无法比较";
-    case "added":
-      return "新增";
-    case "removed":
-      return "移除";
-  }
-}
-
 function failureText(failure: SnapshotFailure) {
   if (failure.reason === "spawn") return "启动进程失败";
   if (failure.reason === "interrupted") return "应用退出时未结束";
@@ -368,14 +354,6 @@ function truncateLabel(value: string) {
   return Array.from(value).slice(0, 32).join("");
 }
 
-function sameTextChanged(row: SnapshotDiffRow) {
-  return (
-    row.status === "changed" &&
-    row.baseline !== null &&
-    row.baseline === row.current
-  );
-}
-
 watch(
   () => props.revision,
   () => {
@@ -393,10 +371,7 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="snapshot-settings">
-    <SettingGroup
-      title="环境快照"
-      description="记录每次启动的系统与运行环境, 便于对比变化."
-    >
+    <SettingGroup title="环境快照">
       <SettingRow
         label="自动基准判定"
         description="游戏连续运行满该时长后, 本次启动会成为自动基准. 修改后下次启动生效."
@@ -413,19 +388,21 @@ onBeforeUnmount(() => {
       </div>
       <p v-show="error" class="field__hint" role="alert">{{ error }}</p>
       <div v-show="overview" class="snapshot-content">
-        <SettingRow label="参考快照" :description="referenceDescription">
+        <SettingRow
+          label="参考快照"
+          :description="referenceDescription"
+          class="snapshot-reference-row"
+        >
           <div class="snapshot-actions">
             <BaseButton
               v-if="hasReference"
               data-testid="compare-reference"
-              size="sm"
               @click="openCompare('reference')"
               >对比当前环境</BaseButton
             >
             <BaseButton
               v-if="hasReference"
               data-testid="replace-reference"
-              size="sm"
               variant="ghost"
               @click="openSave"
               >替换</BaseButton
@@ -433,7 +410,6 @@ onBeforeUnmount(() => {
             <BaseButton
               v-if="hasReference"
               data-testid="delete-reference"
-              size="sm"
               variant="danger"
               @click="openDelete"
               >删除</BaseButton
@@ -441,7 +417,6 @@ onBeforeUnmount(() => {
             <BaseButton
               v-if="!hasReference"
               data-testid="save-reference"
-              size="sm"
               icon="i-plus"
               @click="openSave"
               >保存当前环境为参考</BaseButton
@@ -452,7 +427,6 @@ onBeforeUnmount(() => {
           <BaseButton
             v-if="hasBaseline"
             data-testid="compare-baseline"
-            size="sm"
             @click="openCompare('baseline')"
             >对比当前环境</BaseButton
           >
@@ -463,17 +437,12 @@ onBeforeUnmount(() => {
             >还没有启动记录</span
           >
         </SettingRow>
-        <div class="snapshot-footer">
+        <div v-if="hasHistory" class="snapshot-footer">
           <BaseButton
-            v-if="hasHistory"
             data-testid="clear-history"
-            size="sm"
             variant="ghost"
             @click="openClear"
             >清除启动历史</BaseButton
-          >
-          <small class="field__hint"
-            >快照仅保存在本机; 不包含 prefix 内部文件或游戏文件.</small
           >
         </div>
       </div>
@@ -491,14 +460,12 @@ onBeforeUnmount(() => {
       <div class="snapshot-compare">
         <div class="snapshot-targets" role="group" aria-label="对比基准">
           <BaseButton
-            size="sm"
             :variant="compareTarget === 'baseline' ? 'primary' : 'ghost'"
             :disabled="!hasBaseline"
             @click="selectTarget('baseline')"
             >上次成功</BaseButton
           >
           <BaseButton
-            size="sm"
             :variant="compareTarget === 'reference' ? 'primary' : 'ghost'"
             :disabled="!hasReference"
             @click="selectTarget('reference')"
@@ -520,84 +487,22 @@ onBeforeUnmount(() => {
             >
           </p>
 
-          <div v-if="changedGroups.length" class="snapshot-table-wrap">
-            <table class="snapshot-table" aria-label="变化项">
-              <thead>
-                <tr>
-                  <th scope="col">项目</th>
-                  <th scope="col">{{ comparisonTargetLabel }}</th>
-                  <th scope="col">当前环境</th>
-                  <th scope="col">状态</th>
-                </tr>
-              </thead>
-              <tbody>
-                <template
-                  v-for="group in changedGroups"
-                  :key="'changed-' + group.section"
-                >
-                  <tr class="snapshot-table__section">
-                    <th colspan="4">{{ group.section }}</th>
-                  </tr>
-                  <tr v-for="row in group.rows" :key="row.key">
-                    <th scope="row">{{ row.label }}</th>
-                    <td :class="{ 'is-missing': row.baseline === null }">
-                      {{ row.baseline ?? "未采集" }}
-                    </td>
-                    <td :class="{ 'is-missing': row.current === null }">
-                      {{ row.current ?? "未采集" }}
-                    </td>
-                    <td>
-                      <span
-                        class="snapshot-status"
-                        :class="'is-' + row.status"
-                        >{{ diffStatusLabel(row.status) }}</span
-                      >
-                      <small v-if="sameTextChanged(row)">标识已变化</small>
-                    </td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
-          </div>
+          <SnapshotDiffList
+            v-if="changedGroups.length"
+            :groups="changedGroups"
+            :target-label="comparisonTargetLabel"
+            aria-label="变化项"
+          />
 
-          <div v-if="unknownGroups.length" class="snapshot-table-wrap">
-            <h3 class="snapshot-table__title">
+          <div v-if="unknownGroups.length" class="snapshot-unknown">
+            <h3 class="snapshot-list-heading">
               无法比较 ({{ unknownRows.length }})
             </h3>
-            <table class="snapshot-table" aria-label="无法比较的项">
-              <thead>
-                <tr>
-                  <th scope="col">项目</th>
-                  <th scope="col">{{ comparisonTargetLabel }}</th>
-                  <th scope="col">当前环境</th>
-                  <th scope="col">状态</th>
-                </tr>
-              </thead>
-              <tbody>
-                <template
-                  v-for="group in unknownGroups"
-                  :key="'unknown-' + group.section"
-                >
-                  <tr class="snapshot-table__section">
-                    <th colspan="4">{{ group.section }}</th>
-                  </tr>
-                  <tr v-for="row in group.rows" :key="row.key">
-                    <th scope="row">{{ row.label }}</th>
-                    <td :class="{ 'is-missing': row.baseline === null }">
-                      {{ row.baseline ?? "未采集" }}
-                    </td>
-                    <td :class="{ 'is-missing': row.current === null }">
-                      {{ row.current ?? "未采集" }}
-                    </td>
-                    <td>
-                      <span class="snapshot-status is-unknown">{{
-                        diffStatusLabel(row.status)
-                      }}</span>
-                    </td>
-                  </tr>
-                </template>
-              </tbody>
-            </table>
+            <SnapshotDiffList
+              :groups="unknownGroups"
+              :target-label="comparisonTargetLabel"
+              aria-label="无法比较的项"
+            />
           </div>
 
           <p
@@ -612,38 +517,11 @@ onBeforeUnmount(() => {
             v-model="showUnchanged"
             :title="'未变化 (' + sameRows.length + ')'"
           >
-            <div class="snapshot-table-wrap">
-              <table class="snapshot-table" aria-label="未变化的项">
-                <thead>
-                  <tr>
-                    <th scope="col">项目</th>
-                    <th scope="col">{{ comparisonTargetLabel }}</th>
-                    <th scope="col">当前环境</th>
-                    <th scope="col">状态</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <template
-                    v-for="group in sameGroups"
-                    :key="'same-' + group.section"
-                  >
-                    <tr class="snapshot-table__section">
-                      <th colspan="4">{{ group.section }}</th>
-                    </tr>
-                    <tr v-for="row in group.rows" :key="row.key">
-                      <th scope="row">{{ row.label }}</th>
-                      <td>{{ row.baseline ?? "未采集" }}</td>
-                      <td>{{ row.current ?? "未采集" }}</td>
-                      <td>
-                        <span class="snapshot-status is-same">{{
-                          diffStatusLabel(row.status)
-                        }}</span>
-                      </td>
-                    </tr>
-                  </template>
-                </tbody>
-              </table>
-            </div>
+            <SnapshotDiffList
+              :groups="sameGroups"
+              :target-label="comparisonTargetLabel"
+              aria-label="未变化的项"
+            />
           </BaseDisclosure>
         </template>
       </div>
@@ -754,6 +632,9 @@ onBeforeUnmount(() => {
   color: var(--muted);
   font-size: var(--text-sm);
 }
+.snapshot-settings .setting-row.snapshot-reference-row {
+  grid-template-columns: minmax(0, 1fr);
+}
 .snapshot-actions {
   display: flex;
   flex-wrap: wrap;
@@ -764,7 +645,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px 16px;
   padding-top: var(--space-16);
 }
@@ -794,71 +675,15 @@ onBeforeUnmount(() => {
   font-size: var(--text-md);
   font-weight: var(--weight-medium);
 }
-.snapshot-table-wrap {
-  overflow-x: auto;
+.snapshot-unknown {
+  display: grid;
+  gap: 8px;
 }
-.snapshot-table {
-  width: 100%;
-  min-width: 540px;
-  border-collapse: collapse;
-  font-size: var(--text-sm);
-  line-height: 1.6;
-}
-.snapshot-table th,
-.snapshot-table td {
-  padding: 8px 10px 8px 0;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
-.snapshot-table thead th {
-  color: var(--muted);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-}
-.snapshot-table tbody th[scope="row"] {
-  color: var(--bone);
-  font-weight: var(--weight-medium);
-}
-.snapshot-table__section th {
-  padding-top: 14px;
-  border-bottom: 0;
-  color: var(--muted);
-  font-size: var(--text-xs);
-  font-weight: var(--weight-medium);
-}
-.snapshot-table__title {
-  margin: 0 0 6px;
+.snapshot-list-heading {
+  margin: 0;
   color: var(--muted);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
-}
-.snapshot-table td.is-missing {
-  color: var(--faint);
-}
-.snapshot-status {
-  display: inline-block;
-  color: var(--muted);
-  font-size: var(--text-xs);
-  white-space: nowrap;
-}
-.snapshot-status.is-changed,
-.snapshot-status.is-added,
-.snapshot-status.is-removed {
-  color: var(--warn);
-}
-.snapshot-status.is-unknown {
-  color: var(--faint);
-}
-.snapshot-status.is-same {
-  color: var(--muted);
-}
-.snapshot-status + small {
-  display: block;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: var(--text-xs);
 }
 .snapshot-form label {
   color: var(--bone);

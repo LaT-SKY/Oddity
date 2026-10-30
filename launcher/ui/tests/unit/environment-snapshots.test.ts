@@ -189,6 +189,9 @@ describe("环境快照", () => {
     expect(settingsText()).toContain("启动失败");
     expect(settingsText()).toContain("提前退出 (退出码 3)");
     expect(settingsText()).toContain("上次成功启动");
+    expect(settingsText()).not.toContain("记录每次启动的系统与运行环境");
+    expect(settingsText()).not.toContain("快照仅保存在本机");
+    expect(wrapper.findAll(".control-button--sm")).toHaveLength(0);
   });
 
   it("提供 1/5/10/30 分钟的成功判定选项", async () => {
@@ -223,6 +226,8 @@ describe("环境快照", () => {
     expect(panel.textContent).toContain("Proton");
     expect(panel.textContent).toContain("OpenGL 驱动");
     expect(panel.textContent).toContain("无法比较");
+    expect(panel.querySelector("table")).toBeNull();
+    expect(panel.querySelector(".snapshot-list")).not.toBeNull();
     expect(panel.textContent).not.toContain("会话类型");
     const disclosure = panel.querySelector<HTMLElement>(
       ".control-disclosure__trigger",
