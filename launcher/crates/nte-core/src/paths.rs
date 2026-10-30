@@ -1,4 +1,5 @@
 use std::fs;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -14,6 +15,15 @@ pub(crate) struct TemporaryFile {
 
 impl TemporaryFile {
     pub fn new(destination: &Path) -> Result<Self> {
+        Self::create(destination, None)
+    }
+
+    /// 创建临时文件时立即设置权限, 避免写入期间以默认权限暴露内容.
+    pub fn with_mode(destination: &Path, mode: u32) -> Result<Self> {
+        Self::create(destination, Some(mode))
+    }
+
+    fn create(destination: &Path, mode: Option<u32>) -> Result<Self> {
         for _ in 0..64 {
             let mut name = destination.as_os_str().to_os_string();
             name.push(format!(
@@ -22,12 +32,12 @@ impl TemporaryFile {
                 NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
             ));
             let path = PathBuf::from(name);
-            match fs::OpenOptions::new()
-                .write(true)
-                .read(true)
-                .create_new(true)
-                .open(&path)
-            {
+            let mut options = fs::OpenOptions::new();
+            options.write(true).read(true).create_new(true);
+            if let Some(mode) = mode {
+                options.mode(mode);
+            }
+            match options.open(&path) {
                 Ok(file) => return Ok(Self { file, path }),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
                 Err(error) => return Err(error.into()),
@@ -87,4 +97,20 @@ pub(crate) fn ensure_no_symlink(root: &Path, relative: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testing::TempDir;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn private_temporary_file_is_created_with_restricted_mode() {
+        let dir = TempDir::new("temporary-file-mode");
+        let target = dir.join("snapshot.json");
+        let temp = TemporaryFile::with_mode(&target, 0o600).unwrap();
+        let mode = fs::metadata(&temp.path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
+    }
 }

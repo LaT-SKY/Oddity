@@ -519,6 +519,8 @@ it("模拟环境快照的对比, 参考保存和清理", async () => {
   const { invoke } = await import("../../src/core/api");
   const overview = await invoke("environment_snapshot_overview");
   expect(overview.reference?.label).toBe("更新驱动前");
+  expect(overview.baseline?.proton).toBe("GE-Proton9-20");
+  expect(overview.latest?.proton).toBe("GE-Proton9-21");
 
   const comparison = await invoke("environment_snapshot_compare", {
     target: "baseline",

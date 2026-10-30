@@ -225,15 +225,16 @@ impl Snapshot {
             proton_name,
             Some(format!("{proton_identity}|{}", self.runtime.proton_ok)),
         ));
-        let prefix = self
-            .runtime
-            .prefix
-            .clone()
-            .unwrap_or_else(|| "不可用".into());
+        let prefix = match (&self.runtime.prefix, self.runtime.prefix_ok) {
+            (Some(path), true) => path.clone(),
+            (Some(path), false) => format!("{path}（不可用）"),
+            (None, _) => "不可用".into(),
+        };
         let prefix_identity = format!(
-            "{}|{}",
+            "{}|{}|{}",
             self.runtime.environment_id.as_deref().unwrap_or("未选择"),
-            self.runtime.prefix.as_deref().unwrap_or("不可用")
+            self.runtime.prefix.as_deref().unwrap_or("不可用"),
+            self.runtime.prefix_ok
         );
         rows.push(Row::with_compare(
             "运行环境",
@@ -475,6 +476,20 @@ mod tests {
         let proton = row(&diff, "runtime.proton");
         assert_eq!(proton.status, DiffStatus::Changed);
         assert_eq!(proton.baseline, proton.current);
+    }
+
+    #[test]
+    fn an_unavailable_prefix_is_a_change_even_with_the_same_path() {
+        let baseline = snapshot();
+        let mut current = snapshot();
+        current.runtime.prefix_ok = false;
+        let diff = Diff::between(&baseline, &current);
+        let prefix = row(&diff, "runtime.prefix");
+        assert_eq!(prefix.status, DiffStatus::Changed);
+        assert!(prefix
+            .current
+            .as_deref()
+            .is_some_and(|value| value.contains("不可用")));
     }
 
     #[test]

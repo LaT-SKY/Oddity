@@ -249,16 +249,10 @@ function previewSnapshotProton() {
 }
 
 function previewSnapshotOverview(): SnapshotOverview {
-  const environment = previewSnapshotEnvironment();
-  const proton = previewSnapshotProton();
   return {
-    baseline: previewSnapshotBaseline
-      ? { ...previewSnapshotBaseline, environment, proton }
-      : null,
+    baseline: previewSnapshotBaseline ? { ...previewSnapshotBaseline } : null,
     reference: previewSnapshotReference,
-    latest: previewSnapshotLatest
-      ? { ...previewSnapshotLatest, environment, proton }
-      : null,
+    latest: previewSnapshotLatest ? { ...previewSnapshotLatest } : null,
     attempts: previewSnapshotAttempts,
   };
 }

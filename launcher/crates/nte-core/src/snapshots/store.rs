@@ -4,7 +4,6 @@
 use std::collections::HashSet;
 use std::fs;
 use std::io::{BufWriter, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -436,14 +435,12 @@ fn save_data(path: &Path, data: &Data) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let temp = TemporaryFile::new(path)?;
+    let temp = TemporaryFile::with_mode(path, 0o600)?;
     let mut writer = BufWriter::new(&temp.file);
     serde_json::to_writer_pretty(&mut writer, data)
         .map_err(|error| Error::Parse(format!("写入环境快照失败: {error}")))?;
     writer.flush()?;
     drop(writer);
-    temp.file
-        .set_permissions(fs::Permissions::from_mode(0o600))?;
     temp.commit(path, &|| false)
 }
 
@@ -473,6 +470,7 @@ mod tests {
     use crate::snapshots::SUCCESS_AFTER_MS;
     use crate::snapshots::{Game, Gamescope, Graphics, Launcher, Runtime, System};
     use crate::testing::TempDir;
+    use std::os::unix::fs::PermissionsExt;
 
     fn snapshot(tag: &str) -> Snapshot {
         Snapshot {
