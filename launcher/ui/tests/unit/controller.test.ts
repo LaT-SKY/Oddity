@@ -1695,6 +1695,21 @@ describe("游戏会话", () => {
     expect(button("launch-pause-btn").disabled).toBe(false);
   });
 
+  it.each(["official", "direct"])("%s 启动不提供暂停入口", async (mode) => {
+    backend.data.settings.launchMode = mode;
+    const c = await boot();
+    button("launch-btn").click();
+    await nextTick();
+    expect(c.state.game).toBe("launching");
+    expect(c.launchView.value.pauseAvailable).toBe(false);
+    expect(c.launchView.value.label).toBe("正在启动");
+    expect(document.getElementById("launch-pause-btn")).toBeNull();
+    await c.pauseLaunch();
+    c.handleLaunchAction();
+    await flushPromises();
+    expect(backend.invoke).not.toHaveBeenCalledWith("cancel_launch");
+  });
+
   it("后台阶段完成时收起窗口并只隐藏一次", async () => {
     const c = await boot();
     backend.invoke.mockResolvedValueOnce({ pid: 123, mode: "background" });

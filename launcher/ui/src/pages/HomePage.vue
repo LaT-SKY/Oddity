@@ -30,8 +30,11 @@ const displayedLabel = ref(label.value);
 const labelVisible = ref(true);
 let labelTimeline: ReturnType<typeof createTimeline> | undefined;
 watch(label, (next) => {
-  if (next === displayedLabel.value) return;
   labelTimeline?.cancel();
+  if (next === displayedLabel.value) {
+    labelVisible.value = true;
+    return;
+  }
   if (reduced.value) {
     displayedLabel.value = next;
     labelVisible.value = true;
@@ -136,7 +139,7 @@ function handleMainLaunchClick() {
               </motion.button>
               <AnimatePresence>
                 <motion.div
-                  v-if="state.game === 'launching'"
+                  v-if="launchView.pauseAvailable"
                   class="hero__launch-sub"
                   :initial="{ opacity: 0, scale: 0.78 }"
                   :animate="{ opacity: 1, scale: 1 }"

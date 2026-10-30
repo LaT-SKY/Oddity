@@ -167,8 +167,10 @@ describe("浏览器命令桥接", () => {
     await invoke("launch_official");
     await vi.advanceTimersByTimeAsync(600);
     expect(statuses.at(-1)?.launch?.stage).toBe("helper");
+    const clear = vi.spyOn(window, "clearTimeout");
     const cancelling = invoke("cancel_launch");
     await vi.advanceTimersByTimeAsync(1);
+    expect(clear).toHaveBeenCalledTimes(4);
     expect(statuses.at(-1)?.launch).toMatchObject({
       stage: "helper",
       cancelling: true,
@@ -176,7 +178,13 @@ describe("浏览器命令桥接", () => {
     await vi.advanceTimersByTimeAsync(450);
     expect(await cancelling).toMatchObject({ running: false, launch: null });
     expect(statuses.at(-1)?.running).toBe(false);
+    clear.mockRestore();
     dispose();
+
+    const before = statuses.length;
+    await invoke("launch_official");
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(statuses.length).toBe(before);
   });
 
   it("使用默认路径并返回互不共享的启动快照", async () => {
@@ -289,6 +297,7 @@ describe("浏览器命令桥接", () => {
     expect(snapshot.running).toBe(true);
     snapshot.running = false;
     expect((await invoke("game_status")).running).toBe(true);
+    const clear = vi.spyOn(window, "clearTimeout");
     const closing = invoke("close_game");
     expect((await invoke("game_status")).closing).toBe(true);
     await vi.advanceTimersByTimeAsync(850);
@@ -297,6 +306,10 @@ describe("浏览器命令桥接", () => {
       closing: false,
       pid: 0,
     });
+    expect(clear).toHaveBeenCalledTimes(4);
+    clear.mockRestore();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect((await invoke("game_status")).launch).toBeNull();
     const playtime = await invoke("playtime_history");
     expect(playtime.sessions.length).toBeGreaterThan(0);
     expect(playtime.active).toBeNull();

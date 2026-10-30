@@ -497,10 +497,15 @@ export function setHeroVideo(video: HTMLVideoElement | null) {
 export const displayVersion = computed(
   () => state.bootstrap?.appVersion || APP_VERSION,
 );
+export const launchPauseAvailable = computed(
+  () => state.game === "launching" && form.launchMode === "background",
+);
 export const launchView = computed(() => {
   const launching = state.game === "launching";
+  const pauseAvailable = launchPauseAvailable.value;
   const pausing =
-    launching && (launchCancelRequested || Boolean(state.launch?.cancelling));
+    pauseAvailable &&
+    (launchCancelRequested || Boolean(state.launch?.cancelling));
   const busy =
     runtimeEnvironmentBusy.value ||
     launching ||
@@ -515,8 +520,10 @@ export const launchView = computed(() => {
     ? {
         label: pausing
           ? "正在暂停"
-          : (LAUNCH_STAGE_LABELS[state.launch?.stage ?? "preparing"] ??
-            "正在启动"),
+          : pauseAvailable
+            ? (LAUNCH_STAGE_LABELS[state.launch?.stage ?? "preparing"] ??
+              "正在启动")
+            : "正在启动",
         icon: "i-play",
       }
     : state.game === "idle" &&
@@ -526,7 +533,7 @@ export const launchView = computed(() => {
           icon: "i-download-simple",
         }
       : LAUNCH_COPY[state.game];
-  return { ...copy, busy, disabled, pausing };
+  return { ...copy, busy, disabled, pausing, pauseAvailable };
 });
 function downloadNeedsWork() {
   return (
@@ -1690,7 +1697,7 @@ async function launchGame() {
 
 export async function pauseLaunch() {
   const epoch = generation;
-  if (state.game !== "launching") return;
+  if (!launchPauseAvailable.value) return;
   if (launchCancelRequested || state.launch?.cancelling) return;
   launchCancelRequested = true;
   if (state.launch) state.launch = { ...state.launch, cancelling: true };
