@@ -322,7 +322,11 @@ impl Diff {
                     label: baseline_row.label.clone(),
                     baseline: baseline_row.value.clone(),
                     current: None,
-                    status: DiffStatus::Removed,
+                    status: if baseline_row.value.is_some() {
+                        DiffStatus::Removed
+                    } else {
+                        DiffStatus::Unknown
+                    },
                 }),
             }
         }
@@ -336,7 +340,11 @@ impl Diff {
                 label: current_row.label.clone(),
                 baseline: None,
                 current: current_row.value.clone(),
-                status: DiffStatus::Added,
+                status: if current_row.value.is_some() {
+                    DiffStatus::Added
+                } else {
+                    DiffStatus::Unknown
+                },
             });
         }
         let changed = rows
@@ -491,6 +499,32 @@ mod tests {
         }
         assert!(row(&diff, "runtime.environment").current.as_deref() == Some("未选择"));
         assert!(row(&diff, "runtime.umu").current.as_deref() == Some("未找到"));
+    }
+
+    #[test]
+    fn empty_gpu_placeholders_are_unknown_not_removed() {
+        let mut baseline = snapshot();
+        baseline.graphics.gpus.clear();
+        let mut current = snapshot();
+        current.graphics.gpus = vec![Gpu {
+            pci_id: "1002:164E".into(),
+            slot: Some("0000:06:00.0".into()),
+            driver: Some("amdgpu".into()),
+            driver_version: None,
+        }];
+        let diff = Diff::between(&baseline, &current);
+        let placeholder = row(&diff, "graphics.gpu");
+        assert_eq!(placeholder.status, DiffStatus::Unknown);
+        assert!(placeholder.baseline.is_none());
+        assert!(!diff
+            .rows
+            .iter()
+            .any(|row| row.status == DiffStatus::Removed));
+        assert_eq!(diff.changed, 1);
+        assert!(diff
+            .rows
+            .iter()
+            .any(|row| row.status == DiffStatus::Added && row.label.contains("1002")));
     }
 
     #[test]

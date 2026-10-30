@@ -499,29 +499,35 @@ fn watch_game_exit<R: tauri::Runtime>(
                     }
                 }
             }
-            if game_running && snapshot_running_at.is_none() {
-                let now = now_millis();
-                if let (Some(store), Some(id)) = (snapshots.as_ref(), session.snapshot.as_deref()) {
-                    store.mark_running(id, now);
-                }
-                snapshot_running_at = Some(now);
-            }
-            if let (Some(start), false) = (snapshot_running_at, snapshot_success) {
-                let now = now_millis();
-                if now.saturating_sub(start) >= nte_core::snapshots::SUCCESS_AFTER_MS {
+            if game_running {
+                if snapshot_running_at.is_none() {
+                    let now = now_millis();
                     if let (Some(store), Some(id)) =
                         (snapshots.as_ref(), session.snapshot.as_deref())
                     {
-                        let version = session
-                            .launcher_root
-                            .as_ref()
-                            .map(|root| game_version_for(root))
-                            .filter(|version| !version.is_empty());
-                        snapshot_success = store.mark_success(id, now, version);
-                    } else {
-                        snapshot_success = true;
+                        store.mark_running(id, now);
+                    }
+                    snapshot_running_at = Some(now);
+                }
+                if let (Some(start), false) = (snapshot_running_at, snapshot_success) {
+                    let now = now_millis();
+                    if now.saturating_sub(start) >= nte_core::snapshots::SUCCESS_AFTER_MS {
+                        if let (Some(store), Some(id)) =
+                            (snapshots.as_ref(), session.snapshot.as_deref())
+                        {
+                            let version = session
+                                .launcher_root
+                                .as_ref()
+                                .map(|root| game_version_for(root))
+                                .filter(|version| !version.is_empty());
+                            snapshot_success = store.mark_success(id, now, version);
+                        } else {
+                            snapshot_success = true;
+                        }
                     }
                 }
+            } else {
+                snapshot_running_at = None;
             }
             if game_running && !playtime_started && Instant::now() >= start_retry_at {
                 let started = if let Some(playtime) = &playtime {
@@ -616,12 +622,11 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
         done.store(true, Ordering::Release);
         if let Some(snapshots) = app.try_state::<snapshot_commands::Snapshots>() {
             if let Some(id) = session.snapshot.as_deref() {
-                let failure = result.as_ref().err().map(|error| {
-                    let mut failure = nte_core::snapshots::Failure::early_exit(exit_code);
+                let mut failure = nte_core::snapshots::Failure::early_exit(exit_code);
+                if let Some(error) = result.as_ref().err() {
                     failure.detail = Some(error.clone());
-                    failure
-                });
-                snapshots.finish(id, failure);
+                }
+                snapshots.finish(id, Some(failure));
             }
         }
         if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {

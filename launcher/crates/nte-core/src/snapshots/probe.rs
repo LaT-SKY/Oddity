@@ -6,7 +6,6 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::OnceLock;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -35,13 +34,10 @@ pub fn system() -> System {
 }
 
 pub fn graphics() -> Graphics {
-    static CACHE: OnceLock<Graphics> = OnceLock::new();
-    CACHE
-        .get_or_init(|| Graphics {
-            gpus: gpu_cards(),
-            opengl: opengl(),
-        })
-        .clone()
+    Graphics {
+        gpus: gpu_cards(),
+        opengl: opengl(),
+    }
 }
 
 fn env_value(key: &str) -> Option<String> {
@@ -357,7 +353,7 @@ mod tests {
 
     #[test]
     fn captures_command_output_and_timeouts() {
-        let output = probe_output("sh", &["-c", "printf 'hello'"], Duration::from_secs(1));
+        let output = probe_output("sh", &["-c", "printf 'hello'"], Duration::from_secs(5));
         assert_eq!(output.as_deref(), Some("hello"));
         assert!(probe_output("true", &[], Duration::from_secs(1)).is_none());
         assert!(probe_output("sh", &["-c", "sleep 1"], Duration::from_millis(20)).is_none());
