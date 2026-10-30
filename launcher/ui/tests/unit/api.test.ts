@@ -139,6 +139,46 @@ describe("浏览器命令桥接", () => {
     ).rejects.toThrow("不存在");
   });
 
+  it("预览启动按阶段广播进度并支持暂停", async () => {
+    const { invoke, listenGameState } = await import("../../src/core/api");
+    const statuses: GameStatus[] = [];
+    const dispose = listenGameState((status) => statuses.push(status));
+    await invoke("environment_create", {
+      distribution: "cn",
+      name: "测试",
+      protonPath: "/proton",
+      sourceId: null,
+    });
+    await invoke("launch_official");
+    expect(statuses.at(-1)?.launch).toMatchObject({
+      stage: "preparing",
+      cancelling: false,
+    });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(statuses.at(-1)?.launch?.stage).toBe("helper");
+    await vi.advanceTimersByTimeAsync(700);
+    expect(statuses.at(-1)?.launch?.stage).toBe("resources");
+    await vi.advanceTimersByTimeAsync(1700);
+    expect(statuses.at(-1)?.launch?.stage).toBe("game");
+    await vi.advanceTimersByTimeAsync(700);
+    expect(statuses.at(-1)?.launch).toBeNull();
+    expect(statuses.at(-1)?.running).toBe(true);
+
+    await invoke("launch_official");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(statuses.at(-1)?.launch?.stage).toBe("helper");
+    const cancelling = invoke("cancel_launch");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(statuses.at(-1)?.launch).toMatchObject({
+      stage: "helper",
+      cancelling: true,
+    });
+    await vi.advanceTimersByTimeAsync(450);
+    expect(await cancelling).toMatchObject({ running: false, launch: null });
+    expect(statuses.at(-1)?.running).toBe(false);
+    dispose();
+  });
+
   it("使用默认路径并返回互不共享的启动快照", async () => {
     const { invoke, listenGameState } = await import("../../src/core/api");
     const first = await invoke("bootstrap");
