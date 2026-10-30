@@ -104,6 +104,12 @@ Debian, Arch 和 Gentoo 安装包会声明该依赖; AppImage, RPM 和源码构�
 
 这通常出现在从源码运行后直接安装桌面入口的情况. 发布版会内嵌前端文件, 开发模式则依赖 Vite 服务. 处理方式见[安装指南](install.md#从源码构建).
 
+### 桌面动作没有启动游戏
+
+先确认启动失败时是否出现 `异环启动失败` 或 `NTE 启动失败` 桌面通知. 没有通知时检查当前桌面是否提供 `org.freedesktop.Notifications`, 并查看 `~/.local/share/oddity/logs/` 下的启动日志.
+
+如果提示需要创建运行环境, 先在 **设置 → 运行环境** 中选择对应地区并创建环境. 同一地区有多个环境时, 使用 `oddity --launch --region ... --environment <名称>` 指定. 详细参数见[外部启动入口](external-launch.md).
+
 ## 游戏
 
 ### 游戏启动失败或卡住

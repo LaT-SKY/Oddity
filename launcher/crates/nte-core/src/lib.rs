@@ -20,6 +20,7 @@ pub mod install_lock;
 pub mod launch;
 pub mod logs;
 pub mod manifest;
+pub mod notifications;
 mod paths;
 pub mod playtime;
 pub mod recovery;

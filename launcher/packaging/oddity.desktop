@@ -15,7 +15,19 @@ Keywords=game;launcher;NTE;异环;
 StartupNotify=true
 StartupWMClass=oddity
 X-KDE-StartupWMClass=oddity
-Actions=Recovery;
+Actions=LaunchCn;LaunchGlobal;Recovery;
+
+[Desktop Action LaunchCn]
+Name=异环
+Name[zh_CN]=异环
+Exec=oddity --launch --region cn --launch-mode background
+Icon=oddity
+
+[Desktop Action LaunchGlobal]
+Name=NTE
+Name[zh_CN]=NTE
+Exec=oddity --launch --region global --launch-mode background
+Icon=oddity
 
 [Desktop Action Recovery]
 Name=Emergency Recovery

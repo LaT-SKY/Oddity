@@ -1,8 +1,8 @@
 import { defaultAttendanceTasks } from "../../src/core/attendanceTasks";
 import { APP_VERSION } from "../../src/core/version";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { settings } from "./fixtures";
-import type { GameStatus } from "../../src/types/launcher";
+import { bootstrap, settings } from "./fixtures";
+import type { Bootstrap, GameStatus } from "../../src/types/launcher";
 
 const native = vi.hoisted(() => ({
   enabled: false,
@@ -293,6 +293,48 @@ describe("原生命令和事件", () => {
     });
     expect(native.invoke).toHaveBeenCalledWith("save_settings", { settings });
     await expect(invoke("bootstrap")).rejects.toThrow("offline");
+  });
+
+  it("传递设置变更事件并在订阅完成后解除监听", async () => {
+    const { listenSettingsChanged } = await import("../../src/core/api");
+    const stop = vi.fn();
+    native.listen.mockResolvedValue(stop);
+    const handler = vi.fn();
+    const dispose = listenSettingsChanged(handler);
+    const callback = native.listen.mock.calls[0][1] as (event: {
+      payload: Bootstrap;
+    }) => void;
+    const payload = bootstrap({ installRoot: "/games/global" });
+    callback({ payload });
+    expect(handler).toHaveBeenCalledWith(payload);
+    await Promise.resolve();
+    dispose();
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("设置变更订阅完成前解除也能释放资源", async () => {
+    const { listenSettingsChanged } = await import("../../src/core/api");
+    let resolve!: (stop: () => void) => void;
+    native.listen.mockReturnValue(
+      new Promise<() => void>((done) => {
+        resolve = done;
+      }),
+    );
+    const dispose = listenSettingsChanged(vi.fn());
+    dispose();
+    const stop = vi.fn();
+    resolve(stop);
+    await Promise.resolve();
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("设置变更监听注册失败时不产生未处理的拒绝", async () => {
+    const { listenSettingsChanged } = await import("../../src/core/api");
+    native.listen.mockRejectedValue(new Error("listener failed"));
+    const dispose = listenSettingsChanged(vi.fn());
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(dispose).not.toThrow();
   });
 
   it("传递事件快照并在订阅完成后解除监听", async () => {

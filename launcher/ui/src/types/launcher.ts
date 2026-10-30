@@ -412,6 +412,7 @@ export interface Commands {
   open_url: null;
   launch_official: LaunchResult;
   game_status: GameStatus;
+  take_launch_error: string | null;
   playtime_history: PlaytimeHistory;
   playtime_export_poster: string;
   game_mode_status: GameModeStatus;
@@ -481,6 +482,7 @@ export interface CommandArgs {
   open_url: { url: string };
   launch_official: undefined;
   game_status: undefined;
+  take_launch_error: undefined;
   playtime_history: undefined;
   playtime_export_poster: { destination: string; data: string };
   game_mode_status: undefined;

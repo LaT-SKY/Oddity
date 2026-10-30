@@ -22,21 +22,26 @@ function requireFile(relativePath) {
 }
 
 function parseDesktopEntry(text) {
-  const values = new Map();
-  let section = "";
+  return parseDesktopSections(text).get("Desktop Entry") ?? new Map();
+}
+
+function parseDesktopSections(text) {
+  const sections = new Map();
+  let current = null;
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
-    if (trimmed.startsWith("[")) section = trimmed;
-    if (section !== "[Desktop Entry]") continue;
-    if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("[")) {
+    if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+      current = new Map();
+      sections.set(trimmed.slice(1, -1), current);
       continue;
     }
+    if (!current || !trimmed || trimmed.startsWith("#")) continue;
     const index = trimmed.indexOf("=");
     if (index > 0) {
-      values.set(trimmed.slice(0, index), trimmed.slice(index + 1));
+      current.set(trimmed.slice(0, index), trimmed.slice(index + 1));
     }
   }
-  return values;
+  return sections;
 }
 
 const desktopPath = "launcher/packaging/oddity.desktop";
@@ -58,6 +63,22 @@ for (const [key, expected] of [
 
 if (!desktop.get("Categories")?.split(";").includes("Game")) {
   fail(`${desktopPath}: Categories 里应该包含 Game`);
+}
+
+const desktopSections = parseDesktopSections(read(desktopPath));
+const desktopActions = (desktop.get("Actions") ?? "").split(";").filter(Boolean);
+for (const [action, name, exec] of [
+  ["LaunchCn", "异环", "oddity --launch --region cn --launch-mode background"],
+  ["LaunchGlobal", "NTE", "oddity --launch --region global --launch-mode background"],
+]) {
+  if (!desktopActions.includes(action)) fail(`${desktopPath}: Actions 中缺少 ${action}`);
+  const values = desktopSections.get(`Desktop Action ${action}`);
+  if (!values) {
+    fail(`${desktopPath}: 缺少 [Desktop Action ${action}]`);
+    continue;
+  }
+  if (values.get("Name") !== name) fail(`${desktopPath}: ${action} 的 Name 应该是 "${name}"`);
+  if (values.get("Exec") !== exec) fail(`${desktopPath}: ${action} 的 Exec 应该是 "${exec}"`);
 }
 
 const recoveryDesktopPath = "launcher/packaging/oddity-recovery.desktop";
@@ -252,6 +273,8 @@ for (const [file, needles] of [
 const installer = read("launcher/scripts/install-desktop.sh");
 for (const needle of [
   "oddity.desktop",
+  "--launch --region cn",
+  "--launch --region global",
   "app-icon.svg",
   "crates/nte-app/icons",
 ]) {

@@ -327,6 +327,173 @@ fn action_impl(
     Ok(bootstrap_impl(&next))
 }
 
+/// 外部启动时选择并持久化地区与运行环境.
+#[derive(Debug, Clone)]
+pub struct LaunchSelection {
+    pub settings: Settings,
+    pub changed: bool,
+}
+
+fn resolve_launch_target(
+    settings: &Settings,
+    region: Option<Distribution>,
+    environment: Option<&str>,
+) -> Result<(Distribution, String), String> {
+    if let Some(value) = environment {
+        let found = if let Some(entry) = settings
+            .runtime_environments
+            .iter()
+            .find(|entry| entry.id == value)
+        {
+            entry
+        } else {
+            let mut matches = settings
+                .runtime_environments
+                .iter()
+                .filter(|entry| entry.name == value);
+            let first = matches
+                .next()
+                .ok_or_else(|| format!("运行环境不存在: {value}"))?;
+            if matches.next().is_some() {
+                return Err(format!("运行环境名称重复: {value}. 请改用环境 ID."));
+            }
+            first
+        };
+        if let Some(region) = region {
+            if found.distribution != region {
+                return Err(format!(
+                    "运行环境「{}」属于{}, 与 --region {} 不一致.",
+                    found.name,
+                    found.distribution.label(),
+                    region.as_str()
+                ));
+            }
+        }
+        let mut target = settings.clone();
+        target.distribution = found.distribution;
+        let launcher = crate::detect_launcher_root(&target).ok_or_else(|| {
+            format!(
+                "尚未找到{}安装, 请先在 Oddity 中完成安装.",
+                found.distribution.label()
+            )
+        })?;
+        let install = crate::effective_install_root(&target, Some(&launcher));
+        if !found.matches(&install, found.distribution) {
+            return Err(format!(
+                "运行环境「{}」与当前游戏安装目录不匹配, 请重新选择环境.",
+                found.name
+            ));
+        }
+        return Ok((found.distribution, found.id.clone()));
+    }
+
+    let region = region.ok_or("缺少游戏地区")?;
+    let mut target = settings.clone();
+    target.distribution = region;
+    let launcher = crate::detect_launcher_root(&target)
+        .ok_or_else(|| format!("尚未找到{}安装, 请先在 Oddity 中完成安装.", region.label()))?;
+    let install = crate::effective_install_root(&target, Some(&launcher));
+    let candidates: Vec<&RuntimeEnvironment> = settings
+        .runtime_environments
+        .iter()
+        .filter(|entry| entry.matches(&install, region))
+        .collect();
+    if candidates.is_empty() {
+        return Err(format!(
+            "尚未为{}创建运行环境, 请先在 Oddity 中创建.",
+            region.label()
+        ));
+    }
+    let active = settings.active_environment.as_deref();
+    let stable = settings.stable_environment.as_deref();
+    let chosen = candidates
+        .iter()
+        .find(|entry| active == Some(entry.id.as_str()))
+        .or_else(|| {
+            candidates
+                .iter()
+                .find(|entry| stable == Some(entry.id.as_str()))
+        })
+        .copied()
+        .or_else(|| (candidates.len() == 1).then(|| candidates[0]));
+    if let Some(chosen) = chosen {
+        return Ok((region, chosen.id.clone()));
+    }
+    let names = candidates
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "{}有多个运行环境 ({}), 请使用 --environment 指定.",
+        region.label(),
+        names
+    ))
+}
+
+/// 解析请求地区与环境, 必要时切换并持久化. 没有指定时沿用当前设置.
+pub fn select_for_launch(
+    state: &AppState,
+    downloads: &crate::download_commands::DownloadManager,
+    region: Option<Distribution>,
+    environment: Option<&str>,
+) -> Result<LaunchSelection, String> {
+    if region.is_none() && environment.is_none() {
+        let settings = state
+            .settings
+            .lock()
+            .map_err(|error| error.to_string())?
+            .clone();
+        return Ok(LaunchSelection {
+            settings,
+            changed: false,
+        });
+    }
+
+    let current = state
+        .settings
+        .lock()
+        .map_err(|error| error.to_string())?
+        .clone();
+    let (distribution, environment_id) = resolve_launch_target(&current, region, environment)?;
+    if current.distribution == distribution
+        && current.active_environment.as_deref() == Some(environment_id.as_str())
+    {
+        return Ok(LaunchSelection {
+            settings: current,
+            changed: false,
+        });
+    }
+
+    let task = Task::begin(state, downloads)?;
+    let mut settings = state.settings.lock().map_err(|error| error.to_string())?;
+    let snapshot = settings.clone();
+    let (distribution, environment_id) = resolve_launch_target(&snapshot, region, environment)?;
+    if snapshot.distribution == distribution
+        && snapshot.active_environment.as_deref() == Some(environment_id.as_str())
+    {
+        drop(settings);
+        drop(task);
+        return Ok(LaunchSelection {
+            settings: snapshot,
+            changed: false,
+        });
+    }
+
+    let mut next = snapshot;
+    next.distribution = distribution;
+    next.active_environment = Some(environment_id);
+    validate_selection(&next)?;
+    persist_settings(&next)?;
+    *settings = next.clone();
+    drop(settings);
+    drop(task);
+    Ok(LaunchSelection {
+        settings: next,
+        changed: true,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -739,5 +906,178 @@ mod tests {
         assert_eq!(ready.trim(), "ready");
         assert!(result.unwrap_err().contains("仍被进程"));
         fixture.create("B", Some(&a.id), "Proton-B").unwrap();
+    }
+
+    #[test]
+    fn launch_selection_switches_region_and_environment() {
+        let fixture = Fixture::new();
+        fixture.install_global();
+        let a = fixture.first();
+        let created = fixture.create_global("国际服", None).unwrap();
+        let global = created
+            .settings
+            .runtime_environments
+            .last()
+            .unwrap()
+            .clone();
+        assert_eq!(created.settings.distribution, Distribution::Cn);
+
+        let selection = select_for_launch(
+            &fixture.state,
+            &fixture.downloads,
+            Some(Distribution::Global),
+            None,
+        )
+        .unwrap();
+        assert!(selection.changed);
+        assert_eq!(selection.settings.distribution, Distribution::Global);
+        assert_eq!(
+            selection.settings.active_environment.as_deref(),
+            Some(global.id.as_str())
+        );
+        assert_eq!(crate::load_settings().distribution, Distribution::Global);
+        assert_eq!(
+            crate::load_settings().active_environment.as_deref(),
+            Some(global.id.as_str())
+        );
+
+        let selection = select_for_launch(
+            &fixture.state,
+            &fixture.downloads,
+            Some(Distribution::Cn),
+            Some(&a.id),
+        )
+        .unwrap();
+        assert!(selection.changed);
+        assert_eq!(selection.settings.distribution, Distribution::Cn);
+        assert_eq!(
+            selection.settings.active_environment.as_deref(),
+            Some(a.id.as_str())
+        );
+
+        let selection =
+            select_for_launch(&fixture.state, &fixture.downloads, None, Some("A")).unwrap();
+        assert!(!selection.changed);
+        assert_eq!(
+            selection.settings.active_environment.as_deref(),
+            Some(a.id.as_str())
+        );
+    }
+
+    #[test]
+    fn launch_selection_validates_region_environment_and_install() {
+        let fixture = Fixture::new();
+        let a = fixture.first();
+        let error = select_for_launch(
+            &fixture.state,
+            &fixture.downloads,
+            Some(Distribution::Global),
+            None,
+        )
+        .unwrap_err();
+        assert!(error.contains("尚未找到国际服安装"));
+        assert!(
+            select_for_launch(&fixture.state, &fixture.downloads, None, Some("missing"),).is_err()
+        );
+        let error = select_for_launch(
+            &fixture.state,
+            &fixture.downloads,
+            Some(Distribution::Global),
+            Some("A"),
+        )
+        .unwrap_err();
+        assert!(error.contains("不一致"));
+        let selection = select_for_launch(
+            &fixture.state,
+            &fixture.downloads,
+            Some(Distribution::Cn),
+            None,
+        )
+        .unwrap();
+        assert!(!selection.changed);
+        assert_eq!(
+            selection.settings.active_environment.as_deref(),
+            Some(a.id.as_str())
+        );
+    }
+
+    #[test]
+    fn launch_selection_requires_environment_when_region_is_ambiguous() {
+        let fixture = Fixture::new();
+        fixture.install_global();
+        let a = fixture.first();
+        let b = fixture
+            .create("B", Some(&a.id), "Proton-B")
+            .unwrap()
+            .settings
+            .runtime_environments
+            .last()
+            .unwrap()
+            .clone();
+        let global = fixture
+            .create_global("国际服", None)
+            .unwrap()
+            .settings
+            .runtime_environments
+            .last()
+            .unwrap()
+            .clone();
+        fixture.action("switch", Some(&global.id)).unwrap();
+        fixture.action("keep", Some(&global.id)).unwrap();
+        let error = select_for_launch(
+            &fixture.state,
+            &fixture.downloads,
+            Some(Distribution::Cn),
+            None,
+        )
+        .unwrap_err();
+        assert!(error.contains("多个运行环境"));
+        assert!(error.contains('A') && error.contains('B'));
+        let selection = select_for_launch(
+            &fixture.state,
+            &fixture.downloads,
+            Some(Distribution::Cn),
+            Some("B"),
+        )
+        .unwrap();
+        assert_eq!(
+            selection.settings.active_environment.as_deref(),
+            Some(b.id.as_str())
+        );
+    }
+
+    #[test]
+    fn launch_selection_keeps_current_settings_without_arguments() {
+        let fixture = Fixture::new();
+        fixture.first();
+        let before = crate::load_settings();
+        let selection = select_for_launch(&fixture.state, &fixture.downloads, None, None).unwrap();
+        assert!(!selection.changed);
+        assert_eq!(selection.settings.distribution, before.distribution);
+        assert_eq!(
+            selection.settings.active_environment,
+            before.active_environment
+        );
+    }
+
+    #[test]
+    fn launch_selection_honors_busy_state() {
+        let fixture = Fixture::new();
+        fixture.install_global();
+        let _a = fixture.first();
+        fixture.create_global("国际服", None).unwrap();
+        fixture.state.game.lock().unwrap().starting = true;
+        let error = select_for_launch(
+            &fixture.state,
+            &fixture.downloads,
+            Some(Distribution::Global),
+            None,
+        )
+        .unwrap_err();
+        assert!(error.contains("正在进行"));
+        assert_eq!(
+            fixture.state.settings.lock().unwrap().distribution,
+            Distribution::Cn
+        );
     }
 }
