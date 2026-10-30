@@ -40,7 +40,7 @@ function identityChanged(row: SnapshotDiffRow) {
   <div class="snapshot-list" role="region" :aria-label="ariaLabel">
     <section
       v-for="group in groups"
-      :key="group.section"
+      :key="group.rows[0].key"
       class="snapshot-list__group"
     >
       <h3 class="snapshot-list__section">{{ group.section }}</h3>
