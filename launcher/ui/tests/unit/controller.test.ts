@@ -19,9 +19,11 @@ const backend = vi.hoisted(() => ({
   native: true,
   unlisten: vi.fn(),
   downloadUnlisten: vi.fn(),
+  settingsUnlisten: vi.fn(),
   stopResize: vi.fn(),
   invoke: vi.fn(),
   handler: (_status: GameStatus) => {},
+  settingsHandler: (_data: Bootstrap) => {},
   playtimeStarted: () => {},
   playtimeUnlisten: vi.fn(),
   downloadHandler: (_status: DownloadStatus) => {},
@@ -51,6 +53,10 @@ vi.mock("../../src/core/api", () => ({
   listenDownloadState: (handler: (status: DownloadStatus) => void) => {
     backend.downloadHandler = handler;
     return backend.downloadUnlisten;
+  },
+  listenSettingsChanged: (handler: (data: Bootstrap) => void) => {
+    backend.settingsHandler = handler;
+    return backend.settingsUnlisten;
   },
 }));
 vi.mock("../../src/core/gamepad", async (original) => ({
@@ -102,7 +108,9 @@ beforeEach(() => {
   backend.native = true;
   backend.unlisten.mockClear();
   backend.downloadUnlisten.mockClear();
+  backend.settingsUnlisten.mockClear();
   backend.stopResize.mockClear();
+  backend.settingsHandler = () => {};
   backend.data = bootstrap();
   backend.result = check();
   backend.status = session();
@@ -2531,6 +2539,30 @@ it("签到保存失败明确提示并保留错误状态", async () => {
   expect(c.notifications[0]?.kind).toBe("error");
   expect(c.ui.saveState).toBe("error");
   expect(c.attendance.busy).toBe(false);
+});
+
+it("外部启动切换地区后刷新设置表单", async () => {
+  const c = await boot();
+  const data = structuredClone(backend.data);
+  data.settings.distribution = "global";
+  data.settings.globalInstallRoot = "/games/global";
+  data.installRoot = "/games/global";
+  backend.settingsHandler(data);
+  await nextTick();
+  expect(c.state.bootstrap?.settings.distribution).toBe("global");
+  expect(c.form.distribution).toBe("global");
+});
+
+it("外部启动失败的错误在初始化后提示", async () => {
+  const original = backend.invoke.getMockImplementation()!;
+  backend.invoke.mockImplementation(async (command, args) => {
+    if (command === "take_launch_error") return "异环启动失败: 缺少运行环境";
+    return original(command, args);
+  });
+  const c = await boot();
+  expect(
+    c.notifications.some((item) => item.message.includes("异环启动失败")),
+  ).toBe(true);
 });
 
 it("短信控制器保留未保存偏好, 发送失败复位并阻止并发", async () => {

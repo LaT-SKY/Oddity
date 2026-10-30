@@ -16,6 +16,7 @@ use std::time::Duration;
 
 mod bootstrap;
 mod env;
+mod external_launch;
 mod launch;
 mod paths;
 mod presence;
@@ -277,4 +278,13 @@ fn serve(mut stream: TcpStream, state: &Arc<Mutex<ServerState>>) -> std::io::Res
     stream.write_all(head.as_bytes())?;
     stream.write_all(&body)?;
     stream.flush()
+}
+
+#[test]
+fn notification_body_keeps_short_messages_and_truncates_long_ones() {
+    assert_eq!(crate::notification_body("启动失败"), "启动失败");
+    let message = "错".repeat(900);
+    let body = crate::notification_body(&message);
+    assert_eq!(body.chars().count(), 801);
+    assert!(body.ends_with('…'));
 }

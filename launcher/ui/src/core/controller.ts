@@ -23,6 +23,7 @@ import {
   listenGameState,
   listenDownloadState,
   listenPlaytimeStarted,
+  listenSettingsChanged,
 } from "./api";
 import { notify, resetNotifications } from "./notifications";
 export { notify, notifications } from "./notifications";
@@ -2155,6 +2156,14 @@ export async function init() {
     }),
   );
   disposers.push(listenDownloadState(applyDownloadStatus));
+  disposers.push(
+    listenSettingsChanged((data) => {
+      // 外部启动已写入新设置, 丢弃尚未提交的旧表单, 避免随后覆盖.
+      cancelAutoSaveTimer();
+      autoSaveQueued = false;
+      applyBootstrap(data, false);
+    }),
+  );
   watchWindowShape();
   await syncGameStatus();
   if (epoch !== generation) return;
@@ -2172,6 +2181,12 @@ export async function init() {
       6500,
     );
   }
+
+  // 冷启动失败且桌面通知不可用时, 后端会把错误留在这里.
+  try {
+    const launchError = await invoke("take_launch_error");
+    if (epoch === generation && launchError) notify(launchError, "error", 7500);
+  } catch {}
 
   void loadDownloadStatus();
   void fetchBulletins();

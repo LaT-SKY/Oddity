@@ -6,6 +6,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use std::collections::{HashMap, HashSet};
+use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::os::unix::ffi::OsStrExt;
@@ -34,6 +35,7 @@ use nte_core::{update, version};
 
 mod attendance_commands;
 mod background_server;
+mod cli;
 mod download_commands;
 mod environment_commands;
 mod file_commands;
@@ -2074,40 +2076,59 @@ fn launch_impl_inner(
     })
 }
 
+fn launch_settings(state: &AppState) -> Result<Settings, String> {
+    state
+        .settings
+        .lock()
+        .map_err(|error| error.to_string())
+        .map(|settings| settings.clone())
+}
+
 #[tauri::command]
 async fn launch_official(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> Result<LaunchResult, String> {
-    let settings;
+    let settings = launch_settings(&state)?;
+    start_launch(app, settings).await
+}
 
+fn prepare_launch(
+    tracker: &mut GameTracker,
+    status: &download_commands::DownloadStatus,
+) -> Result<(), String> {
+    if download_commands::blocks_changes(status) {
+        return Err("游戏资源任务正在进行，暂时无法启动游戏".into());
+    }
+    if tracker.environment_busy {
+        return Err("运行环境任务正在进行, 请完成后再启动游戏".into());
+    }
+    if tracker.starting {
+        return Err("游戏正在启动，请稍候。".to_string());
+    }
+    if let Some(session) = tracker.session.as_ref() {
+        if session.closing {
+            return Err("游戏正在关闭，请稍候。".to_string());
+        }
+        if session_alive(session) {
+            return Err("游戏已在运行。".to_string());
+        }
+    }
+    // 已结束的会话允许重新启动.
+    tracker.session = None;
+    tracker.last_error = None;
+    tracker.starting = true;
+    Ok(())
+}
+
+/// 启动会话的公共入口. settings 可以带外部启动的临时模式覆盖, 不会写回设置.
+async fn start_launch(app: AppHandle, settings: Settings) -> Result<LaunchResult, String> {
     {
+        let state = app.state::<AppState>();
         let downloads = app.state::<download_commands::DownloadManager>();
         let inner = downloads.inner.lock().map_err(|error| error.to_string())?;
-        if download_commands::blocks_changes(&inner.status) {
-            return Err("游戏资源任务正在进行，暂时无法启动游戏".into());
-        }
-        let current_settings = state.settings.lock().map_err(|error| error.to_string())?;
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;
-        if tracker.environment_busy {
-            return Err("运行环境任务正在进行, 请完成后再启动游戏".into());
-        }
-        if tracker.starting {
-            return Err("游戏正在启动，请稍候。".to_string());
-        }
-        if let Some(session) = tracker.session.as_ref() {
-            if session.closing {
-                return Err("游戏正在关闭，请稍候。".to_string());
-            }
-            if session_alive(session) {
-                return Err("游戏已在运行。".to_string());
-            }
-        }
-        // 已结束的会话允许重新启动.
-        tracker.session = None;
-        tracker.last_error = None;
-        tracker.starting = true;
-        settings = current_settings.clone();
+        prepare_launch(&mut tracker, &inner.status)?;
     }
     let distribution = settings.distribution;
     let snapshot_success_after_ms =
@@ -2121,13 +2142,13 @@ async fn launch_official(
     {
         Ok(Ok(invocation)) => invocation,
         Ok(Err(error)) => {
-            if let Ok(mut tracker) = state.game.lock() {
+            if let Ok(mut tracker) = app.state::<AppState>().game.lock() {
                 tracker.starting = false;
             }
             return Err(error);
         }
         Err(error) => {
-            if let Ok(mut tracker) = state.game.lock() {
+            if let Ok(mut tracker) = app.state::<AppState>().game.lock() {
                 tracker.starting = false;
             }
             return Err(format!("启动任务失败：{error}"));
@@ -2135,6 +2156,7 @@ async fn launch_official(
     };
 
     let session = {
+        let state = app.state::<AppState>();
         let mut tracker = state
             .game
             .lock()
@@ -2165,9 +2187,104 @@ async fn launch_official(
         session
     };
 
+    let state = app.state::<AppState>();
     emit_game_status(&app, &state);
     spawn_game_monitor(app, invocation.child, session);
     Ok(invocation.result)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LaunchOrigin {
+    ColdStart,
+    Forwarded,
+}
+
+async fn external_launch_impl(
+    app: &AppHandle,
+    request: &cli::LaunchRequest,
+) -> Result<LaunchResult, String> {
+    let state = app.state::<AppState>();
+    let downloads = app.state::<download_commands::DownloadManager>();
+    let selection = environment_commands::select_for_launch(
+        &state,
+        downloads.inner(),
+        request.region,
+        request.environment.as_deref(),
+    )?;
+    if selection.changed {
+        let bootstrap = bootstrap_impl(&selection.settings);
+        let _ = app.emit("settings-changed", bootstrap);
+    }
+    let mut settings = selection.settings;
+    settings.launch_mode = request.mode.as_str().to_string();
+    let result = start_launch(app.clone(), settings).await?;
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.hide();
+    }
+    Ok(result)
+}
+
+async fn handle_external_launch(app: AppHandle, request: cli::LaunchRequest, origin: LaunchOrigin) {
+    let summary = launch_failure_summary(&app, &request);
+    if let Err(error) = external_launch_impl(&app, &request).await {
+        eprintln!("外部启动失败: {error}");
+        let body = notification_body(&error);
+        let notified = tauri::async_runtime::spawn_blocking(move || {
+            nte_core::notifications::send(&summary, &body)
+        })
+        .await
+        .map(|result| result.is_ok())
+        .unwrap_or(false);
+        if notified {
+            if origin == LaunchOrigin::ColdStart {
+                app.exit(1);
+            }
+            return;
+        }
+        // 通知服务不可用时退回主界面提示, 并保留错误供前端初始化时读取.
+        if let Some(state) = app.try_state::<AppState>() {
+            if let Ok(mut tracker) = state.game.lock() {
+                tracker.last_error = Some(error);
+            }
+        }
+        show_main(&app);
+        // 冷启动时前端可能还没订阅事件, 由初始化阶段调用 take_launch_error 兜底.
+        let state = app.state::<AppState>();
+        emit_game_status(&app, &state);
+    }
+}
+
+fn launch_failure_summary<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    request: &cli::LaunchRequest,
+) -> String {
+    let distribution = request.region.or_else(|| {
+        let state = app.try_state::<AppState>()?;
+        let settings = state.settings.lock().ok()?;
+        if let Some(value) = request.environment.as_deref() {
+            if let Some(environment) = settings
+                .runtime_environments
+                .iter()
+                .find(|entry| entry.id == value || entry.name == value)
+            {
+                return Some(environment.distribution);
+            }
+        }
+        Some(settings.distribution)
+    });
+    match distribution {
+        Some(distribution) => format!("{}启动失败", distribution.game_name()),
+        None => "Oddity 启动失败".to_string(),
+    }
+}
+
+fn notification_body(message: &str) -> String {
+    const LIMIT: usize = 800;
+    let mut body: String = message.chars().take(LIMIT).collect();
+    if message.chars().count() > LIMIT {
+        body.push('…');
+    }
+    body
 }
 
 #[derive(Serialize)]
@@ -2219,6 +2336,16 @@ fn game_status(state: State<AppState>) -> GameStatus {
         status.closing = false;
     }
     status
+}
+
+/// 冷启动失败且桌面通知不可用时, 前端初始化后取走错误并提示.
+#[tauri::command]
+fn take_launch_error(state: State<AppState>) -> Option<String> {
+    state
+        .game
+        .lock()
+        .ok()
+        .and_then(|mut tracker| tracker.last_error.take())
 }
 
 #[tauri::command]
@@ -2440,7 +2567,8 @@ fn launcher_builder<R: tauri::Runtime>() -> tauri::Builder<R> {
 }
 
 fn main() {
-    if std::env::args_os().skip(1).any(|arg| arg == "--recovery") {
+    let args: Vec<OsString> = std::env::args_os().skip(1).collect();
+    if args.iter().any(|arg| arg == "--recovery") {
         let error =
             nte_core::recovery::sibling("oddity-recovery").map(|path| Command::new(path).exec());
         eprintln!("无法打开应急恢复: {error:?}");
@@ -2449,6 +2577,18 @@ fn main() {
     if attendance_commands::headless_entry() {
         return;
     }
+    if cli::help_requested(&args) {
+        println!("{}", cli::USAGE);
+        return;
+    }
+    let launch_request = match cli::parse(&args) {
+        Ok(request) => request,
+        Err(error) => {
+            eprintln!("{error}");
+            eprintln!("{}", cli::USAGE);
+            std::process::exit(2);
+        }
+    };
     let paths = UserPaths::discover();
     let instance = match nte_core::recovery::LauncherLock::launcher(&paths) {
         Ok(lock) => lock,
@@ -2468,9 +2608,7 @@ fn main() {
         }
         Err(error) => eprintln!("无法创建启动日志: {error:#}"),
     }
-    let compatible = std::env::args_os()
-        .skip(1)
-        .any(|arg| arg == "--recovery-compatible");
+    let compatible = args.iter().any(|arg| arg == "--recovery-compatible");
     if compatible {
         std::env::set_var("NTE_SOFTWARE_RENDER", "1");
         std::env::set_var("LIBGL_ALWAYS_SOFTWARE", "1");
@@ -2494,11 +2632,31 @@ fn main() {
             window.transparent = false;
         }
     }
+    // 外部启动不显示主界面, 成功后由托盘接管, 失败时再按需显示.
+    if launch_request.is_some() {
+        for window in &mut context.config_mut().app.windows {
+            window.visible = false;
+        }
+    }
     let playtime = playtime_commands::Playtime::load(&data_dir());
     let snapshots = snapshot_commands::Snapshots::load(&data_dir());
     launcher_builder()
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
-            show_main(app);
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            // 插件转发的是完整 argv, 首项是可执行文件路径.
+            let forwarded: Vec<OsString> = argv.into_iter().skip(1).map(OsString::from).collect();
+            match cli::parse(&forwarded) {
+                Ok(Some(request)) => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        handle_external_launch(app, request, LaunchOrigin::Forwarded).await;
+                    });
+                }
+                Ok(None) => show_main(app),
+                Err(error) => {
+                    eprintln!("外部启动参数无效: {error}");
+                    show_main(app);
+                }
+            }
         }))
         .manage(AppState {
             settings: Mutex::new(settings),
@@ -2546,6 +2704,12 @@ fn main() {
                 eprintln!("tray unavailable: {error}");
             }
             update_scheduler::start(app.handle().clone());
+            if let Some(request) = launch_request {
+                let handle = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    handle_external_launch(handle, request, LaunchOrigin::ColdStart).await;
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2588,6 +2752,7 @@ fn main() {
             open_url,
             launch_official,
             game_status,
+            take_launch_error,
             playtime_commands::playtime_history,
             playtime_commands::playtime_export_poster,
             game_mode_status,

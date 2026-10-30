@@ -553,6 +553,23 @@ export function listenGameState(handler: (status: GameStatus) => void) {
   };
 }
 
+/// 外部启动切换地区或运行环境后, 后端推送新的 bootstrap 让界面同步.
+export function listenSettingsChanged(handler: (data: Bootstrap) => void) {
+  if (!isTauri()) return () => {};
+  let disposed = false;
+  let unlisten: (() => void) | null = null;
+  listen<Bootstrap>("settings-changed", (event) => handler(event.payload))
+    .then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    })
+    .catch(() => {});
+  return () => {
+    disposed = true;
+    if (unlisten) unlisten();
+  };
+}
+
 /// 后端创建游玩会话后通知前端补读记录, 避免 running 先于会话创建。
 export function listenPlaytimeStarted(handler: () => void) {
   if (!isTauri()) return () => {};
@@ -1068,6 +1085,8 @@ async function previewInvoke(
       };
     case "game_status":
       return previewGameStatus();
+    case "take_launch_error":
+      return null;
     case "playtime_history":
       return previewHistory();
     case "playtime_export_poster": {

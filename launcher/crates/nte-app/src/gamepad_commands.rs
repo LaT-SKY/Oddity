@@ -75,6 +75,9 @@ impl Input {
     fn new() -> Result<Self, String> {
         sdl3::hint::set("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1");
         sdl3::hint::set("SDL_JOYSTICK_HIDAPI_PS5", "1");
+        // SDL 默认把 SIGTERM 转成 SDL_QUIT 事件, 当前应用不处理该事件,
+        // 会让 nte-cli recovery stop 的超时终止失效.
+        sdl3::hint::set("SDL_NO_SIGNAL_HANDLERS", "1");
         let sdl = sdl3::init().map_err(|e| e.to_string())?;
         let audio = sdl.audio().ok();
         let subsystem = sdl.gamepad().map_err(|e| e.to_string())?;
