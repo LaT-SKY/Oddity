@@ -152,6 +152,7 @@ export interface Settings {
   heroMedia: string;
   minimizeToTrayOnClose: boolean;
   showLauncherAfterGameExit: boolean;
+  snapshotSuccessMinutes: number;
 }
 export interface PlaytimeSession {
   startedAt: number;
@@ -317,6 +318,62 @@ export interface LogPreview {
   normalizedFiles: number;
 }
 
+export type SnapshotStatus =
+  "starting" | "running" | "success" | "failed" | "interrupted";
+export type SnapshotFailureReason = "spawn" | "earlyExit" | "interrupted";
+export interface SnapshotFailure {
+  reason: SnapshotFailureReason;
+  exitCode: number | null;
+  detail: string | null;
+}
+export interface SnapshotSummary {
+  id: string;
+  capturedAt: number;
+  status: SnapshotStatus;
+  durationMs: number | null;
+  failure: SnapshotFailure | null;
+  environment: string | null;
+  proton: string | null;
+  distribution: "cn" | "global";
+  mode: string;
+}
+export interface SnapshotReference {
+  label: string;
+  savedAt: number;
+  capturedAt: number;
+  environment: string | null;
+  proton: string | null;
+  distribution: "cn" | "global";
+  mode: string;
+}
+export interface SnapshotOverview {
+  baseline: SnapshotSummary | null;
+  reference: SnapshotReference | null;
+  latest: SnapshotSummary | null;
+  attempts: number;
+}
+export type SnapshotDiffStatus =
+  "same" | "changed" | "unknown" | "added" | "removed";
+export interface SnapshotDiffRow {
+  key: string;
+  section: string;
+  label: string;
+  baseline: string | null;
+  current: string | null;
+  status: SnapshotDiffStatus;
+}
+export interface SnapshotComparison {
+  target: "baseline" | "reference";
+  targetLabel: string;
+  targetTime: number;
+  targetEnvironment: string | null;
+  currentEnvironment: string | null;
+  rows: SnapshotDiffRow[];
+  changed: number;
+  unknown: number;
+  unchanged: number;
+}
+
 export interface Commands {
   browse_files: FileListing;
   gamepad_poll: GamepadSnapshot;
@@ -345,6 +402,11 @@ export interface Commands {
   prepare_log_export: LogPreview;
   save_log_export: string;
   discard_log_export: void;
+  environment_snapshot_overview: SnapshotOverview;
+  environment_snapshot_compare: SnapshotComparison;
+  environment_snapshot_save_reference: SnapshotReference;
+  environment_snapshot_delete_reference: void;
+  environment_snapshot_clear_history: void;
   open_directory: null;
   open_url: null;
   launch_official: LaunchResult;
@@ -406,6 +468,14 @@ export interface CommandArgs {
   prepare_log_export: undefined;
   save_log_export: { id: string; destination: string };
   discard_log_export: { id: string };
+  environment_snapshot_overview: undefined;
+  environment_snapshot_compare: { target: "baseline" | "reference" };
+  environment_snapshot_save_reference: {
+    label: string | null;
+    attemptId: string | null;
+  };
+  environment_snapshot_delete_reference: undefined;
+  environment_snapshot_clear_history: undefined;
   open_directory: { path: string };
   open_url: { url: string };
   launch_official: undefined;

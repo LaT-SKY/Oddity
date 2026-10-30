@@ -42,6 +42,7 @@ mod gamepad_commands;
 mod log_commands;
 mod native_session;
 mod playtime_commands;
+mod snapshot_commands;
 mod update_scheduler;
 
 const APP_IDENTIFIER: &str = "io.github.oddity.Launcher";
@@ -78,6 +79,9 @@ struct GameSession {
     _prefix_lock: Option<Arc<nte_core::environment::PrefixLock>>,
     background: Option<Arc<NativeSession>>,
     game_mode: Option<Arc<Mutex<nte_core::game_mode::Session>>>,
+    snapshot: Option<String>,
+    snapshot_success_after_ms: u64,
+    launcher_root: Option<PathBuf>,
 }
 
 /// A validated Proton installation. umu-launcher expects `PROTONPATH` to be
@@ -209,6 +213,8 @@ struct LaunchInvocation {
     pgid: i32,
     background: Option<Arc<NativeSession>>,
     game_mode: Option<Arc<Mutex<nte_core::game_mode::Session>>>,
+    snapshot: Option<String>,
+    launcher_root: Option<PathBuf>,
 }
 
 fn now_millis() -> u64 {
@@ -468,7 +474,10 @@ fn watch_game_exit<R: tauri::Runtime>(
         let mut seen = false;
         let mut watch = GameProcessWatch::new(session.pid);
         let playtime = app.try_state::<playtime_commands::Playtime>();
+        let snapshots = app.try_state::<snapshot_commands::Snapshots>();
         let mut playtime_started = false;
+        let mut snapshot_running_at: Option<u64> = None;
+        let mut snapshot_success = false;
         let mut start_retry_at = Instant::now();
         let mut last_touch = Instant::now();
         while !done.load(Ordering::Acquire) {
@@ -490,6 +499,41 @@ fn watch_game_exit<R: tauri::Runtime>(
                         mode.update_game_processes(&pids);
                     }
                 }
+            }
+            if game_running {
+                if snapshot_running_at.is_none() {
+                    let now = now_millis();
+                    if let (Some(store), Some(id)) =
+                        (snapshots.as_ref(), session.snapshot.as_deref())
+                    {
+                        store.mark_running(id, now);
+                    }
+                    snapshot_running_at = Some(now);
+                }
+                if let (Some(start), false) = (snapshot_running_at, snapshot_success) {
+                    let now = now_millis();
+                    if now.saturating_sub(start) >= session.snapshot_success_after_ms {
+                        if let (Some(store), Some(id)) =
+                            (snapshots.as_ref(), session.snapshot.as_deref())
+                        {
+                            let version = session
+                                .launcher_root
+                                .as_ref()
+                                .map(|root| game_version_for(root))
+                                .filter(|version| !version.is_empty());
+                            snapshot_success = store.mark_success(
+                                id,
+                                now,
+                                version,
+                                session.snapshot_success_after_ms,
+                            );
+                        } else {
+                            snapshot_success = true;
+                        }
+                    }
+                }
+            } else {
+                snapshot_running_at = None;
             }
             if game_running && !playtime_started && Instant::now() >= start_retry_at {
                 let started = if let Some(playtime) = &playtime {
@@ -533,6 +577,9 @@ fn watch_game_exit<R: tauri::Runtime>(
             if running {
                 seen = true;
             } else if seen {
+                if let (Some(store), Some(id)) = (snapshots.as_ref(), session.snapshot.as_deref()) {
+                    store.finish(id, None);
+                }
                 finish_game_early(&app, &session);
                 return;
             }
@@ -566,16 +613,28 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
             Arc::clone(&done),
             Arc::clone(&alive),
         );
-        let result = if let Some(background) = &session.background {
-            background.monitor(&mut child)
+        let (result, exit_code) = if let Some(background) = &session.background {
+            (background.monitor(&mut child), None)
         } else {
-            let result = child.wait().map(|_| ()).map_err(|error| error.to_string());
+            let (result, exit_code) = match child.wait() {
+                Ok(status) => (Ok(()), status.code()),
+                Err(error) => (Err(error.to_string()), None),
+            };
             while process_group_alive(session.pgid) || alive.load(Ordering::Acquire) {
                 thread::sleep(Duration::from_millis(120));
             }
-            result
+            (result, exit_code)
         };
         done.store(true, Ordering::Release);
+        if let Some(snapshots) = app.try_state::<snapshot_commands::Snapshots>() {
+            if let Some(id) = session.snapshot.as_deref() {
+                let mut failure = nte_core::snapshots::Failure::early_exit(exit_code);
+                if let Some(error) = result.as_ref().err() {
+                    failure.detail = Some(error.clone());
+                }
+                snapshots.finish(id, Some(failure));
+            }
+        }
         if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
             if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
                 eprintln!("结束游玩记录失败: {error}");
@@ -769,6 +828,8 @@ fn load_settings() -> Settings {
                 settings.gamepad = Default::default();
             }
             settings.updates.normalize();
+            settings.snapshot_success_minutes =
+                nte_core::snapshots::normalize_success_minutes(settings.snapshot_success_minutes);
             settings
         }
         Err(_) => Settings::default(),
@@ -1340,6 +1401,8 @@ fn save_settings(
 ) -> Result<Bootstrap, String> {
     let guard = downloads.inner.lock().map_err(|error| error.to_string())?;
     let mut next = settings;
+    next.snapshot_success_minutes =
+        nte_core::snapshots::normalize_success_minutes(next.snapshot_success_minutes);
     next.gamepad.validate()?;
     next.game_mode
         .gamescope
@@ -1656,15 +1719,36 @@ async fn open_directory(path: String) -> Result<(), String> {
         .map_err(|error| format!("打开文件夹任务失败: {error}"))?
 }
 
+#[cfg(test)]
 fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
     launch_impl_with_profile(settings, |path| {
         validated_click_profile(path).map_err(|error| error.to_string())
     })
 }
 
+fn launch_impl_with_snapshots(
+    settings: &Settings,
+    snapshots: &snapshot_commands::Snapshots,
+) -> Result<LaunchInvocation, String> {
+    launch_impl_inner(
+        settings,
+        |path| validated_click_profile(path).map_err(|error| error.to_string()),
+        Some(snapshots),
+    )
+}
+
+#[cfg(test)]
 fn launch_impl_with_profile(
     settings: &Settings,
     profile_provider: impl FnOnce(&Path) -> Result<ClickProfile, String>,
+) -> Result<LaunchInvocation, String> {
+    launch_impl_inner(settings, profile_provider, None)
+}
+
+fn launch_impl_inner(
+    settings: &Settings,
+    profile_provider: impl FnOnce(&Path) -> Result<ClickProfile, String>,
+    snapshots: Option<&snapshot_commands::Snapshots>,
 ) -> Result<LaunchInvocation, String> {
     let launcher_root = detect_launcher_root(settings).ok_or_else(|| {
         if configured_install_root(settings).is_some() {
@@ -1776,6 +1860,18 @@ fn launch_impl_with_profile(
     } else {
         None
     };
+    // 探测可能调用 glxinfo, 只在需要写入快照时执行.
+    let snapshot_facts = snapshots.map(|_| {
+        let mut inputs = snapshot_commands::current_inputs(settings);
+        inputs.install_root = Some(install_dir.clone());
+        inputs.launcher_root = Some(launcher_root.clone());
+        inputs.prefix = Some(prefix.clone());
+        inputs.prefix_ok = true;
+        inputs.proton_name = Some(proton.name.clone());
+        inputs.proton_ok = true;
+        inputs.umu = Some(umu.clone());
+        nte_core::snapshots::capture(inputs)
+    });
     let log_path = log_dir.join("nte-app-launch.log");
     let log = OpenOptions::new()
         .create(true)
@@ -1793,6 +1889,9 @@ fn launch_impl_with_profile(
         install_dir.display()
     )
     .ok();
+    if let Some(facts) = &snapshot_facts {
+        writeln!(log_clone, "{}", facts.log_line()).ok();
+    }
 
     if let Some(background) = &background {
         writeln!(
@@ -1895,7 +1994,25 @@ fn launch_impl_with_profile(
         &settings.game_mode,
         &mut cmd,
     )));
-    let mut child = cmd.spawn().map_err(|e| format!("启动游戏失败：{e}"))?;
+    let snapshot_id = match (snapshots, &snapshot_facts) {
+        (Some(store), Some(facts)) => match store.begin(facts.clone()) {
+            Ok(id) => Some(id),
+            Err(error) => {
+                eprintln!("记录环境快照失败: {error}");
+                None
+            }
+        },
+        _ => None,
+    };
+    let mut child = match cmd.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            if let (Some(store), Some(id)) = (snapshots, snapshot_id.as_deref()) {
+                store.fail(id, nte_core::snapshots::Failure::spawn(error.to_string()));
+            }
+            return Err(format!("启动游戏失败：{error}"));
+        }
+    };
     let pid = child.id();
     let pgid = i32::try_from(pid).map_err(|_| "游戏进程 ID 超出范围".to_string())?;
 
@@ -1919,8 +2036,11 @@ fn launch_impl_with_profile(
     };
     // 后台包装进程早退时仍交由会话监控清理已分离的 Windows 子进程.
     if let Some(status) = immediate_exit.filter(|_| background.is_none()) {
-        let code = status
-            .code()
+        let exit_code = status.code();
+        if let (Some(store), Some(id)) = (snapshots, snapshot_id.as_deref()) {
+            store.fail(id, nte_core::snapshots::Failure::early_exit(exit_code));
+        }
+        let code = exit_code
             .map(|code| format!("退出码 {code}"))
             .unwrap_or_else(|| "被信号终止".to_string());
         let label = match mode.as_str() {
@@ -1949,6 +2069,8 @@ fn launch_impl_with_profile(
         pgid,
         background,
         game_mode: Some(game_mode),
+        snapshot: snapshot_id,
+        launcher_root: Some(launcher_root),
     })
 }
 
@@ -1988,23 +2110,29 @@ async fn launch_official(
         settings = current_settings.clone();
     }
     let distribution = settings.distribution;
+    let snapshot_success_after_ms =
+        nte_core::snapshots::success_after_ms(settings.snapshot_success_minutes);
+    let snapshots = app.state::<snapshot_commands::Snapshots>().inner().clone();
 
-    let invocation =
-        match tauri::async_runtime::spawn_blocking(move || launch_impl(&settings)).await {
-            Ok(Ok(invocation)) => invocation,
-            Ok(Err(error)) => {
-                if let Ok(mut tracker) = state.game.lock() {
-                    tracker.starting = false;
-                }
-                return Err(error);
+    let invocation = match tauri::async_runtime::spawn_blocking(move || {
+        launch_impl_with_snapshots(&settings, &snapshots)
+    })
+    .await
+    {
+        Ok(Ok(invocation)) => invocation,
+        Ok(Err(error)) => {
+            if let Ok(mut tracker) = state.game.lock() {
+                tracker.starting = false;
             }
-            Err(error) => {
-                if let Ok(mut tracker) = state.game.lock() {
-                    tracker.starting = false;
-                }
-                return Err(format!("启动任务失败：{error}"));
+            return Err(error);
+        }
+        Err(error) => {
+            if let Ok(mut tracker) = state.game.lock() {
+                tracker.starting = false;
             }
-        };
+            return Err(format!("启动任务失败：{error}"));
+        }
+    };
 
     let session = {
         let mut tracker = state
@@ -2029,6 +2157,9 @@ async fn launch_official(
             _prefix_lock: Some(Arc::clone(&invocation.prefix_lock)),
             background: invocation.background.clone(),
             game_mode: invocation.game_mode.clone(),
+            snapshot: invocation.snapshot.clone(),
+            snapshot_success_after_ms,
+            launcher_root: invocation.launcher_root.clone(),
         };
         tracker.session = Some(session.clone());
         session
@@ -2364,6 +2495,7 @@ fn main() {
         }
     }
     let playtime = playtime_commands::Playtime::load(&data_dir());
+    let snapshots = snapshot_commands::Snapshots::load(&data_dir());
     launcher_builder()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             show_main(app);
@@ -2373,6 +2505,7 @@ fn main() {
             game: Mutex::new(GameTracker::default()),
         })
         .manage(playtime)
+        .manage(snapshots)
         .manage(download_commands::DownloadManager::default())
         .manage(background_server::BackgroundServer::start())
         .on_window_event(|window, event| {
@@ -2446,6 +2579,11 @@ fn main() {
             log_commands::prepare_log_export,
             log_commands::save_log_export,
             log_commands::discard_log_export,
+            snapshot_commands::environment_snapshot_overview,
+            snapshot_commands::environment_snapshot_compare,
+            snapshot_commands::environment_snapshot_save_reference,
+            snapshot_commands::environment_snapshot_delete_reference,
+            snapshot_commands::environment_snapshot_clear_history,
             open_directory,
             open_url,
             launch_official,

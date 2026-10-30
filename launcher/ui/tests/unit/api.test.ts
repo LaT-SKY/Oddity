@@ -514,3 +514,35 @@ it("预览短信登录校验输入并更新同一账号", async () => {
   expect(again.accounts.filter((a) => a.id === entry.id)).toHaveLength(1);
   await invoke("attendance_logout", { accountId: entry.id });
 });
+
+it("模拟环境快照的对比, 参考保存和清理", async () => {
+  const { invoke } = await import("../../src/core/api");
+  const overview = await invoke("environment_snapshot_overview");
+  expect(overview.reference?.label).toBe("更新驱动前");
+  expect(overview.baseline?.proton).toBe("GE-Proton9-20");
+  expect(overview.latest?.proton).toBe("GE-Proton9-21");
+
+  const comparison = await invoke("environment_snapshot_compare", {
+    target: "baseline",
+  });
+  expect(comparison.changed).toBeGreaterThan(0);
+  expect(comparison.unknown).toBeGreaterThan(0);
+  expect(comparison.rows.some((row) => row.status === "same")).toBe(true);
+
+  const saved = await invoke("environment_snapshot_save_reference", {
+    label: "手动参考",
+    attemptId: null,
+  });
+  expect(saved.label).toBe("手动参考");
+  expect((await invoke("environment_snapshot_overview")).reference?.label).toBe(
+    "手动参考",
+  );
+
+  await invoke("environment_snapshot_delete_reference");
+  await invoke("environment_snapshot_clear_history");
+  const cleared = await invoke("environment_snapshot_overview");
+  expect(cleared.reference).toBeNull();
+  expect(cleared.baseline).toBeNull();
+  expect(cleared.latest).toBeNull();
+  expect(cleared.attempts).toBe(0);
+});

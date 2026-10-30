@@ -19,6 +19,11 @@ import type {
   PlaytimeSession,
   AttendanceStatus,
   AttendancePreferences,
+  SnapshotComparison,
+  SnapshotDiffRow,
+  SnapshotOverview,
+  SnapshotReference,
+  SnapshotSummary,
 } from "../types/launcher";
 export { isTauri };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
@@ -192,10 +197,174 @@ const mock: Bootstrap = {
     heroMedia: "video",
     minimizeToTrayOnClose: true,
     showLauncherAfterGameExit: true,
+    snapshotSuccessMinutes: 1,
   },
   appVersion: APP_VERSION,
   os: previewOs(),
 };
+
+const previewSnapshotNow = Date.now();
+let previewSnapshotAttempts = 2;
+let previewSnapshotBaseline: SnapshotSummary | null = {
+  id: "preview-baseline",
+  capturedAt: previewSnapshotNow - 86_400_000,
+  status: "success",
+  durationMs: 42 * 60_000,
+  failure: null,
+  environment: null,
+  proton: "GE-Proton9-20",
+  distribution: "cn",
+  mode: "background",
+};
+let previewSnapshotLatest: SnapshotSummary | null = {
+  id: "preview-latest",
+  capturedAt: previewSnapshotNow - 3_600_000,
+  status: "failed",
+  durationMs: 4_000,
+  failure: { reason: "earlyExit", exitCode: 3, detail: null },
+  environment: null,
+  proton: "GE-Proton9-21",
+  distribution: "cn",
+  mode: "background",
+};
+let previewSnapshotReference: SnapshotReference | null = {
+  label: "更新驱动前",
+  savedAt: previewSnapshotNow - 172_800_000,
+  capturedAt: previewSnapshotNow - 172_800_000,
+  environment: null,
+  proton: "GE-Proton9-20",
+  distribution: "cn",
+  mode: "background",
+};
+
+function previewSnapshotEnvironment() {
+  const active = mock.settings.runtimeEnvironments.find(
+    (environment) => environment.id === mock.settings.activeEnvironment,
+  );
+  return active?.name ?? null;
+}
+
+function previewSnapshotProton() {
+  return mock.protonName || previewSnapshotBaseline?.proton || null;
+}
+
+function previewSnapshotOverview(): SnapshotOverview {
+  return {
+    baseline: previewSnapshotBaseline ? { ...previewSnapshotBaseline } : null,
+    reference: previewSnapshotReference,
+    latest: previewSnapshotLatest ? { ...previewSnapshotLatest } : null,
+    attempts: previewSnapshotAttempts,
+  };
+}
+
+function previewSnapshotComparison(
+  target: "baseline" | "reference",
+): SnapshotComparison {
+  if (target === "reference" && !previewSnapshotReference)
+    throw new Error("尚未保存参考快照");
+  if (target === "baseline" && !previewSnapshotBaseline)
+    throw new Error("还没有成功启动记录");
+  const rows: SnapshotDiffRow[] = [
+    {
+      key: "launcher.version",
+      section: "启动器",
+      label: "Oddity 版本",
+      baseline: "0.1.0-alpha.2",
+      current: "0.1.0-alpha.2",
+      status: "same",
+    },
+    {
+      key: "system.session",
+      section: "系统",
+      label: "会话类型",
+      baseline: "Wayland",
+      current: "Wayland",
+      status: "same",
+    },
+    {
+      key: "graphics.gpu.10DE:2C58",
+      section: "图形",
+      label: "显卡 10DE:2C58",
+      baseline: "nvidia 615.78.08",
+      current: "nvidia 615.78.10",
+      status: "changed",
+    },
+    {
+      key: "graphics.opengl",
+      section: "图形",
+      label: "OpenGL 驱动",
+      baseline: "NVIDIA GeForce RTX 5060 · 4.6.0 NVIDIA 615.78.08",
+      current: "NVIDIA GeForce RTX 5060 · 4.6.0 NVIDIA 615.78.10",
+      status: "changed",
+    },
+    {
+      key: "graphics.vulkan",
+      section: "图形",
+      label: "Vulkan 驱动",
+      baseline: null,
+      current: "Mesa 26.2.5",
+      status: "unknown",
+    },
+    {
+      key: "game.version",
+      section: "游戏",
+      label: "游戏版本",
+      baseline: "1.0.7",
+      current: "1.0.7",
+      status: "same",
+    },
+    {
+      key: "runtime.proton",
+      section: "运行环境",
+      label: "Proton",
+      baseline: "GE-Proton9-20",
+      current: "GE-Proton9-21",
+      status: "changed",
+    },
+    {
+      key: "runtime.gamescope",
+      section: "运行环境",
+      label: "Gamescope",
+      baseline: "关闭",
+      current: "关闭",
+      status: "same",
+    },
+  ];
+  const targetTime =
+    target === "reference"
+      ? previewSnapshotReference!.capturedAt
+      : previewSnapshotBaseline!.capturedAt;
+  return {
+    target,
+    targetLabel: target === "reference" ? "参考快照" : "上次成功启动",
+    targetTime,
+    targetEnvironment: previewSnapshotEnvironment(),
+    currentEnvironment: previewSnapshotEnvironment(),
+    rows,
+    changed: rows.filter(
+      (row) =>
+        row.status === "changed" ||
+        row.status === "added" ||
+        row.status === "removed",
+    ).length,
+    unknown: rows.filter((row) => row.status === "unknown").length,
+    unchanged: rows.filter((row) => row.status === "same").length,
+  };
+}
+
+function previewSnapshotSaveReference(label: string | null): SnapshotReference {
+  const now = Date.now();
+  previewSnapshotReference = {
+    label: label?.trim() || "参考快照",
+    savedAt: now,
+    capturedAt: now,
+    environment: previewSnapshotEnvironment(),
+    proton: previewSnapshotProton(),
+    distribution: mock.settings.distribution,
+    mode: mock.settings.launchMode,
+  };
+  return previewSnapshotReference;
+}
 
 function applyPreviewDistribution() {
   if (mock.settings.distribution === "global")
@@ -819,6 +988,25 @@ async function previewInvoke(
     case "game_download_cancel":
       mockDownload.phase = "cancelled";
       return clone(mockDownload);
+    case "environment_snapshot_overview":
+      return clone(previewSnapshotOverview());
+    case "environment_snapshot_compare": {
+      const { target } = args as CommandArgs["environment_snapshot_compare"];
+      return clone(previewSnapshotComparison(target));
+    }
+    case "environment_snapshot_save_reference": {
+      const { label } =
+        args as CommandArgs["environment_snapshot_save_reference"];
+      return clone(previewSnapshotSaveReference(label));
+    }
+    case "environment_snapshot_delete_reference":
+      previewSnapshotReference = null;
+      return null;
+    case "environment_snapshot_clear_history":
+      previewSnapshotBaseline = null;
+      previewSnapshotLatest = null;
+      previewSnapshotAttempts = 0;
+      return null;
     case "open_url":
       return null;
     case "prepare_log_export":

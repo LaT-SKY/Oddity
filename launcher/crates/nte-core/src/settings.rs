@@ -23,6 +23,7 @@ pub struct Settings {
     pub hero_media: String,
     pub minimize_to_tray_on_close: bool,
     pub show_launcher_after_game_exit: bool,
+    pub snapshot_success_minutes: u64,
 }
 
 impl Default for Settings {
@@ -45,6 +46,7 @@ impl Default for Settings {
             hero_media: "video".to_string(),
             minimize_to_tray_on_close: true,
             show_launcher_after_game_exit: true,
+            snapshot_success_minutes: crate::snapshots::DEFAULT_SUCCESS_MINUTES,
         }
     }
 }
