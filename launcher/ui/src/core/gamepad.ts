@@ -166,7 +166,9 @@ export function createGamepadNavigation() {
     ].filter((item) => {
       if (
         !visible(item) ||
-        item.matches("[data-page],.drawer-dismiss,.drawer-close,select")
+        item.matches(
+          "[data-page],.drawer-dismiss,.drawer-close,select,[data-pad-skip]",
+        )
       )
         return false;
       if (navigation)
@@ -279,7 +281,9 @@ export function createGamepadNavigation() {
       !gamepad.windowControls &&
       state.page === "home" &&
       !playerExpanded.value
-        ? document.getElementById("launch-btn")
+        ? document.getElementById(
+            state.game === "launching" ? "launch-region" : "launch-btn",
+          )
         : null;
     point(
       remembered && items.includes(remembered)

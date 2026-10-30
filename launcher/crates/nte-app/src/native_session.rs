@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::launch_progress::LaunchStage;
 use nte_core::launch::background::{ClickProfile, FreshLog, SessionStage, SessionStatus};
 use zeroize::Zeroizing;
 
@@ -143,8 +144,12 @@ impl NativeSession {
         self.finished.load(Ordering::Acquire)
     }
 
-    pub fn monitor(&self, child: &mut Child) -> Result<(), String> {
-        let mut result = self.drive(child);
+    pub fn closing(&self) -> bool {
+        self.closing.load(Ordering::Acquire)
+    }
+
+    pub fn monitor(&self, child: &mut Child, on_stage: impl Fn(LaunchStage)) -> Result<(), String> {
+        let mut result = self.drive(child, &on_stage);
         // 状态读取失败不能结束已经启动的游戏, 关闭按钮仍可显式结束本轮会话.
         while !self.closing.load(Ordering::Acquire) {
             match self.game_alive() {
@@ -203,7 +208,7 @@ impl NativeSession {
         Ok(SessionStatus::parse(text))
     }
 
-    fn drive(&self, child: &mut Child) -> Result<(), String> {
+    fn drive(&self, child: &mut Child, on_stage: &impl Fn(LaunchStage)) -> Result<(), String> {
         enum Phase {
             Helper,
             Resources,
@@ -213,11 +218,26 @@ impl NativeSession {
         let mut phase = Phase::Helper;
         let mut deadline = Instant::now() + self.timeouts.helper;
         let mut game_exit_seen = None;
+        let mut reported_stage = None;
+        let mut report = |stage: LaunchStage| {
+            if reported_stage == Some(stage) {
+                return;
+            }
+            reported_stage = Some(stage);
+            on_stage(stage);
+        };
+        report(LaunchStage::Helper);
         loop {
             if self.closing.load(Ordering::Acquire) || self.finished() {
                 return Ok(());
             }
             let status = self.read_status()?;
+            if status.game_started {
+                report(LaunchStage::Running);
+            }
+            if status.stage == SessionStage::OfficialStartClickSent {
+                report(LaunchStage::Game);
+            }
             // 按钮消息可能超时而游戏已经启动, 中途的 ERR 由控制器完成观察后再收束.
             if status.cleanup_incomplete {
                 return Err(status.error().unwrap_or("官方后台清理未完成.").into());
@@ -242,6 +262,7 @@ impl NativeSession {
                 Phase::Helper if status.stage != SessionStage::Starting => {
                     phase = Phase::Resources;
                     deadline = Instant::now() + self.timeouts.resources;
+                    report(LaunchStage::Resources);
                 }
                 Phase::Resources => {
                     if self
@@ -250,6 +271,7 @@ impl NativeSession {
                         .map_err(|error| format!("检查本轮官方资源初始化记录失败: {error}"))?
                     {
                         create_signal(&self.signal, false)?;
+                        report(LaunchStage::Game);
                         phase = Phase::Game;
                         deadline = Instant::now() + self.timeouts.game;
                     }
@@ -595,6 +617,7 @@ fn has_session_token(path: &Path, token: &str) -> bool {
 mod tests {
     use super::*;
     use crate::tests::TempDir;
+    use tauri::Manager;
 
     fn session(directory: &TempDir) -> Arc<NativeSession> {
         let mut session = NativeSession::prepare(
@@ -653,6 +676,80 @@ def record(text):
     }
 
     #[test]
+    fn close_failure_keeps_the_session_available_for_retry() {
+        let directory = TempDir::new("native-session-close-retry");
+        let background = session(&directory);
+        fs::create_dir(&background.cancel).unwrap();
+
+        let child = Command::new("/bin/true").spawn().unwrap();
+        let pid = child.id() as i32;
+        let game = crate::GameSession {
+            id: 77,
+            pid: pid as u32,
+            pgid: pid,
+            exe: "/game/HTGame.exe".into(),
+            started_at: 1,
+            log: String::new(),
+            mode: "background".into(),
+            distribution: crate::Distribution::Cn,
+            closing: true,
+            exit_notified: false,
+            game_alive: Arc::new(AtomicBool::new(false)),
+            monitor_done: Arc::new(AtomicBool::new(false)),
+            finalized: Arc::new(AtomicBool::new(false)),
+            _install_lock: None,
+            _prefix_lock: None,
+            background: Some(Arc::clone(&background)),
+            game_mode: None,
+            snapshot: None,
+            snapshot_success_after_ms: nte_core::snapshots::SUCCESS_AFTER_MS,
+            launcher_root: None,
+        };
+        let app = tauri::test::mock_app();
+        app.manage(crate::AppState {
+            settings: Mutex::new(nte_core::settings::Settings::default()),
+            game: Mutex::new(crate::GameTracker {
+                session: Some(game.clone()),
+                ..Default::default()
+            }),
+        });
+        crate::spawn_game_monitor(app.handle().clone(), child, game);
+
+        wait_until(|| {
+            app.state::<crate::AppState>()
+                .game
+                .lock()
+                .unwrap()
+                .session
+                .as_ref()
+                .is_some_and(|current| !current.closing)
+        });
+        let retained = app
+            .state::<crate::AppState>()
+            .game
+            .lock()
+            .unwrap()
+            .session
+            .is_some();
+        assert!(retained);
+        assert!(!background.finished());
+
+        fs::remove_dir(&background.cancel).unwrap();
+        let status =
+            tauri::async_runtime::block_on(crate::close_game(app.handle().clone(), app.state()))
+                .unwrap();
+        assert!(!status.running);
+        assert!(background.finished());
+        assert!(app
+            .state::<crate::AppState>()
+            .game
+            .lock()
+            .unwrap()
+            .session
+            .is_none());
+    }
+
+    #[test]
     fn prepare_keeps_control_files_private_and_configures_the_session() {
         let directory = TempDir::new("native-session-paths");
         let session = session(&directory);
@@ -705,11 +802,46 @@ time.sleep(60)
             native_log
         );
         let mut child = fake_wrapper(&directory, &session, &body);
-        session.monitor(&mut child).unwrap();
+        session.monitor(&mut child, |_| {}).unwrap();
         assert!(session.finished());
         assert!(child.try_wait().unwrap().is_some());
         assert!(session.signal.exists() && session.cancel.exists());
         assert_eq!(fs::metadata(&session.status).unwrap().mode() & 0o777, 0o600);
+        session.close().unwrap();
+    }
+
+    #[test]
+    fn monitor_reports_launch_stages_in_order() {
+        let directory = TempDir::new("native-session-stages");
+        let native_log = directory.join("NTEGame.log");
+        let session = session(&directory);
+        let stages = Arc::new(Mutex::new(Vec::new()));
+        let collected = Arc::clone(&stages);
+        let body = format!(
+            r#"record('HELPER_STARTED windows_pid=8')
+with open({:?},'w') as output: output.write('[new] [GameClientAgent::_setLocalResChecked] 0->1\n')
+while not os.path.exists(go): time.sleep(0.01)
+record('OFFICIAL_START_CLICK_SENT')
+record('GAME_STARTED windows_pid=12')
+record('GAME_EXITED code=0')
+record('SESSION_EXITED code=0')
+time.sleep(60)
+"#,
+            native_log
+        );
+        let mut child = fake_wrapper(&directory, &session, &body);
+        session
+            .monitor(&mut child, |stage| collected.lock().unwrap().push(stage))
+            .unwrap();
+        assert_eq!(
+            *stages.lock().unwrap(),
+            vec![
+                LaunchStage::Helper,
+                LaunchStage::Resources,
+                LaunchStage::Game,
+                LaunchStage::Running,
+            ]
+        );
         session.close().unwrap();
     }
 
@@ -739,7 +871,7 @@ for process in [game,native]:
         wait_until(|| session.game_alive().unwrap());
         let monitored = Arc::clone(&session);
         let monitor = thread::spawn(move || {
-            let result = monitored.monitor(&mut child);
+            let result = monitored.monitor(&mut child, |_| {});
             assert!(child.try_wait().unwrap().is_some());
             result
         });
@@ -779,7 +911,7 @@ for process in [game,native]:
                 &format!("record('{events}')\n{exit}\n"),
             );
             assert!(
-                session.monitor(&mut child).is_err(),
+                session.monitor(&mut child, |_| {}).is_err(),
                 "{gamescope}: {events}, {exit}"
             );
             assert!(session.finished());
@@ -845,7 +977,7 @@ record('SESSION_EXITED code=0')
         assert_eq!(game_pids.len(), 1);
         assert_ne!(game_pids[0], child.id());
         let monitored = Arc::clone(&session);
-        let monitor = thread::spawn(move || monitored.monitor(&mut child));
+        let monitor = thread::spawn(move || monitored.monitor(&mut child, |_| {}));
         thread::sleep(Duration::from_millis(200));
         assert!(!session.cancel.exists());
         assert!(session.game_alive().unwrap());
@@ -871,7 +1003,7 @@ raise SystemExit(7)
 "#
         );
         let mut child = fake_wrapper(&directory, &session, &body);
-        assert!(session.monitor(&mut child).is_err());
+        assert!(session.monitor(&mut child, |_| {}).is_err());
         assert!(session.finished());
         assert!(session.cancel.exists());
         assert!(session.owned_processes().unwrap().is_empty());
@@ -898,7 +1030,7 @@ time.sleep(60)
             session.native_log
         );
         let mut child = fake_wrapper(&directory, &session, &body);
-        assert!(session.monitor(&mut child).is_err());
+        assert!(session.monitor(&mut child, |_| {}).is_err());
         let status = session.read_status().unwrap();
         assert!(status.game_started && status.game_exited && status.finished());
         assert!(session.finished());

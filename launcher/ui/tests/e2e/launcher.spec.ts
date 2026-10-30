@@ -108,8 +108,19 @@ test("导航、更新、设置、快捷键与启动关闭流程", async ({ page 
   await page.keyboard.press("Control+1");
   await expect(page.locator("#page-home")).toBeVisible();
   await page.locator("#launch-btn").click();
-  await expect(page.locator("#launch-btn")).toHaveText(/正在启动/);
-  await expect(page.locator("#launch-btn")).toHaveText(/关闭游戏/);
+  await expect(page.locator("#launch-btn")).toHaveText(
+    /正在(准备环境|启动后台|等待资源|启动游戏)/,
+  );
+  await expect(page.locator("#launch-pause-btn")).toBeVisible();
+  await page.locator("#launch-pause-btn").click();
+  await expect(page.locator("#launch-btn")).toHaveText(/正在暂停/);
+  await expect(page.locator("#launch-btn")).toHaveText(/启动游戏/);
+  await expect(page.locator("#launch-pause-btn")).toHaveCount(0);
+
+  await page.locator("#launch-btn").click();
+  await expect(page.locator("#launch-btn")).toHaveText(/关闭游戏/, {
+    timeout: 10_000,
+  });
   await page.locator("#launch-btn").click();
   await expect(page.locator("#launch-btn")).toHaveText(/正在关闭/);
   await expect(page.locator("#launch-btn")).toHaveText(/启动游戏/);

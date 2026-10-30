@@ -1,4 +1,5 @@
 use super::EnvGuard;
+use crate::launch_progress::{LaunchProgress, LaunchStage};
 use crate::*;
 use std::time::Instant;
 
@@ -142,6 +143,8 @@ fn game_mode_status_reports_capabilities_and_releases_the_finished_session() {
         closing: false,
         exit_notified: false,
         game_alive: Arc::new(AtomicBool::new(false)),
+        monitor_done: Arc::new(AtomicBool::new(false)),
+        finalized: Arc::new(AtomicBool::new(false)),
         _install_lock: None,
         _prefix_lock: None,
         background: None,
@@ -187,6 +190,8 @@ fn game_status_reflects_the_session() {
         closing: true,
         exit_notified: false,
         game_alive: Arc::new(AtomicBool::new(false)),
+        monitor_done: Arc::new(AtomicBool::new(false)),
+        finalized: Arc::new(AtomicBool::new(false)),
         _install_lock: None,
         _prefix_lock: None,
         game_mode: None,
@@ -202,6 +207,357 @@ fn game_status_reflects_the_session() {
     assert_eq!(status.started_at, Some(99));
     assert_eq!(status.exe.as_deref(), Some("/game/HTGame.exe"));
     assert_eq!(status.log.as_deref(), Some("/tmp/launch.log"));
+}
+
+fn test_game_session(closing: bool) -> GameSession {
+    GameSession {
+        id: 11,
+        pid: 4321,
+        pgid: 4321,
+        exe: "/game/HTGame.exe".to_string(),
+        started_at: 99,
+        log: "/tmp/launch.log".to_string(),
+        mode: "background".into(),
+        distribution: Distribution::Cn,
+        closing,
+        exit_notified: false,
+        game_alive: Arc::new(AtomicBool::new(false)),
+        monitor_done: Arc::new(AtomicBool::new(false)),
+        finalized: Arc::new(AtomicBool::new(false)),
+        _install_lock: None,
+        _prefix_lock: None,
+        game_mode: None,
+        background: None,
+        snapshot: None,
+        snapshot_success_after_ms: nte_core::snapshots::SUCCESS_AFTER_MS,
+        launcher_root: None,
+    }
+}
+
+#[test]
+fn game_status_exposes_launch_progress() {
+    assert!(GameStatus::idle().launch.is_none());
+
+    let tracker = GameTracker {
+        launch: Some(LaunchProgress::new(123)),
+        ..Default::default()
+    };
+    let status = tracker_status(&tracker);
+    let launch = status.launch.as_ref().expect("launch progress");
+    assert_eq!(launch.stage, LaunchStage::Preparing);
+    assert!(!launch.cancelling);
+    let json = serde_json::to_value(&status).unwrap();
+    assert_eq!(json["launch"]["stage"], "preparing");
+    assert_eq!(json["launch"]["startedAt"], 123);
+    assert!(serde_json::to_value(GameStatus::idle())
+        .unwrap()
+        .get("launch")
+        .is_none());
+}
+
+#[test]
+fn launch_cancel_action_prefers_the_live_session() {
+    let mut tracker = GameTracker {
+        starting: true,
+        launch: Some(LaunchProgress::new(9)),
+        launch_cancel: Some(Arc::new(AtomicBool::new(false))),
+        ..Default::default()
+    };
+    let token = Arc::clone(tracker.launch_cancel.as_ref().unwrap());
+    assert_eq!(
+        crate::launch_cancel_action(&mut tracker),
+        crate::LaunchCancelAction::Wait
+    );
+    assert!(token.load(Ordering::Acquire));
+    assert!(tracker.launch.as_ref().unwrap().cancelling);
+
+    let mut idle = GameTracker::default();
+    assert_eq!(
+        crate::launch_cancel_action(&mut idle),
+        crate::LaunchCancelAction::Idle
+    );
+    idle.starting = true;
+    assert_eq!(
+        crate::launch_cancel_action(&mut idle),
+        crate::LaunchCancelAction::Idle
+    );
+
+    let mut closing = GameTracker {
+        session: Some(test_game_session(false)),
+        launch: Some(LaunchProgress::new(9)),
+        ..Default::default()
+    };
+    assert_eq!(
+        crate::launch_cancel_action(&mut closing),
+        crate::LaunchCancelAction::Close
+    );
+    assert!(closing.launch.as_ref().unwrap().cancelling);
+    closing.session.as_mut().unwrap().closing = true;
+    assert_eq!(
+        crate::launch_cancel_action(&mut closing),
+        crate::LaunchCancelAction::AlreadyClosing
+    );
+}
+
+#[test]
+fn cancel_launch_wait_marks_progress_and_returns_status() {
+    let app = tauri::test::mock_app();
+    let cancel = Arc::new(AtomicBool::new(false));
+    app.manage(AppState {
+        settings: Mutex::new(Settings::default()),
+        game: Mutex::new(GameTracker {
+            starting: true,
+            launch: Some(LaunchProgress::new(5)),
+            launch_cancel: Some(Arc::clone(&cancel)),
+            ..Default::default()
+        }),
+    });
+    let status =
+        tauri::async_runtime::block_on(cancel_launch(app.handle().clone(), app.state())).unwrap();
+    assert!(cancel.load(Ordering::Acquire));
+    assert!(!status.running);
+    let launch = status.launch.expect("launch progress");
+    assert_eq!(launch.stage, LaunchStage::Preparing);
+    assert!(launch.cancelling);
+}
+
+#[test]
+fn cancel_launch_idle_clears_stale_progress() {
+    let app = tauri::test::mock_app();
+    app.manage(AppState {
+        settings: Mutex::new(Settings::default()),
+        game: Mutex::new(GameTracker {
+            launch: Some(LaunchProgress::new(5)),
+            ..Default::default()
+        }),
+    });
+    let status =
+        tauri::async_runtime::block_on(cancel_launch(app.handle().clone(), app.state())).unwrap();
+    assert!(!status.running);
+    assert!(status.launch.is_none());
+    assert!(app
+        .state::<AppState>()
+        .game
+        .lock()
+        .unwrap()
+        .launch
+        .is_none());
+}
+
+#[test]
+fn cancel_launch_already_closing_returns_live_status() {
+    let app = tauri::test::mock_app();
+    app.manage(AppState {
+        settings: Mutex::new(Settings::default()),
+        game: Mutex::new(GameTracker {
+            session: Some(test_game_session(true)),
+            launch: Some(LaunchProgress::new(5)),
+            ..Default::default()
+        }),
+    });
+    let status =
+        tauri::async_runtime::block_on(cancel_launch(app.handle().clone(), app.state())).unwrap();
+    assert!(status.running);
+    assert!(status.closing);
+    assert!(status.launch.is_some());
+}
+
+#[test]
+fn cancel_launch_dead_session_returns_idle() {
+    let mut session = test_game_session(false);
+    session.pgid = 1_999_999_999;
+    session.pid = 1_999_999_999;
+    let app = tauri::test::mock_app();
+    app.manage(AppState {
+        settings: Mutex::new(Settings::default()),
+        game: Mutex::new(GameTracker {
+            session: Some(session),
+            launch: Some(LaunchProgress::new(5)),
+            ..Default::default()
+        }),
+    });
+    let status =
+        tauri::async_runtime::block_on(cancel_launch(app.handle().clone(), app.state())).unwrap();
+    assert!(!status.running);
+    assert!(status.launch.is_none());
+}
+
+#[test]
+fn close_game_rejects_starting_and_closing_sessions() {
+    let app = tauri::test::mock_app();
+    app.manage(AppState {
+        settings: Mutex::new(Settings::default()),
+        game: Mutex::new(GameTracker {
+            starting: true,
+            ..Default::default()
+        }),
+    });
+    let starting =
+        tauri::async_runtime::block_on(close_game(app.handle().clone(), app.state())).unwrap_err();
+    assert!(starting.contains("正在启动"));
+
+    app.state::<AppState>().game.lock().unwrap().starting = false;
+    app.state::<AppState>().game.lock().unwrap().session = Some(test_game_session(true));
+    let closing =
+        tauri::async_runtime::block_on(close_game(app.handle().clone(), app.state())).unwrap_err();
+    assert!(closing.contains("正在关闭"));
+}
+
+#[test]
+fn close_game_dead_session_returns_idle_and_clears_progress() {
+    let mut session = test_game_session(false);
+    session.pgid = 1_999_999_999;
+    session.pid = 1_999_999_999;
+    let app = tauri::test::mock_app();
+    app.manage(AppState {
+        settings: Mutex::new(Settings::default()),
+        game: Mutex::new(GameTracker {
+            session: Some(session),
+            launch: Some(LaunchProgress::new(5)),
+            ..Default::default()
+        }),
+    });
+    let status =
+        tauri::async_runtime::block_on(close_game(app.handle().clone(), app.state())).unwrap();
+    assert!(!status.running);
+    assert!(app
+        .state::<AppState>()
+        .game
+        .lock()
+        .unwrap()
+        .launch
+        .is_none());
+}
+
+#[test]
+fn close_game_without_session_returns_idle() {
+    let app = tauri::test::mock_app();
+    app.manage(AppState {
+        settings: Mutex::new(Settings::default()),
+        game: Mutex::new(GameTracker::default()),
+    });
+    let status =
+        tauri::async_runtime::block_on(close_game(app.handle().clone(), app.state())).unwrap();
+    assert!(!status.running);
+}
+
+#[test]
+fn game_status_clears_launch_for_a_dead_session() {
+    let mut session = test_game_session(false);
+    session.pgid = 1_999_999_999;
+    session.pid = 1_999_999_999;
+    let app = tauri::test::mock_app();
+    app.manage(AppState {
+        settings: Mutex::new(Settings::default()),
+        game: Mutex::new(GameTracker {
+            session: Some(session),
+            launch: Some(LaunchProgress::new(5)),
+            ..Default::default()
+        }),
+    });
+    let status = game_status(app.state());
+    assert!(!status.running);
+    assert!(status.launch.is_none());
+}
+
+#[test]
+fn begin_launch_creates_progress_only_for_background() {
+    let mut background = GameTracker::default();
+    let cancel = begin_launch(
+        &mut background,
+        &Settings {
+            launch_mode: "background".into(),
+            ..Default::default()
+        },
+    );
+    assert!(background.starting);
+    assert!(background.launch.is_some());
+    assert!(background.launch_cancel.is_some());
+    assert!(!cancel.load(Ordering::Acquire));
+
+    let mut official = GameTracker::default();
+    begin_launch(
+        &mut official,
+        &Settings {
+            launch_mode: "official".into(),
+            ..Default::default()
+        },
+    );
+    assert!(official.starting);
+    assert!(official.launch.is_none());
+    assert!(official.launch_cancel.is_none());
+}
+
+#[test]
+fn reset_launch_clears_all_start_flags() {
+    let mut tracker = GameTracker {
+        starting: true,
+        launch: Some(LaunchProgress::new(1)),
+        launch_cancel: Some(Arc::new(AtomicBool::new(false))),
+        ..Default::default()
+    };
+    reset_launch(&mut tracker);
+    assert!(!tracker.starting);
+    assert!(tracker.launch.is_none());
+    assert!(tracker.launch_cancel.is_none());
+}
+
+#[test]
+fn advance_launch_is_scoped_to_the_current_session() {
+    let mut tracker = GameTracker {
+        session: Some(test_game_session(false)),
+        launch: Some(LaunchProgress::new(1)),
+        ..Default::default()
+    };
+    assert!(advance_launch(&mut tracker, 11, LaunchStage::Helper));
+    assert!(!advance_launch(&mut tracker, 12, LaunchStage::Resources));
+    assert!(!advance_launch(&mut tracker, 11, LaunchStage::Preparing));
+    tracker.launch.as_mut().unwrap().cancelling = true;
+    assert!(!advance_launch(&mut tracker, 11, LaunchStage::Resources));
+    tracker.session = None;
+    assert!(!advance_launch(&mut tracker, 11, LaunchStage::Resources));
+}
+
+#[test]
+fn clear_launch_removes_progress_and_token() {
+    let mut tracker = GameTracker {
+        launch: Some(LaunchProgress::new(1)),
+        launch_cancel: Some(Arc::new(AtomicBool::new(false))),
+        ..Default::default()
+    };
+    clear_launch(&mut tracker);
+    assert!(tracker.launch.is_none());
+    assert!(tracker.launch_cancel.is_none());
+}
+
+#[test]
+fn finish_game_close_clears_success_or_restores_failure() {
+    let mut success = GameTracker {
+        session: Some(test_game_session(false)),
+        launch: Some(LaunchProgress::new(1)),
+        launch_cancel: Some(Arc::new(AtomicBool::new(false))),
+        last_error: Some("old".into()),
+        ..Default::default()
+    };
+    finish_game_close(&mut success, 11, true);
+    assert!(success.session.is_none());
+    assert!(success.launch.is_none());
+    assert!(success.launch_cancel.is_none());
+    assert!(success.last_error.is_none());
+
+    let mut failure = GameTracker {
+        session: Some(test_game_session(true)),
+        launch: Some(LaunchProgress {
+            cancelling: true,
+            ..LaunchProgress::new(1)
+        }),
+        ..Default::default()
+    };
+    finish_game_close(&mut failure, 11, false);
+    assert!(!failure.session.as_ref().unwrap().closing);
+    assert!(!failure.launch.as_ref().unwrap().cancelling);
+    finish_game_close(&mut failure, 12, true);
+    assert!(failure.session.is_some());
 }
 
 fn wait_until(mut condition: impl FnMut() -> bool, timeout: Duration) -> bool {
@@ -445,6 +801,8 @@ fn tracks_playtime_while_the_game_process_is_alive() {
         closing: false,
         exit_notified: false,
         game_alive: Arc::new(AtomicBool::new(true)),
+        monitor_done: Arc::new(AtomicBool::new(false)),
+        finalized: Arc::new(AtomicBool::new(false)),
         _install_lock: None,
         _prefix_lock: None,
         background: None,

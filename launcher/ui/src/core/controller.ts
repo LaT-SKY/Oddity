@@ -9,6 +9,8 @@ import type {
   Bootstrap,
   CheckResult,
   LaunchResult,
+  LaunchProgress,
+  LaunchStage,
   GameStatus,
   DownloadStatus,
   BulletinFeed,
@@ -444,6 +446,7 @@ export const state = reactive<{
   checking: boolean;
   game: GamePhase;
   session: GameStatus | LaunchResult | null;
+  launch: LaunchProgress | null;
   heroMedia: string;
 }>({
   bootstrap: null,
@@ -455,6 +458,7 @@ export const state = reactive<{
   checking: false,
   game: "idle",
   session: null,
+  launch: null,
   heroMedia: "video",
 });
 
@@ -493,20 +497,44 @@ export function setHeroVideo(video: HTMLVideoElement | null) {
 export const displayVersion = computed(
   () => state.bootstrap?.appVersion || APP_VERSION,
 );
-export const launchView = computed(() => ({
-  ...(state.game === "idle" &&
-  (!state.bootstrap?.gameExists || downloadNeedsWork())
-    ? {
-        label: state.bootstrap?.gameExists ? "更新游戏" : "安装游戏",
-        icon: "i-download-simple",
-      }
-    : LAUNCH_COPY[state.game]),
-  busy:
+export const launchPauseAvailable = computed(
+  () => state.game === "launching" && form.launchMode === "background",
+);
+export const launchView = computed(() => {
+  const launching = state.game === "launching";
+  const pauseAvailable = launchPauseAvailable.value;
+  const pausing =
+    pauseAvailable &&
+    (launchCancelRequested || Boolean(state.launch?.cancelling));
+  const busy =
     runtimeEnvironmentBusy.value ||
-    state.game === "launching" ||
+    launching ||
     state.game === "closing" ||
-    downloadBlocksLaunch(),
-}));
+    downloadBlocksLaunch();
+  const disabled =
+    runtimeEnvironmentBusy.value ||
+    state.game === "closing" ||
+    downloadBlocksLaunch() ||
+    launching;
+  const copy = launching
+    ? {
+        label: pausing
+          ? "正在暂停"
+          : pauseAvailable
+            ? (LAUNCH_STAGE_LABELS[state.launch?.stage ?? "preparing"] ??
+              "正在启动")
+            : "正在启动",
+        icon: "i-play",
+      }
+    : state.game === "idle" &&
+        (!state.bootstrap?.gameExists || downloadNeedsWork())
+      ? {
+          label: state.bootstrap?.gameExists ? "更新游戏" : "安装游戏",
+          icon: "i-download-simple",
+        }
+      : LAUNCH_COPY[state.game];
+  return { ...copy, busy, disabled, pausing, pauseAvailable };
+});
 function downloadNeedsWork() {
   return (
     state.download?.distribution === state.bootstrap?.settings.distribution &&
@@ -820,6 +848,28 @@ const LAUNCH_COPY = {
   running: { label: "关闭游戏", icon: "i-power" },
   closing: { label: "正在关闭", icon: "i-power" },
 };
+const LAUNCH_STAGE_LABELS: Record<LaunchStage, string> = {
+  preparing: "正在准备环境",
+  helper: "正在启动后台",
+  resources: "正在等待资源",
+  game: "正在启动游戏",
+  running: "正在启动游戏",
+};
+const LAUNCH_CANCELLED = "启动已暂停。";
+let launchCancelRequested = false;
+let launchHidePending = false;
+
+function resetLaunchFlags() {
+  launchCancelRequested = false;
+  launchHidePending = false;
+}
+
+function requestLaunchHide() {
+  if (!launchHidePending) return;
+  launchHidePending = false;
+  launchCancelRequested = false;
+  if (isTauri()) void invoke("win_hide").catch(() => {});
+}
 
 const pendingWaits = new Set<() => void>();
 const wait = (ms: number) =>
@@ -1490,16 +1540,50 @@ function applyGameStatus(
   { force = false, announce = false } = {},
 ) {
   if (!status || typeof status.running !== "boolean") return;
-  // 启动和关闭期间由命令维护按钮状态, 避免事件覆盖中间反馈。
   const previous = state.game;
-  if (!force && (previous === "launching" || previous === "closing")) return;
+  // 关闭期间由命令维护反馈, 避免后台事件覆盖中间状态。
+  if (!force && previous === "closing") return;
+  // 前台/直接启动没有阶段事件, 命令返回前保持本地启动状态。
+  if (!force && previous === "launching" && !status.launch && !state.launch)
+    return;
   if (announce && status.error) notify(status.error, "error", 7500);
+
+  if (status.launch) {
+    const launch = status.launch;
+    const cancelling = launch.cancelling || launchCancelRequested;
+    if (cancelling || launch.stage !== "running") {
+      state.launch = launch;
+      if (status.running) state.session = status;
+      setLaunchState("launching");
+      return;
+    }
+    state.launch = null;
+    launchCancelRequested = false;
+    if (status.running) {
+      state.session = status;
+      if (!status.closing && state.game === "launching" && launchHidePending)
+        requestLaunchHide();
+      launchHidePending = false;
+      setLaunchState(status.closing ? "closing" : "running");
+    } else {
+      state.session = null;
+      launchHidePending = false;
+      setLaunchState("idle");
+    }
+    return;
+  }
+
   if (status.running) {
+    state.launch = null;
     state.session = status;
+    launchCancelRequested = false;
     setLaunchState(status.closing ? "closing" : "running");
     return;
   }
+
   state.session = null;
+  state.launch = null;
+  resetLaunchFlags();
   setLaunchState("idle");
   if (announce && !status.error && previous === "running")
     void announcePlaytimeExit("游戏已退出。");
@@ -1531,12 +1615,26 @@ async function launchGame() {
   }
   if (!isTauri()) notify("浏览器预览：模拟启动流程。", "ok", 2600);
   setLaunchState("launching");
+  state.launch = null;
+  launchHidePending = true;
+  launchCancelRequested = false;
   const startedAt = performance.now();
-  lastLaunchStartedAt = Date.now();
+  const launchStartedAt = Date.now();
+  lastLaunchStartedAt = launchStartedAt;
   try {
     const result = await invoke("launch_official");
     if (epoch !== generation) return;
     state.session = result;
+    if (result.mode === "background") {
+      // 后台启动的阶段与收窗由 game-state 事件驱动。
+      if (launchHidePending && !state.launch)
+        state.launch = {
+          stage: "preparing",
+          startedAt: launchStartedAt,
+          cancelling: launchCancelRequested,
+        };
+      return;
+    }
     const remaining = LAUNCH_FEEDBACK_MS - (performance.now() - startedAt);
     if (remaining > 0) await wait(remaining);
     if (epoch !== generation) return;
@@ -1545,6 +1643,8 @@ async function launchGame() {
     const status = await invoke("game_status").catch(() => null);
     if (epoch !== generation) return;
     if (status && !status.running) {
+      state.launch = null;
+      resetLaunchFlags();
       setLaunchState("idle");
       notify(status.error || "游戏进程已退出，启动未完成。", "error", 7000, {
         primary: {
@@ -1556,21 +1656,30 @@ async function launchGame() {
       return;
     }
 
+    if (status) applyGameStatus(status, { force: true });
     setLaunchState("running");
-    if (isTauri()) {
-      try {
-        await invoke("win_hide");
-      } catch {}
-    }
+    requestLaunchHide();
   } catch (error) {
     if (epoch !== generation) return;
+    const cancelled =
+      launchCancelRequested ||
+      (error instanceof Error ? error.message : String(error)) ===
+        LAUNCH_CANCELLED;
+    resetLaunchFlags();
     let status = null;
     try {
       status = await invoke("game_status");
     } catch {}
     if (epoch !== generation) return;
-    if (status && status.running) applyGameStatus(status, { force: true });
-    else setLaunchState("idle");
+    if (status?.running) {
+      applyGameStatus(status, { force: true });
+      if (status.launch?.cancelling) return;
+    } else {
+      state.session = null;
+      state.launch = null;
+      setLaunchState("idle");
+    }
+    if (cancelled) return;
     notify(
       error instanceof Error ? error.message : String(error),
       "error",
@@ -1582,6 +1691,33 @@ async function launchGame() {
           run: () => openSettings("maintenance"),
         },
       },
+    );
+  }
+}
+
+export async function pauseLaunch() {
+  const epoch = generation;
+  if (!launchPauseAvailable.value) return;
+  if (launchCancelRequested || state.launch?.cancelling) return;
+  launchCancelRequested = true;
+  if (state.launch) state.launch = { ...state.launch, cancelling: true };
+  try {
+    const status = await invoke("cancel_launch");
+    if (epoch !== generation) return;
+    if (status) applyGameStatus(status, { force: true });
+  } catch (error) {
+    if (epoch !== generation) return;
+    launchCancelRequested = false;
+    let status = null;
+    try {
+      status = await invoke("game_status");
+    } catch {}
+    if (epoch !== generation) return;
+    if (status) applyGameStatus(status, { force: true });
+    notify(
+      error instanceof Error ? error.message : String(error),
+      "error",
+      7500,
     );
   }
 }
@@ -1613,10 +1749,12 @@ async function closeGame() {
 }
 
 export function handleLaunchAction() {
-  if (state.game === "running") closeGame();
+  if (state.game === "running") void closeGame();
+  else if (state.game === "launching") void pauseLaunch();
+  else if (state.game === "closing") return;
   else if (!state.bootstrap?.gameExists || downloadNeedsWork())
     showPage("update");
-  else if (!downloadBlocksLaunch()) launchGame();
+  else if (!downloadBlocksLaunch()) void launchGame();
 }
 
 function installPathsChanged(
@@ -2103,7 +2241,7 @@ function bindInteractions() {
   onWindow("hashchange", () => showPage(hashPage(), false));
 
   onWindow("focus", () => {
-    if (state.game === "launching" || state.game === "closing") return;
+    if (state.game === "closing") return;
     syncGameStatus();
     if (state.page === "records") void loadPlaytime();
   });
@@ -2144,6 +2282,8 @@ export async function init() {
   // 先清理上一代状态, 首次进入记录页的读取才能保持加载状态。
   playtime.loading = false;
   showPage(hashPage(), false);
+  state.launch = null;
+  resetLaunchFlags();
   setLaunchState("idle");
   disposers.push(
     listenGameState((status) => applyGameStatus(status, { announce: true })),
@@ -2241,6 +2381,7 @@ export function dispose() {
   playtimeRequest++;
   playtimeRequestedAt = 0;
   lastLaunchStartedAt = null;
+  resetLaunchFlags();
   Object.assign(playtime, {
     history: null,
     loading: false,
@@ -2258,6 +2399,7 @@ export function dispose() {
     checking: false,
     game: "idle",
     session: null,
+    launch: null,
   });
   Object.assign(ui, {
     saveState: "idle",

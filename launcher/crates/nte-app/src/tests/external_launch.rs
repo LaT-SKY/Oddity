@@ -32,6 +32,8 @@ fn session(closing: bool, alive: bool) -> GameSession {
         closing,
         exit_notified: false,
         game_alive: Arc::new(AtomicBool::new(alive)),
+        monitor_done: Arc::new(AtomicBool::new(false)),
+        finalized: Arc::new(AtomicBool::new(false)),
         _install_lock: None,
         _prefix_lock: None,
         background: None,

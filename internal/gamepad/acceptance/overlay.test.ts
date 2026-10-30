@@ -6,6 +6,7 @@ import { gamepad, gamepadTarget } from "../../../launcher/ui/src/core/gamepad";
 vi.mock("../../../launcher/ui/src/core/controller", () => ({
   form: { reduceMotion: true, theme: "light" },
   state: { page: "records" },
+  launchPauseAvailable: { value: false },
 }));
 vi.mock("../../../launcher/ui/src/composables/useSceneMotion", async () => {
   const { ref } = await import("vue");

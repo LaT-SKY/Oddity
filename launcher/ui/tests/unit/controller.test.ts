@@ -1642,10 +1642,10 @@ describe("游戏会话", () => {
 
   it("启动反馈期间忽略事件和重复操作, 启动成功后收起窗口", async () => {
     const c = await boot();
-    c.handleLaunchAction();
+    button("launch-btn").click();
     expect(c.state.game).toBe("launching");
     backend.handler(session());
-    c.handleLaunchAction();
+    button("launch-btn").click();
     window.dispatchEvent(new Event("focus"));
     expect(c.state.game).toBe("launching");
     await vi.advanceTimersByTimeAsync(900);
@@ -1656,6 +1656,226 @@ describe("游戏会话", () => {
     await nextTick();
     await flushPromises();
     expect(noticeMessage()).toBe("游戏已退出。");
+  });
+
+  it("后台启动时只在主按钮展示阶段并露出暂停子按钮", async () => {
+    const c = await boot();
+    const startedAt = Date.now();
+    backend.invoke.mockResolvedValueOnce({ pid: 123, mode: "background" });
+    c.handleLaunchAction();
+    backend.handler(
+      session({
+        running: false,
+        launch: { stage: "preparing", startedAt, cancelling: false },
+      }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("launching");
+    expect(c.state.launch?.stage).toBe("preparing");
+    await nextTick();
+    expect(button("launch-btn").getAttribute("aria-label")).toBe(
+      "正在准备环境",
+    );
+    expect(button("launch-btn").getAttribute("aria-disabled")).toBe("true");
+    expect(button("launch-pause-btn").disabled).toBe(false);
+    backend.handler(
+      session({
+        running: true,
+        pid: 123,
+        launch: { stage: "resources", startedAt, cancelling: false },
+      }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("launching");
+    expect(c.state.launch?.stage).toBe("resources");
+    expect(backend.invoke).not.toHaveBeenCalledWith("win_hide");
+    expect(button("launch-btn").getAttribute("aria-label")).toBe(
+      "正在等待资源",
+    );
+    expect(button("launch-pause-btn").disabled).toBe(false);
+  });
+
+  it.each(["official", "direct"])("%s 启动不提供暂停入口", async (mode) => {
+    backend.data.settings.launchMode = mode;
+    const c = await boot();
+    button("launch-btn").click();
+    await nextTick();
+    expect(c.state.game).toBe("launching");
+    expect(c.launchView.value.pauseAvailable).toBe(false);
+    expect(c.launchView.value.label).toBe("正在启动");
+    expect(document.getElementById("launch-pause-btn")).toBeNull();
+    await c.pauseLaunch();
+    c.handleLaunchAction();
+    await flushPromises();
+    expect(backend.invoke).not.toHaveBeenCalledWith("cancel_launch");
+  });
+
+  it("后台阶段完成时收起窗口并只隐藏一次", async () => {
+    const c = await boot();
+    backend.invoke.mockResolvedValueOnce({ pid: 123, mode: "background" });
+    c.handleLaunchAction();
+    backend.handler(
+      session({
+        running: true,
+        pid: 123,
+        launch: {
+          stage: "running",
+          startedAt: Date.now(),
+          cancelling: false,
+        },
+      }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("running");
+    expect(c.state.launch).toBeNull();
+    expect(
+      backend.invoke.mock.calls.filter(([command]) => command === "win_hide"),
+    ).toHaveLength(1);
+  });
+
+  it("关闭游戏时保留关闭反馈, 不被已完成阶段覆盖", async () => {
+    const c = await boot();
+    backend.handler(
+      session({
+        running: true,
+        pid: 123,
+        launch: {
+          stage: "running",
+          startedAt: Date.now(),
+          cancelling: false,
+        },
+      }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("running");
+    backend.handler(
+      session({
+        running: true,
+        closing: true,
+        pid: 123,
+        launch: {
+          stage: "running",
+          startedAt: Date.now(),
+          cancelling: false,
+        },
+      }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("closing");
+    expect(button("launch-btn").getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("恢复启动中状态时主按钮展示阶段并允许暂停", async () => {
+    backend.status = session({
+      running: true,
+      pid: 123,
+      launch: {
+        stage: "helper",
+        startedAt: Date.now() - 5000,
+        cancelling: false,
+      },
+    });
+    const c = await boot();
+    expect(c.state.game).toBe("launching");
+    expect(c.state.launch?.stage).toBe("helper");
+    expect(button("launch-btn").getAttribute("aria-label")).toBe(
+      "正在启动后台",
+    );
+    expect(button("launch-btn").getAttribute("aria-disabled")).toBe("true");
+    expect(button("launch-pause-btn").disabled).toBe(false);
+  });
+
+  it("后台启动失败时清除阶段", async () => {
+    const c = await boot();
+    backend.invoke.mockResolvedValueOnce({ pid: 123, mode: "background" });
+    c.handleLaunchAction();
+    backend.handler(
+      session({
+        running: true,
+        pid: 123,
+        launch: {
+          stage: "resources",
+          startedAt: Date.now(),
+          cancelling: false,
+        },
+      }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("launching");
+    backend.handler(
+      session({ error: "官方后台未能在 180 秒内完成资源初始化." }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("idle");
+    expect(c.state.launch).toBeNull();
+    expect(noticeMessage()).toBe("官方后台未能在 180 秒内完成资源初始化.");
+  });
+
+  it("暂停子按钮暂停后台启动且不提示错误", async () => {
+    const c = await boot();
+    let rejectLaunch!: (error: Error) => void;
+    backend.invoke.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectLaunch = reject;
+        }),
+    );
+    button("launch-btn").click();
+    backend.handler(
+      session({
+        running: false,
+        launch: {
+          stage: "preparing",
+          startedAt: Date.now(),
+          cancelling: false,
+        },
+      }),
+    );
+    await nextTick();
+    backend.invoke.mockResolvedValueOnce(
+      session({
+        running: false,
+        launch: {
+          stage: "preparing",
+          startedAt: Date.now(),
+          cancelling: true,
+        },
+      }),
+    );
+    button("launch-pause-btn").click();
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("cancel_launch");
+    expect(c.state.game).toBe("launching");
+    expect(c.state.launch?.cancelling).toBe(true);
+    expect(button("launch-btn").getAttribute("aria-label")).toBe("正在暂停");
+    expect(button("launch-pause-btn").disabled).toBe(true);
+    rejectLaunch(new Error("启动已暂停。"));
+    await flushPromises();
+    expect(c.state.game).toBe("idle");
+    expect(noticeMessage()).toBeUndefined();
+  });
+
+  it("手柄西键在启动中暂停启动", async () => {
+    const c = await boot();
+    backend.invoke.mockResolvedValueOnce({ pid: 123, mode: "background" });
+    button("launch-btn").click();
+    backend.handler(
+      session({
+        running: true,
+        pid: 123,
+        launch: {
+          stage: "helper",
+          startedAt: Date.now(),
+          cancelling: false,
+        },
+      }),
+    );
+    await flushPromises();
+    backend.invoke.mockResolvedValueOnce(session());
+    c.handleLaunchAction();
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("cancel_launch");
+    expect(c.state.game).toBe("idle");
   });
 
   it("游戏退出后读取本次时长并提示查看记录", async () => {
@@ -2285,7 +2505,7 @@ it("版本显示随后台快照刷新, 缺失值显示未知而非固定版本",
 });
 
 it("后台会话事件通过响应式绑定更新按钮文字、图标和禁用状态", async () => {
-  await boot();
+  const c = await boot();
   backend.handler(session({ running: true }));
   await nextTick();
   expect(text("launch-btn")).toContain("关闭游戏");
@@ -2294,11 +2514,15 @@ it("后台会话事件通过响应式绑定更新按钮文字、图标和禁用�
   backend.handler(session({ running: true, closing: true }));
   await nextTick();
   expect(text("launch-btn")).toContain("正在关闭");
-  expect(button("launch-btn").disabled).toBe(true);
+  expect(button("launch-btn").getAttribute("aria-disabled")).toBe("true");
   expect(button("launch-btn").getAttribute("aria-busy")).toBe("true");
   backend.handler(session());
   // 关闭期间由命令维护中间状态, 避免后台事件覆盖反馈。
-  expect(button("launch-btn").disabled).toBe(true);
+  expect(button("launch-btn").getAttribute("aria-disabled")).toBe("true");
+  const calls = backend.invoke.mock.calls.length;
+  c.handleLaunchAction();
+  expect(c.state.game).toBe("closing");
+  expect(backend.invoke.mock.calls.length).toBe(calls);
 });
 
 it("组件卸载时释放原生订阅、视频 URL、定时器和全局事件", async () => {

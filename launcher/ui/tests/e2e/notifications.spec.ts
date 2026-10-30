@@ -290,6 +290,8 @@ test("连续启动和关闭时, 旧通知只下移一层且不跳到下一行", 
   await page.locator('[data-page="home"]').click();
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.locator("#launch-btn").click();
+  // 启动页提示会在阶段推进中到期, 悬停暂停计时以保留旧通知。
+  await page.locator(".notification-stack").hover();
   await expect(page.locator("#launch-btn")).toHaveText(/关闭游戏/);
   await expect(stack).toHaveAttribute("data-phase", "0");
   const oldId = await page
@@ -335,7 +337,9 @@ test("连续启动和关闭时, 旧通知只下移一层且不跳到下一行", 
     }
     requestAnimationFrame(sample);
   }, oldId);
-  await page.locator("#launch-btn").click();
+  // 用键盘关闭, 保持指针停留在通知区域以继续暂停计时。
+  await page.locator("#launch-btn").focus();
+  await page.keyboard.press("Enter");
   await page.waitForFunction(
     () =>
       (window as unknown as { multiNoticeProbe: { done: boolean } })

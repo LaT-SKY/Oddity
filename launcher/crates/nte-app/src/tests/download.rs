@@ -318,6 +318,8 @@ fn commands_reject_overlapping_tasks_and_running_games() {
         closing: false,
         exit_notified: false,
         game_alive: Arc::new(AtomicBool::new(false)),
+        monitor_done: Arc::new(AtomicBool::new(false)),
+        finalized: Arc::new(AtomicBool::new(false)),
         _install_lock: None,
         _prefix_lock: None,
         game_mode: None,

@@ -239,6 +239,13 @@ export interface LaunchResult {
   log: string;
   startedAt: number;
 }
+export type LaunchStage =
+  "preparing" | "helper" | "resources" | "game" | "running";
+export interface LaunchProgress {
+  stage: LaunchStage;
+  startedAt: number;
+  cancelling: boolean;
+}
 export interface GameStatus {
   error?: string | null;
   running: boolean;
@@ -247,6 +254,7 @@ export interface GameStatus {
   startedAt: number;
   exe: string;
   log: string;
+  launch?: LaunchProgress | null;
 }
 export type DownloadPhase =
   | "idle"
@@ -411,6 +419,7 @@ export interface Commands {
   open_directory: null;
   open_url: null;
   launch_official: LaunchResult;
+  cancel_launch: GameStatus;
   game_status: GameStatus;
   take_launch_error: string | null;
   playtime_history: PlaytimeHistory;
@@ -481,6 +490,7 @@ export interface CommandArgs {
   open_directory: { path: string };
   open_url: { url: string };
   launch_official: undefined;
+  cancel_launch: undefined;
   game_status: undefined;
   take_launch_error: undefined;
   playtime_history: undefined;

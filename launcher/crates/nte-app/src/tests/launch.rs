@@ -1,5 +1,6 @@
 use super::*;
 use crate::*;
+use std::sync::atomic::AtomicBool;
 use std::time::Instant;
 
 #[test]
@@ -143,6 +144,17 @@ fn expect_launch_error(result: Result<LaunchInvocation, String>) -> String {
 fn env_value<'a>(dump: &'a str, key: &str) -> Option<&'a str> {
     dump.lines()
         .find_map(|line| line.strip_prefix(&format!("{key}=")))
+}
+
+#[test]
+fn cancellation_token_stops_the_launch_before_spawning() {
+    let fixture = LaunchFixture::new("launch-cancel");
+    let error = expect_launch_error(launch_impl_with_cancel(
+        &fixture.settings("background"),
+        &AtomicBool::new(true),
+    ));
+    assert_eq!(error, LAUNCH_CANCELLED);
+    assert!(!fixture.dump.exists());
 }
 
 #[test]
@@ -469,7 +481,7 @@ fn launch_reports_an_immediate_exit_with_the_log_tail() {
     .expect("background monitor owns cleanup");
     let background = invocation.background.as_ref().unwrap();
     let error = background
-        .monitor(&mut invocation.child)
+        .monitor(&mut invocation.child, |_| {})
         .expect_err("early exit fails the session");
     assert!(error.contains("后台包装进程"), "{error}");
     assert!(background.finished());
@@ -607,7 +619,7 @@ fn live_background_launch(distribution: Distribution, root_key: &str) {
     let monitor = thread::spawn(move || {
         let _installation_lock = invocation.install_lock;
         let mut child = invocation.child;
-        monitored.monitor(&mut child)
+        monitored.monitor(&mut child, |_| {})
     });
     let deadline = Instant::now() + Duration::from_secs(150);
     let mut started = false;
@@ -646,7 +658,12 @@ fn live_background_launch(distribution: Distribution, root_key: &str) {
 fn launch_records_an_environment_snapshot() {
     let fixture = LaunchFixture::new("snapshot-launch");
     let snapshots = snapshot_commands::Snapshots::load(&data_dir());
-    let invocation = launch_impl_with_snapshots(&fixture.settings("direct"), &snapshots).unwrap();
+    let invocation = launch_impl_with_snapshots(
+        &fixture.settings("direct"),
+        &snapshots,
+        &AtomicBool::new(false),
+    )
+    .unwrap();
     let dump = fixture.dump();
     assert!(dump.contains("HTGame.exe"), "{dump}");
 
@@ -698,6 +715,7 @@ fn immediate_exit_marks_the_snapshot_failed() {
     let error = expect_launch_error(launch_impl_with_snapshots(
         &fixture.settings("direct"),
         &snapshots,
+        &AtomicBool::new(false),
     ));
     assert!(error.contains("退出码 3"), "{error}");
 

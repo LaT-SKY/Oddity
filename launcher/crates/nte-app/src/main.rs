@@ -22,8 +22,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
-use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State, WebviewWindow, WindowEvent};
 
+use launch_progress::{LaunchProgress, LaunchStage};
 use native_session::NativeSession;
 use nte_core::bulletin::{self, BulletinFeed};
 use nte_core::config::{Ini, LauncherConfig};
@@ -41,6 +42,7 @@ mod environment_commands;
 mod file_commands;
 mod game_mode_commands;
 mod gamepad_commands;
+mod launch_progress;
 mod log_commands;
 mod native_session;
 mod playtime_commands;
@@ -48,6 +50,7 @@ mod snapshot_commands;
 mod update_scheduler;
 
 const APP_IDENTIFIER: &str = "io.github.oddity.Launcher";
+const LAUNCH_CANCELLED: &str = "启动已暂停。";
 
 struct AppState {
     settings: Mutex<Settings>,
@@ -61,6 +64,8 @@ struct GameTracker {
     starting: bool,
     next_id: u64,
     last_error: Option<String>,
+    launch: Option<LaunchProgress>,
+    launch_cancel: Option<Arc<AtomicBool>>,
 }
 
 /// 本轮启动及其专属后台会话.
@@ -77,6 +82,8 @@ struct GameSession {
     closing: bool,
     exit_notified: bool,
     game_alive: Arc<AtomicBool>,
+    monitor_done: Arc<AtomicBool>,
+    finalized: Arc<AtomicBool>,
     _install_lock: Option<Arc<nte_core::install_lock::InstallLock>>,
     _prefix_lock: Option<Arc<nte_core::environment::PrefixLock>>,
     background: Option<Arc<NativeSession>>,
@@ -175,6 +182,8 @@ struct GameStatus {
     exe: Option<String>,
     log: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    launch: Option<LaunchProgress>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
 
@@ -187,6 +196,7 @@ impl GameStatus {
             started_at: None,
             exe: None,
             log: None,
+            launch: None,
             error: None,
         }
     }
@@ -200,6 +210,7 @@ impl GameStatus {
                 started_at: Some(session.started_at),
                 exe: Some(session.exe.clone()),
                 log: Some(session.log.clone()),
+                launch: None,
                 error: None,
             },
             None => Self::idle(),
@@ -604,10 +615,39 @@ fn session_alive(session: &GameSession) -> bool {
     )
 }
 
+/// 会话只收尾一次: 停止监控, 完成快照、游玩记录和游戏模式清理.
+fn finalize_game_session<R: Runtime>(
+    app: &AppHandle<R>,
+    session: &GameSession,
+    failure: Option<nte_core::snapshots::Failure>,
+) {
+    if session.finalized.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    session.monitor_done.store(true, Ordering::Release);
+    if let Some(snapshots) = app.try_state::<snapshot_commands::Snapshots>() {
+        if let Some(id) = session.snapshot.as_deref() {
+            snapshots.finish(id, failure);
+        }
+    }
+    if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
+        if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
+            eprintln!("结束游玩记录失败: {error}");
+        }
+    }
+    if let Some(mode) = &session.game_mode {
+        if let Ok(mut mode) = mode.lock() {
+            mode.release();
+        }
+    }
+}
+
 /// 后台会话按实际游戏生命周期结束, 无需等待共享 wineserver 退出.
-fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
+fn spawn_game_monitor<R: Runtime>(app: AppHandle<R>, mut child: Child, session: GameSession) {
+    let stage_app = app.clone();
+    let session_id = session.id;
     thread::spawn(move || {
-        let done = Arc::new(AtomicBool::new(false));
+        let done = Arc::clone(&session.monitor_done);
         let alive = Arc::clone(&session.game_alive);
         watch_game_exit(
             app.clone(),
@@ -615,8 +655,14 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
             Arc::clone(&done),
             Arc::clone(&alive),
         );
+        let on_stage = |stage: LaunchStage| publish_launch_stage(&stage_app, session_id, stage);
         let (result, exit_code) = if let Some(background) = &session.background {
-            (background.monitor(&mut child), None)
+            if session.closing {
+                // 取消请求可能早于监控线程启动, 这里补上会话关闭信号。
+                (background.close(), None)
+            } else {
+                (background.monitor(&mut child, on_stage), None)
+            }
         } else {
             let (result, exit_code) = match child.wait() {
                 Ok(status) => (Ok(()), status.code()),
@@ -627,26 +673,39 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
             }
             (result, exit_code)
         };
-        done.store(true, Ordering::Release);
-        if let Some(snapshots) = app.try_state::<snapshot_commands::Snapshots>() {
-            if let Some(id) = session.snapshot.as_deref() {
-                let mut failure = nte_core::snapshots::Failure::early_exit(exit_code);
-                if let Some(error) = result.as_ref().err() {
-                    failure.detail = Some(error.clone());
+        if result.is_err()
+            && session
+                .background
+                .as_ref()
+                .is_some_and(|background| background.closing() && !background.finished())
+        {
+            // 清理失败时保留会话和监控, 由 close_game 重试并完成统一收尾。
+            {
+                let state = app.state::<AppState>();
+                if let Ok(mut tracker) = state.game.lock() {
+                    if tracker.session.as_ref().map(|current| current.id) == Some(session.id) {
+                        if let Some(current) = tracker.session.as_mut() {
+                            current.closing = false;
+                        }
+                        if let Some(launch) = tracker.launch.as_mut() {
+                            launch.cancelling = false;
+                        }
+                    }
                 }
-                snapshots.finish(id, Some(failure));
+                emit_game_status(&app, &state);
             }
-        }
-        if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
-            if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
-                eprintln!("结束游玩记录失败: {error}");
+            if child.try_wait().ok().flatten().is_none() {
+                thread::spawn(move || {
+                    let _ = child.wait();
+                });
             }
+            return;
         }
-        if let Some(mode) = &session.game_mode {
-            if let Ok(mut mode) = mode.lock() {
-                mode.release();
-            }
+        let mut failure = nte_core::snapshots::Failure::early_exit(exit_code);
+        if let Some(error) = result.as_ref().err() {
+            failure.detail = Some(error.clone());
         }
+        finalize_game_session(&app, &session, Some(failure));
 
         if child.try_wait().ok().flatten().is_none() {
             thread::spawn(move || {
@@ -676,6 +735,7 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
             } else if let Some(current) = tracker.session.as_mut() {
                 current.closing = false;
             }
+            clear_launch(&mut tracker);
             (tracker_status(&tracker), exit_notified)
         };
         let finished = !status.running;
@@ -689,16 +749,44 @@ fn spawn_game_monitor(app: AppHandle, mut child: Child, session: GameSession) {
 fn tracker_status(tracker: &GameTracker) -> GameStatus {
     let mut status = GameStatus::from_session(tracker.session.as_ref());
     status.error = tracker.last_error.clone();
+    status.launch = tracker.launch.clone();
     status
 }
 
-fn emit_game_status(app: &AppHandle, state: &AppState) {
+fn clear_launch(tracker: &mut GameTracker) {
+    tracker.launch = None;
+    tracker.launch_cancel = None;
+}
+
+fn emit_game_status<R: Runtime>(app: &AppHandle<R>, state: &AppState) {
     let status = state
         .game
         .lock()
         .map(|tracker| tracker_status(&tracker))
         .unwrap_or_else(|_| GameStatus::idle());
     let _ = app.emit("game-state", status);
+}
+
+fn advance_launch(tracker: &mut GameTracker, session_id: u64, stage: LaunchStage) -> bool {
+    if tracker.session.as_ref().map(|session| session.id) != Some(session_id) {
+        return false;
+    }
+    tracker
+        .launch
+        .as_mut()
+        .is_some_and(|launch| launch.advance(stage))
+}
+
+/// 监控线程只更新本轮会话的阶段, 防止迟到的旧回调覆盖新启动。
+fn publish_launch_stage<R: Runtime>(app: &AppHandle<R>, session_id: u64, stage: LaunchStage) {
+    let state = app.state::<AppState>();
+    let changed = match state.game.lock() {
+        Ok(mut tracker) => advance_launch(&mut tracker, session_id, stage),
+        Err(_) => false,
+    };
+    if changed {
+        emit_game_status(app, &state);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1728,14 +1816,29 @@ fn launch_impl(settings: &Settings) -> Result<LaunchInvocation, String> {
     })
 }
 
+#[cfg(test)]
+fn launch_impl_with_cancel(
+    settings: &Settings,
+    cancel: &AtomicBool,
+) -> Result<LaunchInvocation, String> {
+    launch_impl_inner(
+        settings,
+        |path| validated_click_profile(path).map_err(|error| error.to_string()),
+        None,
+        cancel,
+    )
+}
+
 fn launch_impl_with_snapshots(
     settings: &Settings,
     snapshots: &snapshot_commands::Snapshots,
+    cancel: &AtomicBool,
 ) -> Result<LaunchInvocation, String> {
     launch_impl_inner(
         settings,
         |path| validated_click_profile(path).map_err(|error| error.to_string()),
         Some(snapshots),
+        cancel,
     )
 }
 
@@ -1744,14 +1847,18 @@ fn launch_impl_with_profile(
     settings: &Settings,
     profile_provider: impl FnOnce(&Path) -> Result<ClickProfile, String>,
 ) -> Result<LaunchInvocation, String> {
-    launch_impl_inner(settings, profile_provider, None)
+    launch_impl_inner(settings, profile_provider, None, &AtomicBool::new(false))
 }
 
 fn launch_impl_inner(
     settings: &Settings,
     profile_provider: impl FnOnce(&Path) -> Result<ClickProfile, String>,
     snapshots: Option<&snapshot_commands::Snapshots>,
+    cancel: &AtomicBool,
 ) -> Result<LaunchInvocation, String> {
+    if cancel.load(Ordering::Acquire) {
+        return Err(LAUNCH_CANCELLED.into());
+    }
     let launcher_root = detect_launcher_root(settings).ok_or_else(|| {
         if configured_install_root(settings).is_some() {
             format!(
@@ -1932,6 +2039,9 @@ fn launch_impl_inner(
             }
         }
     }
+    if cancel.load(Ordering::Acquire) {
+        return Err(LAUNCH_CANCELLED.into());
+    }
 
     let mut cmd = settings
         .game_mode
@@ -2084,6 +2194,21 @@ fn launch_settings(state: &AppState) -> Result<Settings, String> {
         .map(|settings| settings.clone())
 }
 
+/// 初始化本轮启动的进度与取消令牌, 只有后台模式需要进度。
+fn begin_launch(tracker: &mut GameTracker, settings: &Settings) -> Arc<AtomicBool> {
+    let cancel = Arc::new(AtomicBool::new(false));
+    tracker.starting = true;
+    let background = settings.launch_mode == "background";
+    tracker.launch = background.then(|| LaunchProgress::new(now_millis()));
+    tracker.launch_cancel = background.then(|| Arc::clone(&cancel));
+    cancel
+}
+
+fn reset_launch(tracker: &mut GameTracker) {
+    tracker.starting = false;
+    clear_launch(tracker);
+}
+
 #[tauri::command]
 async fn launch_official(
     app: AppHandle,
@@ -2123,12 +2248,18 @@ fn prepare_launch(
 
 /// 启动会话的公共入口. settings 可以带外部启动的临时模式覆盖, 不会写回设置.
 async fn start_launch(app: AppHandle, settings: Settings) -> Result<LaunchResult, String> {
+    let cancel;
     {
         let state = app.state::<AppState>();
         let downloads = app.state::<download_commands::DownloadManager>();
         let inner = downloads.inner.lock().map_err(|error| error.to_string())?;
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;
         prepare_launch(&mut tracker, &inner.status)?;
+        cancel = begin_launch(&mut tracker, &settings);
+    }
+    {
+        let state = app.state::<AppState>();
+        emit_game_status(&app, &state);
     }
     let distribution = settings.distribution;
     let snapshot_success_after_ms =
@@ -2136,21 +2267,25 @@ async fn start_launch(app: AppHandle, settings: Settings) -> Result<LaunchResult
     let snapshots = app.state::<snapshot_commands::Snapshots>().inner().clone();
 
     let invocation = match tauri::async_runtime::spawn_blocking(move || {
-        launch_impl_with_snapshots(&settings, &snapshots)
+        launch_impl_with_snapshots(&settings, &snapshots, &cancel)
     })
     .await
     {
         Ok(Ok(invocation)) => invocation,
         Ok(Err(error)) => {
             if let Ok(mut tracker) = app.state::<AppState>().game.lock() {
-                tracker.starting = false;
+                reset_launch(&mut tracker);
             }
+            let state = app.state::<AppState>();
+            emit_game_status(&app, &state);
             return Err(error);
         }
         Err(error) => {
             if let Ok(mut tracker) = app.state::<AppState>().game.lock() {
-                tracker.starting = false;
+                reset_launch(&mut tracker);
             }
+            let state = app.state::<AppState>();
+            emit_game_status(&app, &state);
             return Err(format!("启动任务失败：{error}"));
         }
     };
@@ -2161,7 +2296,13 @@ async fn start_launch(app: AppHandle, settings: Settings) -> Result<LaunchResult
             .game
             .lock()
             .map_err(|e| format!("记录游戏进程失败：{e}"))?;
+        // 取消请求和会话创建在同一把锁下判定, 避免取消后仍进入会话.
+        let cancelled = tracker
+            .launch_cancel
+            .as_ref()
+            .is_some_and(|cancel| cancel.load(Ordering::Acquire));
         tracker.starting = false;
+        tracker.launch_cancel = None;
         tracker.next_id = tracker.next_id.wrapping_add(1);
         let session = GameSession {
             id: tracker.next_id,
@@ -2172,9 +2313,11 @@ async fn start_launch(app: AppHandle, settings: Settings) -> Result<LaunchResult
             log: invocation.result.log.clone(),
             mode: invocation.result.mode.clone(),
             distribution,
-            closing: false,
+            closing: cancelled,
             exit_notified: false,
             game_alive: Arc::new(AtomicBool::new(true)),
+            monitor_done: Arc::new(AtomicBool::new(false)),
+            finalized: Arc::new(AtomicBool::new(false)),
             _install_lock: Some(Arc::clone(&invocation.install_lock)),
             _prefix_lock: Some(Arc::clone(&invocation.prefix_lock)),
             background: invocation.background.clone(),
@@ -2183,6 +2326,12 @@ async fn start_launch(app: AppHandle, settings: Settings) -> Result<LaunchResult
             snapshot_success_after_ms,
             launcher_root: invocation.launcher_root.clone(),
         };
+        if let Some(launch) = tracker.launch.as_mut() {
+            launch.advance(LaunchStage::Helper);
+            if cancelled {
+                launch.cancelling = true;
+            }
+        }
         tracker.session = Some(session.clone());
         session
     };
@@ -2334,6 +2483,7 @@ fn game_status(state: State<AppState>) -> GameStatus {
     {
         status.running = false;
         status.closing = false;
+        status.launch = None;
     }
     status
 }
@@ -2348,9 +2498,88 @@ fn take_launch_error(state: State<AppState>) -> Option<String> {
         .and_then(|mut tracker| tracker.last_error.take())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LaunchCancelAction {
+    Close,
+    Wait,
+    AlreadyClosing,
+    Idle,
+}
+
+fn launch_cancel_action(tracker: &mut GameTracker) -> LaunchCancelAction {
+    if let Some(session) = tracker.session.as_mut() {
+        if let Some(launch) = tracker.launch.as_mut() {
+            launch.cancelling = true;
+        }
+        return if session.closing {
+            LaunchCancelAction::AlreadyClosing
+        } else {
+            LaunchCancelAction::Close
+        };
+    }
+    if tracker.starting && tracker.launch_cancel.is_some() {
+        if let Some(cancel) = tracker.launch_cancel.as_ref() {
+            cancel.store(true, Ordering::Release);
+        }
+        if let Some(launch) = tracker.launch.as_mut() {
+            launch.cancelling = true;
+        }
+        return LaunchCancelAction::Wait;
+    }
+    LaunchCancelAction::Idle
+}
+
 #[tauri::command]
-async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameStatus, String> {
-    let (session_id, pgid, background, game_alive) = {
+async fn cancel_launch<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> Result<GameStatus, String> {
+    let action = {
+        let mut tracker = state.game.lock().map_err(|error| error.to_string())?;
+        launch_cancel_action(&mut tracker)
+    };
+    match action {
+        LaunchCancelAction::Close => close_game(app, state).await,
+        LaunchCancelAction::Wait | LaunchCancelAction::AlreadyClosing => {
+            let status = state
+                .game
+                .lock()
+                .map(|tracker| tracker_status(&tracker))
+                .unwrap_or_else(|_| GameStatus::idle());
+            let _ = app.emit("game-state", status.clone());
+            Ok(status)
+        }
+        LaunchCancelAction::Idle => {
+            if let Ok(mut tracker) = state.game.lock() {
+                clear_launch(&mut tracker);
+            }
+            Ok(GameStatus::idle())
+        }
+    }
+}
+
+fn finish_game_close(tracker: &mut GameTracker, session_id: u64, success: bool) {
+    if tracker.session.as_ref().map(|session| session.id) != Some(session_id) {
+        return;
+    }
+    if success {
+        tracker.last_error = None;
+        tracker.session = None;
+        clear_launch(tracker);
+    } else if let Some(session) = tracker.session.as_mut() {
+        session.closing = false;
+        if let Some(launch) = tracker.launch.as_mut() {
+            launch.cancelling = false;
+        }
+    }
+}
+
+#[tauri::command]
+async fn close_game<R: Runtime>(
+    app: AppHandle<R>,
+    state: State<'_, AppState>,
+) -> Result<GameStatus, String> {
+    let (session, pgid, background, game_alive) = {
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;
         if tracker.starting {
             return Err("游戏正在启动，请稍候。".to_string());
@@ -2361,20 +2590,23 @@ async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameSt
             }
             Some(session) => {
                 if !session_alive(session) {
+                    let expired = session.clone();
                     tracker.session = None;
+                    clear_launch(&mut tracker);
                     drop(tracker);
-                    if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
-                        if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
-                            eprintln!("结束游玩记录失败: {error}");
-                        }
-                    }
+                    finalize_game_session(
+                        &app,
+                        &expired,
+                        Some(nte_core::snapshots::Failure::early_exit(None)),
+                    );
                     let status = GameStatus::idle();
                     let _ = app.emit("game-state", status.clone());
                     return Ok(status);
                 }
                 session.closing = true;
+                let current = session.clone();
                 (
-                    session.id,
+                    current,
                     session.pgid,
                     session.background.clone(),
                     Arc::clone(&session.game_alive),
@@ -2409,23 +2641,16 @@ async fn close_game(app: AppHandle, state: State<'_, AppState>) -> Result<GameSt
     };
 
     if result.is_ok() {
-        if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
-            if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
-                eprintln!("结束游玩记录失败: {error}");
-            }
-        }
+        finalize_game_session(
+            &app,
+            &session,
+            Some(nte_core::snapshots::Failure::early_exit(None)),
+        );
     }
 
     {
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;
-        if tracker.session.as_ref().map(|session| session.id) == Some(session_id) {
-            if result.is_ok() {
-                tracker.last_error = None;
-                tracker.session = None;
-            } else if let Some(session) = tracker.session.as_mut() {
-                session.closing = false;
-            }
-        }
+        finish_game_close(&mut tracker, session.id, result.is_ok());
     }
 
     let status = state
@@ -2751,6 +2976,7 @@ fn main() {
             open_directory,
             open_url,
             launch_official,
+            cancel_launch,
             game_status,
             take_launch_error,
             playtime_commands::playtime_history,
