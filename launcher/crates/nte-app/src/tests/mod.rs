@@ -16,6 +16,7 @@ use std::time::Duration;
 
 mod bootstrap;
 mod env;
+mod external_launch;
 mod launch;
 mod paths;
 mod presence;

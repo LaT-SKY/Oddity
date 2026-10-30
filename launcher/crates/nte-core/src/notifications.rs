@@ -22,9 +22,16 @@ pub fn send(summary: &str, body: &str) -> anyhow::Result<()> {
     send_on(&bus, summary, body)
 }
 
+fn escape_body(body: &str) -> String {
+    body.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 fn send_on(bus: &Connection, summary: &str, body: &str) -> anyhow::Result<()> {
     let proxy = Proxy::new(bus, SERVICE, PATH, SERVICE).context("连接桌面通知服务失败")?;
     let hints: HashMap<&str, Value<'_>> = HashMap::from([("urgency", Value::from(1u8))]);
+    let body = escape_body(body);
     proxy
         .call::<_, _, u32>(
             "Notify",
@@ -33,7 +40,7 @@ fn send_on(bus: &Connection, summary: &str, body: &str) -> anyhow::Result<()> {
                 0u32,
                 APP_ICON,
                 summary,
-                body,
+                body.as_str(),
                 Vec::<String>::new(),
                 hints,
                 EXPIRE_MS,
@@ -160,5 +167,11 @@ mod tests {
         assert!(sent.actions.is_empty());
         assert!(sent.urgency);
         assert_eq!(sent.expire_timeout, EXPIRE_MS);
+    }
+
+    #[test]
+    fn escapes_markup_in_the_notification_body() {
+        assert_eq!(escape_body("a & <b>"), "a &amp; &lt;b&gt;");
+        assert_eq!(escape_body("&amp;"), "&amp;amp;");
     }
 }
