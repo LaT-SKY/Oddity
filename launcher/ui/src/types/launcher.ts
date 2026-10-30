@@ -150,6 +150,7 @@ export interface Settings {
   stackBulletins: boolean;
   theme: string;
   heroMedia: string;
+  adaptiveTheme?: boolean;
   minimizeToTrayOnClose: boolean;
   showLauncherAfterGameExit: boolean;
   snapshotSuccessMinutes: number;

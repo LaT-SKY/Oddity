@@ -153,7 +153,6 @@ function percent(data: GameRecord) {
     ><div
       class="game-records"
       :data-moving="moving"
-      :class="{ 'game-records--dark': form.theme === 'dark' }"
       @keydown.esc.stop.prevent="close"
     >
       <div ref="surface" class="game-records__surface">
@@ -431,27 +430,16 @@ function percent(data: GameRecord) {
   height: 44px;
   margin-left: auto;
   overflow: clip;
-  border: 1px solid rgb(255 255 255 / 32%);
+  border: 1px solid var(--glass-line);
   border-radius: 14px;
-  background: rgb(247 249 251 / 96%);
-  color: #202832;
-  box-shadow: 0 6px 24px rgb(0 0 0 / 12%);
+  background: var(--glass-bg-strong);
+  color: var(--bone);
+  box-shadow:
+    0 6px 24px rgb(0 0 0 / 12%),
+    inset 0 1px 0 var(--glass-highlight);
+  -webkit-backdrop-filter: blur(28px) saturate(var(--glass-saturate));
+  backdrop-filter: blur(28px) saturate(var(--glass-saturate));
   transform-origin: center;
-  --muted: #56616e;
-  --faint: #65717d;
-  --line: rgb(30 45 60 / 10%);
-  --accent-text: #365c80;
-  --signal-strong: #5f7c95;
-}
-.game-records--dark .game-records__surface {
-  background: rgb(23 29 38 / 96%);
-  color: #f0f3f7;
-  border-color: rgb(255 255 255 / 14%);
-  --muted: #b3bdca;
-  --faint: #9aa8b7;
-  --line: rgb(225 235 245 / 12%);
-  --accent-text: #c0d5ea;
-  --signal-strong: #a7bed3;
 }
 .game-records__capsule {
   display: flex;

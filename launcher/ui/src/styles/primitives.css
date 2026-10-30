@@ -199,7 +199,7 @@ fieldset:disabled .control-switch {
   inset: 0;
   border: 1px solid var(--line);
   border-radius: inherit;
-  background: var(--surface-solid);
+  background: var(--glass-chip);
   box-shadow: 0 1px 3px rgb(7 17 29 / 7%);
 }
 
@@ -224,20 +224,19 @@ fieldset:disabled .control-switch {
   white-space: nowrap;
 }
 
-.category-tab:hover,
-.category-tab[aria-current="true"],
-.category-tab[aria-selected="true"] {
+.category-tab:hover {
   color: var(--bone);
 }
 .category-tab[aria-current="true"],
 .category-tab[aria-selected="true"] {
+  color: var(--nav-active-color);
   font-weight: var(--weight-semibold);
 }
 .category-tab__selection {
   position: absolute;
   inset: 0;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--nav-active-color) 24%, transparent);
   border-radius: inherit;
-  background: var(--ghost-bg);
+  background: var(--nav-active-bg);
   box-shadow: none;
 }

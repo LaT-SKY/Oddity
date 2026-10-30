@@ -466,6 +466,22 @@ const isActive = computed(() => state.page === "settings");
                     />
                   </SettingRow>
                   <SettingRow
+                    data-setting="adaptive-theme"
+                    tabindex="-1"
+                    :label="entry('adaptive-theme').label"
+                    :description="entry('adaptive-theme').description"
+                    for="set-adaptive-theme"
+                    v-slot="{ describedby }"
+                  >
+                    <BaseSwitch
+                      id="set-adaptive-theme"
+                      v-model="form.adaptiveTheme"
+                      :label="entry('adaptive-theme').label"
+                      :describedby="describedby"
+                      @change="queueSettingsSave(0)"
+                    />
+                  </SettingRow>
+                  <SettingRow
                     data-setting="bulletins"
                     tabindex="-1"
                     :label="entry('bulletins').label"

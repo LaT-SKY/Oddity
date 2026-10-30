@@ -267,9 +267,9 @@
   top: 0;
   left: 0;
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: var(--r-md);
-  background: var(--surface-solid);
+  background: var(--glass-bg-strong);
   transform-origin: top center;
 }
 .bulletin-stack__measure {
