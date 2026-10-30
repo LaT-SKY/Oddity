@@ -82,6 +82,8 @@ struct GameSession {
     closing: bool,
     exit_notified: bool,
     game_alive: Arc<AtomicBool>,
+    monitor_done: Arc<AtomicBool>,
+    finalized: Arc<AtomicBool>,
     _install_lock: Option<Arc<nte_core::install_lock::InstallLock>>,
     _prefix_lock: Option<Arc<nte_core::environment::PrefixLock>>,
     background: Option<Arc<NativeSession>>,
@@ -613,12 +615,39 @@ fn session_alive(session: &GameSession) -> bool {
     )
 }
 
+/// 会话只收尾一次: 停止监控, 完成快照、游玩记录和游戏模式清理.
+fn finalize_game_session<R: Runtime>(
+    app: &AppHandle<R>,
+    session: &GameSession,
+    failure: Option<nte_core::snapshots::Failure>,
+) {
+    if session.finalized.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    session.monitor_done.store(true, Ordering::Release);
+    if let Some(snapshots) = app.try_state::<snapshot_commands::Snapshots>() {
+        if let Some(id) = session.snapshot.as_deref() {
+            snapshots.finish(id, failure);
+        }
+    }
+    if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
+        if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
+            eprintln!("结束游玩记录失败: {error}");
+        }
+    }
+    if let Some(mode) = &session.game_mode {
+        if let Ok(mut mode) = mode.lock() {
+            mode.release();
+        }
+    }
+}
+
 /// 后台会话按实际游戏生命周期结束, 无需等待共享 wineserver 退出.
 fn spawn_game_monitor<R: Runtime>(app: AppHandle<R>, mut child: Child, session: GameSession) {
     let stage_app = app.clone();
     let session_id = session.id;
     thread::spawn(move || {
-        let done = Arc::new(AtomicBool::new(false));
+        let done = Arc::clone(&session.monitor_done);
         let alive = Arc::clone(&session.game_alive);
         watch_game_exit(
             app.clone(),
@@ -627,7 +656,7 @@ fn spawn_game_monitor<R: Runtime>(app: AppHandle<R>, mut child: Child, session: 
             Arc::clone(&alive),
         );
         let on_stage = |stage: LaunchStage| publish_launch_stage(&stage_app, session_id, stage);
-        let (mut result, exit_code) = if let Some(background) = &session.background {
+        let (result, exit_code) = if let Some(background) = &session.background {
             if session.closing {
                 // 取消请求可能早于监控线程启动, 这里补上会话关闭信号。
                 (background.close(), None)
@@ -644,68 +673,39 @@ fn spawn_game_monitor<R: Runtime>(app: AppHandle<R>, mut child: Child, session: 
             }
             (result, exit_code)
         };
-        if session.closing && result.is_err() {
-            if let Some(background) = &session.background {
-                // 清理失败时保留监控和会话, 让 close_game 仍可重试。
-                {
-                    let state = app.state::<AppState>();
-                    if let Ok(mut tracker) = state.game.lock() {
-                        if tracker.session.as_ref().map(|current| current.id) == Some(session.id) {
-                            if let Some(current) = tracker.session.as_mut() {
-                                current.closing = false;
-                            }
-                            if let Some(launch) = tracker.launch.as_mut() {
-                                launch.cancelling = false;
-                            }
+        if result.is_err()
+            && session
+                .background
+                .as_ref()
+                .is_some_and(|background| background.closing() && !background.finished())
+        {
+            // 清理失败时保留会话和监控, 由 close_game 重试并完成统一收尾。
+            {
+                let state = app.state::<AppState>();
+                if let Ok(mut tracker) = state.game.lock() {
+                    if tracker.session.as_ref().map(|current| current.id) == Some(session.id) {
+                        if let Some(current) = tracker.session.as_mut() {
+                            current.closing = false;
+                        }
+                        if let Some(launch) = tracker.launch.as_mut() {
+                            launch.cancelling = false;
                         }
                     }
-                    emit_game_status(&app, &state);
                 }
-                // 等游戏进程退出后再补一次清理; 取消信号已经发出。
-                while !background.finished() {
-                    match background.game_alive() {
-                        Ok(false) => break,
-                        Ok(true) => thread::sleep(Duration::from_millis(500)),
-                        Err(_) => break,
-                    }
-                }
-                if !background.finished() {
-                    result = background.close();
-                }
-                if background.finished() {
-                    result = Ok(());
-                }
-                if result.is_err() && !background.finished() {
-                    // 仍无法清理时保留 watch_game_exit 和会话, 由 close_game 重试.
-                    if child.try_wait().ok().flatten().is_none() {
-                        thread::spawn(move || {
-                            let _ = child.wait();
-                        });
-                    }
-                    return;
-                }
+                emit_game_status(&app, &state);
             }
-        }
-        done.store(true, Ordering::Release);
-        if let Some(snapshots) = app.try_state::<snapshot_commands::Snapshots>() {
-            if let Some(id) = session.snapshot.as_deref() {
-                let mut failure = nte_core::snapshots::Failure::early_exit(exit_code);
-                if let Some(error) = result.as_ref().err() {
-                    failure.detail = Some(error.clone());
-                }
-                snapshots.finish(id, Some(failure));
+            if child.try_wait().ok().flatten().is_none() {
+                thread::spawn(move || {
+                    let _ = child.wait();
+                });
             }
+            return;
         }
-        if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
-            if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
-                eprintln!("结束游玩记录失败: {error}");
-            }
+        let mut failure = nte_core::snapshots::Failure::early_exit(exit_code);
+        if let Some(error) = result.as_ref().err() {
+            failure.detail = Some(error.clone());
         }
-        if let Some(mode) = &session.game_mode {
-            if let Ok(mut mode) = mode.lock() {
-                mode.release();
-            }
-        }
+        finalize_game_session(&app, &session, Some(failure));
 
         if child.try_wait().ok().flatten().is_none() {
             thread::spawn(move || {
@@ -2316,6 +2316,8 @@ async fn start_launch(app: AppHandle, settings: Settings) -> Result<LaunchResult
             closing: cancelled,
             exit_notified: false,
             game_alive: Arc::new(AtomicBool::new(true)),
+            monitor_done: Arc::new(AtomicBool::new(false)),
+            finalized: Arc::new(AtomicBool::new(false)),
             _install_lock: Some(Arc::clone(&invocation.install_lock)),
             _prefix_lock: Some(Arc::clone(&invocation.prefix_lock)),
             background: invocation.background.clone(),
@@ -2577,7 +2579,7 @@ async fn close_game<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<GameStatus, String> {
-    let (session_id, pgid, background, game_alive) = {
+    let (session, pgid, background, game_alive) = {
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;
         if tracker.starting {
             return Err("游戏正在启动，请稍候。".to_string());
@@ -2588,21 +2590,23 @@ async fn close_game<R: Runtime>(
             }
             Some(session) => {
                 if !session_alive(session) {
+                    let expired = session.clone();
                     tracker.session = None;
                     clear_launch(&mut tracker);
                     drop(tracker);
-                    if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
-                        if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
-                            eprintln!("结束游玩记录失败: {error}");
-                        }
-                    }
+                    finalize_game_session(
+                        &app,
+                        &expired,
+                        Some(nte_core::snapshots::Failure::early_exit(None)),
+                    );
                     let status = GameStatus::idle();
                     let _ = app.emit("game-state", status.clone());
                     return Ok(status);
                 }
                 session.closing = true;
+                let current = session.clone();
                 (
-                    session.id,
+                    current,
                     session.pgid,
                     session.background.clone(),
                     Arc::clone(&session.game_alive),
@@ -2637,16 +2641,16 @@ async fn close_game<R: Runtime>(
     };
 
     if result.is_ok() {
-        if let Some(playtime) = app.try_state::<playtime_commands::Playtime>() {
-            if let Err(error) = playtime.finish(playtime_commands::now_millis()) {
-                eprintln!("结束游玩记录失败: {error}");
-            }
-        }
+        finalize_game_session(
+            &app,
+            &session,
+            Some(nte_core::snapshots::Failure::early_exit(None)),
+        );
     }
 
     {
         let mut tracker = state.game.lock().map_err(|e| e.to_string())?;
-        finish_game_close(&mut tracker, session_id, result.is_ok());
+        finish_game_close(&mut tracker, session.id, result.is_ok());
     }
 
     let status = state

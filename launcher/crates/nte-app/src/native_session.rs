@@ -144,6 +144,10 @@ impl NativeSession {
         self.finished.load(Ordering::Acquire)
     }
 
+    pub fn closing(&self) -> bool {
+        self.closing.load(Ordering::Acquire)
+    }
+
     pub fn monitor(&self, child: &mut Child, on_stage: impl Fn(LaunchStage)) -> Result<(), String> {
         let mut result = self.drive(child, &on_stage);
         // 状态读取失败不能结束已经启动的游戏, 关闭按钮仍可显式结束本轮会话.
@@ -691,6 +695,8 @@ def record(text):
             closing: true,
             exit_notified: false,
             game_alive: Arc::new(AtomicBool::new(false)),
+            monitor_done: Arc::new(AtomicBool::new(false)),
+            finalized: Arc::new(AtomicBool::new(false)),
             _install_lock: None,
             _prefix_lock: None,
             background: Some(Arc::clone(&background)),
