@@ -428,6 +428,7 @@ export const form = reactive({
   stackBulletins: false,
   minimizeToTrayOnClose: true,
   showLauncherAfterGameExit: true,
+  snapshotSuccessMinutes: 1,
 });
 
 type GamePhase = "idle" | "launching" | "running" | "closing";
@@ -1185,6 +1186,7 @@ function applyBootstrap(
   applyHeroMedia(settings.heroMedia || "video");
   form.minimizeToTrayOnClose = settings.minimizeToTrayOnClose ?? true;
   form.showLauncherAfterGameExit = settings.showLauncherAfterGameExit ?? true;
+  form.snapshotSuccessMinutes = settings.snapshotSuccessMinutes ?? 1;
   // 记录表单当前对应的持久化状态, 自动保存时只提交真正的修改。
   lastSavedSettings = JSON.stringify(currentSettings());
   void nextTick(syncScrollEdges);
@@ -1680,6 +1682,7 @@ function currentSettings(): Settings {
     heroMedia: HERO_MEDIA.has(form.heroMedia) ? form.heroMedia : "video",
     minimizeToTrayOnClose: form.minimizeToTrayOnClose,
     showLauncherAfterGameExit: form.showLauncherAfterGameExit,
+    snapshotSuccessMinutes: form.snapshotSuccessMinutes,
   };
 }
 

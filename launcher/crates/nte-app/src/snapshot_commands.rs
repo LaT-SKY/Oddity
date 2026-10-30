@@ -41,11 +41,17 @@ impl Snapshots {
         }
     }
 
-    pub fn mark_success(&self, id: &str, now: u64, game_version: Option<String>) -> bool {
+    pub fn mark_success(
+        &self,
+        id: &str,
+        now: u64,
+        game_version: Option<String>,
+        success_after_ms: u64,
+    ) -> bool {
         let Ok(mut store) = self.inner.lock() else {
             return false;
         };
-        match store.mark_success(id, now, game_version) {
+        match store.mark_success(id, now, game_version, success_after_ms) {
             Ok(()) => true,
             Err(error) => {
                 eprintln!("记录启动成功失败: {error:#}");

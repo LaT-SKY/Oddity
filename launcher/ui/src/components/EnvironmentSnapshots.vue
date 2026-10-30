@@ -4,6 +4,7 @@ import BaseButton from "./BaseButton.vue";
 import BaseDisclosure from "./BaseDisclosure.vue";
 import BaseInput from "./BaseInput.vue";
 import BaseModal from "./BaseModal.vue";
+import BaseSelect from "./BaseSelect.vue";
 import SettingGroup from "./settings/SettingGroup.vue";
 import SettingRow from "./settings/SettingRow.vue";
 import { invoke } from "../core/api";
@@ -18,8 +19,29 @@ import type {
   SnapshotSummary,
 } from "../types/launcher";
 
-const props = withDefaults(defineProps<{ revision?: number }>(), {
-  revision: 0,
+const props = withDefaults(
+  defineProps<{ revision?: number; successMinutes?: number }>(),
+  {
+    revision: 0,
+    successMinutes: 1,
+  },
+);
+const emit = defineEmits<{
+  "update:successMinutes": [value: number];
+}>();
+const successMinuteOptions = [
+  { label: "1 分钟", value: "1" },
+  { label: "5 分钟", value: "5" },
+  { label: "10 分钟", value: "10" },
+  { label: "30 分钟", value: "30" },
+];
+const successMinutes = computed(() => {
+  const allowed = [1, 5, 10, 30];
+  return allowed.includes(props.successMinutes) ? props.successMinutes : 1;
+});
+const successMinutesModel = computed<string>({
+  get: () => String(successMinutes.value),
+  set: (value) => emit("update:successMinutes", Number(value)),
 });
 const overview = ref<SnapshotOverview | null>(null);
 const error = ref("");
@@ -65,7 +87,8 @@ const referenceDescription = computed(() => {
 });
 const baselineDescription = computed(() => {
   const baseline = overview.value?.baseline;
-  if (!baseline) return "游戏连续运行满 1 分钟后, 本次启动会成为自动基准.";
+  if (!baseline)
+    return `游戏连续运行满 ${successMinutes.value} 分钟后, 本次启动会成为自动基准.`;
   const parts = [
     summaryText(baseline),
     formatTime(baseline.capturedAt),
@@ -374,6 +397,17 @@ onBeforeUnmount(() => {
       title="环境快照"
       description="记录每次启动的系统与运行环境, 便于对比变化."
     >
+      <SettingRow
+        label="自动基准判定"
+        description="游戏连续运行满该时长后, 本次启动会成为自动基准. 修改后下次启动生效."
+      >
+        <BaseSelect
+          id="snapshot-success-minutes"
+          label="自动基准判定"
+          v-model="successMinutesModel"
+          :options="successMinuteOptions"
+        />
+      </SettingRow>
       <div v-show="!overview && !error" class="snapshot-state" role="status">
         正在读取环境快照...
       </div>

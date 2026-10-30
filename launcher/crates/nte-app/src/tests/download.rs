@@ -323,6 +323,7 @@ fn commands_reject_overlapping_tasks_and_running_games() {
         game_mode: None,
         background: Some(background.clone()),
         snapshot: None,
+        snapshot_success_after_ms: nte_core::snapshots::SUCCESS_AFTER_MS,
         launcher_root: None,
     });
     assert!(

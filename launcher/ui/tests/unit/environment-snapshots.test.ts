@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
+import BaseSelect from "../../src/components/BaseSelect.vue";
 import EnvironmentSnapshots from "../../src/components/EnvironmentSnapshots.vue";
 import type {
   SnapshotComparison,
@@ -188,6 +189,26 @@ describe("环境快照", () => {
     expect(settingsText()).toContain("启动失败");
     expect(settingsText()).toContain("提前退出 (退出码 3)");
     expect(settingsText()).toContain("上次成功启动");
+  });
+
+  it("提供 1/5/10/30 分钟的成功判定选项", async () => {
+    wrapper = render();
+    await flushPromises();
+    const select = wrapper.getComponent(BaseSelect);
+    expect(
+      (select.props("options") as { value: string }[]).map(
+        (option) => option.value,
+      ),
+    ).toEqual(["1", "5", "10", "30"]);
+  });
+
+  it("按设置显示成功判定时长", async () => {
+    wrapper = mount(EnvironmentSnapshots, {
+      attachTo: document.body,
+      props: { successMinutes: 10 },
+    });
+    await flushPromises();
+    expect(settingsText()).toContain("10 分钟");
   });
 
   it("默认对比上次成功, 区分变化, 未采集和未变化", async () => {

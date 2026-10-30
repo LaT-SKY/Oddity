@@ -80,6 +80,7 @@ struct GameSession {
     background: Option<Arc<NativeSession>>,
     game_mode: Option<Arc<Mutex<nte_core::game_mode::Session>>>,
     snapshot: Option<String>,
+    snapshot_success_after_ms: u64,
     launcher_root: Option<PathBuf>,
 }
 
@@ -511,7 +512,7 @@ fn watch_game_exit<R: tauri::Runtime>(
                 }
                 if let (Some(start), false) = (snapshot_running_at, snapshot_success) {
                     let now = now_millis();
-                    if now.saturating_sub(start) >= nte_core::snapshots::SUCCESS_AFTER_MS {
+                    if now.saturating_sub(start) >= session.snapshot_success_after_ms {
                         if let (Some(store), Some(id)) =
                             (snapshots.as_ref(), session.snapshot.as_deref())
                         {
@@ -520,7 +521,12 @@ fn watch_game_exit<R: tauri::Runtime>(
                                 .as_ref()
                                 .map(|root| game_version_for(root))
                                 .filter(|version| !version.is_empty());
-                            snapshot_success = store.mark_success(id, now, version);
+                            snapshot_success = store.mark_success(
+                                id,
+                                now,
+                                version,
+                                session.snapshot_success_after_ms,
+                            );
                         } else {
                             snapshot_success = true;
                         }
@@ -822,6 +828,8 @@ fn load_settings() -> Settings {
                 settings.gamepad = Default::default();
             }
             settings.updates.normalize();
+            settings.snapshot_success_minutes =
+                nte_core::snapshots::normalize_success_minutes(settings.snapshot_success_minutes);
             settings
         }
         Err(_) => Settings::default(),
@@ -1393,6 +1401,8 @@ fn save_settings(
 ) -> Result<Bootstrap, String> {
     let guard = downloads.inner.lock().map_err(|error| error.to_string())?;
     let mut next = settings;
+    next.snapshot_success_minutes =
+        nte_core::snapshots::normalize_success_minutes(next.snapshot_success_minutes);
     next.gamepad.validate()?;
     next.game_mode
         .gamescope
@@ -2100,6 +2110,8 @@ async fn launch_official(
         settings = current_settings.clone();
     }
     let distribution = settings.distribution;
+    let snapshot_success_after_ms =
+        nte_core::snapshots::success_after_ms(settings.snapshot_success_minutes);
     let snapshots = app.state::<snapshot_commands::Snapshots>().inner().clone();
 
     let invocation = match tauri::async_runtime::spawn_blocking(move || {
@@ -2146,6 +2158,7 @@ async fn launch_official(
             background: invocation.background.clone(),
             game_mode: invocation.game_mode.clone(),
             snapshot: invocation.snapshot.clone(),
+            snapshot_success_after_ms,
             launcher_root: invocation.launcher_root.clone(),
         };
         tracker.session = Some(session.clone());

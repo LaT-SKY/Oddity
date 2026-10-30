@@ -160,6 +160,12 @@ function onLimitChange() {
   limitInvalid.value = false;
   queueSettingsSave(0);
 }
+function updateSnapshotSuccessMinutes(value: number) {
+  if (form.snapshotSuccessMinutes !== value) {
+    form.snapshotSuccessMinutes = value;
+    queueSettingsSave(0);
+  }
+}
 const meteredPolicy = computed({
   get: () => form.updates.metered as string,
   set: (value: string) => {
@@ -732,7 +738,11 @@ const isActive = computed(() => state.page === "settings");
               </template>
               <template v-else-if="visited.has(category.id)">
                 <div data-setting="snapshots" tabindex="-1">
-                  <EnvironmentSnapshots :revision="snapshotRevision" />
+                  <EnvironmentSnapshots
+                    :revision="snapshotRevision"
+                    :success-minutes="form.snapshotSuccessMinutes"
+                    @update:success-minutes="updateSnapshotSuccessMinutes"
+                  />
                 </div>
                 <div data-setting="logs" tabindex="-1"><LogExport /></div>
                 <div data-setting="diagnostics" tabindex="-1">

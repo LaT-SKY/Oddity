@@ -14,14 +14,32 @@ pub mod store;
 pub use diff::{Diff, DiffRow, DiffStatus};
 pub use store::{Attempt, Failure, FailureReason, Reference, SnapshotStore, Status};
 
-/// 游戏进程连续运行满 60 秒才视为启动成功.
-pub const SUCCESS_AFTER_MS: u64 = 60_000;
+/// 自动基准成功判定可选的运行时长 (分钟).
+pub const SUCCESS_AFTER_MINUTES: [u64; 4] = [1, 5, 10, 30];
+/// 默认的成功判定运行时长 (分钟).
+pub const DEFAULT_SUCCESS_MINUTES: u64 = 1;
+/// 默认成功判定时长对应的毫秒值.
+pub const SUCCESS_AFTER_MS: u64 = DEFAULT_SUCCESS_MINUTES * 60_000;
 /// 自动记录保留的尝试数量; 自动基准不受裁剪影响.
 pub const MAX_ATTEMPTS: usize = 30;
 /// 参考快照标签的最大字符数.
 pub const MAX_LABEL_CHARS: usize = 32;
 pub(super) const MAX_TEXT_CHARS: usize = 512;
 pub(super) const MAX_DETAIL_CHARS: usize = 200;
+
+/// 将设置中的分钟数归一到受支持的选项.
+pub fn normalize_success_minutes(minutes: u64) -> u64 {
+    if SUCCESS_AFTER_MINUTES.contains(&minutes) {
+        minutes
+    } else {
+        DEFAULT_SUCCESS_MINUTES
+    }
+}
+
+/// 成功判定时长, 非法值按默认值处理.
+pub fn success_after_ms(minutes: u64) -> u64 {
+    normalize_success_minutes(minutes) * 60_000
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -313,6 +331,16 @@ mod tests {
                 umu: Some("/usr/bin/umu-run".into()),
             },
         }
+    }
+
+    #[test]
+    fn normalizes_success_minutes_to_supported_options() {
+        assert_eq!(SUCCESS_AFTER_MINUTES, [1, 5, 10, 30]);
+        assert_eq!(normalize_success_minutes(0), 1);
+        assert_eq!(normalize_success_minutes(2), 1);
+        assert_eq!(normalize_success_minutes(5), 5);
+        assert_eq!(normalize_success_minutes(30), 30);
+        assert_eq!(success_after_ms(5), 300_000);
     }
 
     #[test]

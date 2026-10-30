@@ -152,6 +152,7 @@ export interface Settings {
   heroMedia: string;
   minimizeToTrayOnClose: boolean;
   showLauncherAfterGameExit: boolean;
+  snapshotSuccessMinutes: number;
 }
 export interface PlaytimeSession {
   startedAt: number;

@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use crate::paths::TemporaryFile;
 use crate::{Error, Result};
 
-use super::{Snapshot, MAX_ATTEMPTS, MAX_DETAIL_CHARS, MAX_LABEL_CHARS, SUCCESS_AFTER_MS};
+use super::{Snapshot, MAX_ATTEMPTS, MAX_DETAIL_CHARS, MAX_LABEL_CHARS};
 
 const FORMAT_VERSION: u32 = 1;
 const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
@@ -204,7 +204,13 @@ impl SnapshotStore {
     }
 
     /// 游戏连续运行满阈值后写入成功和自动基准.
-    pub fn mark_success(&mut self, id: &str, now: u64, game_version: Option<String>) -> Result<()> {
+    pub fn mark_success(
+        &mut self,
+        id: &str,
+        now: u64,
+        game_version: Option<String>,
+        success_after_ms: u64,
+    ) -> Result<()> {
         let mut next = self.data.clone();
         let Some(attempt) = next.attempts.iter_mut().find(|attempt| attempt.id == id) else {
             return Ok(());
@@ -216,8 +222,9 @@ impl SnapshotStore {
             return Ok(());
         }
         let start = attempt.running_at.unwrap_or(attempt.captured_at);
-        if now < start.saturating_add(SUCCESS_AFTER_MS) {
-            return Err(Error::Parse("游戏运行时间不足 1 分钟".into()));
+        if now < start.saturating_add(success_after_ms) {
+            let minutes = (success_after_ms / 60_000).max(1);
+            return Err(Error::Parse(format!("游戏运行时间不足 {minutes} 分钟")));
         }
         attempt.status = Status::Success;
         attempt.running_at.get_or_insert(start);
@@ -463,6 +470,7 @@ fn backup_corrupt(path: &Path) {
 mod tests {
     use super::*;
     use crate::distribution::Distribution;
+    use crate::snapshots::SUCCESS_AFTER_MS;
     use crate::snapshots::{Game, Gamescope, Graphics, Launcher, Runtime, System};
     use crate::testing::TempDir;
 
@@ -517,7 +525,7 @@ mod tests {
         let id = store.begin(snapshot("a"), 1_000_000).unwrap();
         store.mark_running(&id, 1_005_000).unwrap();
         store
-            .mark_success(&id, 1_065_000, Some("1.0.8".into()))
+            .mark_success(&id, 1_065_000, Some("1.0.8".into()), SUCCESS_AFTER_MS)
             .unwrap();
         store.finish(&id, 1_100_000, None).unwrap();
 
@@ -538,9 +546,27 @@ mod tests {
         let (_dir, _path, mut store) = store("snapshot-threshold");
         let id = store.begin(snapshot("a"), 1_000_000).unwrap();
         store.mark_running(&id, 1_001_000).unwrap();
-        assert!(store.mark_success(&id, 1_030_000, None).is_err());
+        assert!(store
+            .mark_success(&id, 1_030_000, None, SUCCESS_AFTER_MS)
+            .is_err());
         assert_eq!(store.latest().unwrap().status, Status::Running);
-        store.mark_success(&id, 1_061_000, None).unwrap();
+        store
+            .mark_success(&id, 1_061_000, None, SUCCESS_AFTER_MS)
+            .unwrap();
+        assert_eq!(store.baseline().unwrap().status, Status::Success);
+    }
+
+    #[test]
+    fn success_respects_a_configured_threshold() {
+        let (_dir, _path, mut store) = store("snapshot-custom-threshold");
+        let id = store.begin(snapshot("a"), 1_000_000).unwrap();
+        store.mark_running(&id, 1_000_000).unwrap();
+        assert!(store
+            .mark_success(&id, 1_299_999, None, 5 * 60_000)
+            .is_err());
+        store
+            .mark_success(&id, 1_300_000, None, 5 * 60_000)
+            .unwrap();
         assert_eq!(store.baseline().unwrap().status, Status::Success);
     }
 
@@ -549,7 +575,9 @@ mod tests {
         let (_dir, _path, mut store) = store("snapshot-prune");
         let id = store.begin(snapshot("a"), 1_000_000).unwrap();
         store.mark_running(&id, 1_001_000).unwrap();
-        store.mark_success(&id, 1_061_000, None).unwrap();
+        store
+            .mark_success(&id, 1_061_000, None, SUCCESS_AFTER_MS)
+            .unwrap();
         for index in 0..(MAX_ATTEMPTS + 10) {
             store
                 .begin(
@@ -573,7 +601,9 @@ mod tests {
 
         let id = store.begin(snapshot("a"), 2_000_000).unwrap();
         store.mark_running(&id, 2_001_000).unwrap();
-        store.mark_success(&id, 2_061_000, None).unwrap();
+        store
+            .mark_success(&id, 2_061_000, None, SUCCESS_AFTER_MS)
+            .unwrap();
         assert_eq!(store.reference().unwrap().label, "更新前");
 
         store.clear_history().unwrap();

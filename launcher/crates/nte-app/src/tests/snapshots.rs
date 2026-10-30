@@ -71,7 +71,9 @@ fn snapshot_commands_compare_baseline_reference_and_clear_history() {
         let started = now.saturating_sub(SUCCESS_AFTER_MS);
         let id = store.begin(current.clone(), started).unwrap();
         store.mark_running(&id, started).unwrap();
-        store.mark_success(&id, now, Some("1.0.7".into())).unwrap();
+        store
+            .mark_success(&id, now, Some("1.0.7".into()), SUCCESS_AFTER_MS)
+            .unwrap();
     }
 
     let snapshots = Snapshots::load(&data);
@@ -88,7 +90,7 @@ fn snapshot_commands_compare_baseline_reference_and_clear_history() {
 
     let id = snapshots.begin(current.clone()).unwrap();
     snapshots.mark_running(&id, now);
-    assert!(!snapshots.mark_success(&id, now, None));
+    assert!(!snapshots.mark_success(&id, now, None, SUCCESS_AFTER_MS));
     snapshots.finish(&id, None);
     let failed = snapshots.overview().unwrap().latest.unwrap();
     assert_eq!(failed.status, Status::Failed);

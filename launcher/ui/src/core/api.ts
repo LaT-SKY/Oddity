@@ -197,6 +197,7 @@ const mock: Bootstrap = {
     heroMedia: "video",
     minimizeToTrayOnClose: true,
     showLauncherAfterGameExit: true,
+    snapshotSuccessMinutes: 1,
   },
   appVersion: APP_VERSION,
   os: previewOs(),

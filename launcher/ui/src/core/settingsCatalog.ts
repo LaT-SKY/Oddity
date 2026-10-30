@@ -117,8 +117,8 @@ export const settingsEntries = [
     id: "snapshots",
     category: "maintenance",
     label: "环境快照",
-    description: "对比当前环境与上次成功启动或参考快照.",
-    keywords: "快照 环境 对比 驱动 Proton prefix 历史",
+    description: "设置成功判定时长, 对比当前环境与自动基准或参考快照.",
+    keywords: "快照 环境 对比 驱动 Proton prefix 历史 运行时长 判定 稳定",
   },
   {
     id: "logs",
