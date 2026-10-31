@@ -28,8 +28,8 @@ export function isPrerelease(version) {
   return parseVersion(version).prerelease !== "";
 }
 
-// Debian 用 "~" 表示预发布, 否则 "0.1.0-alpha.2" 会被当作
-// upstream 0.1.0 加修订号 alpha.2, 排在 0.1.0 之后.
+// Debian 用 "~" 表示预发布, 否则 "0.1.0-alpha.3" 会被当作
+// upstream 0.1.0 加修订号 alpha.3, 排在 0.1.0 之后.
 export function debVersion(version) {
   const parsed = parseVersion(version);
   if (!parsed.prerelease) return parsed.build ? `${parsed.core}+${parsed.build}` : parsed.core;
@@ -51,7 +51,7 @@ export function rpmMetadata(version) {
   };
 }
 
-// Arch 的 vercmp 对 0.1.0alpha.2 和 0.1.0alpha2 都能正确排序,
+// Arch 的 vercmp 对 0.1.0alpha.3 和 0.1.0alpha3 都能正确排序,
 // 这里保留 prerelease 的分段, 只替换非法的 "-".
 export function archVersion(version) {
   const parsed = parseVersion(version);
@@ -61,7 +61,7 @@ export function archVersion(version) {
 }
 
 // Gentoo 只允许 _alpha/_beta/_pre/_rc/_p 后缀, 版本不能直接使用 SemVer
-// 的 "-". 这里把 0.1.0-alpha.2 转成 0.1.0_alpha2.
+// 的 "-". 这里把 0.1.0-alpha.3 转成 0.1.0_alpha3.
 export function gentooVersion(version) {
   const parsed = parseVersion(version);
   if (!parsed.prerelease) return parsed.core;

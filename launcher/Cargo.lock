@@ -1150,7 +1150,7 @@ dependencies = [
 
 [[package]]
 name = "nte-cli"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "anyhow",
  "nte-core",
@@ -1159,7 +1159,7 @@ dependencies = [
 
 [[package]]
 name = "nte-core"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "aes",
  "anyhow",
@@ -1185,7 +1185,7 @@ dependencies = [
 
 [[package]]
 name = "nte-recovery"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "anyhow",
  "gtk",
@@ -1194,7 +1194,7 @@ dependencies = [
 
 [[package]]
 name = "nte-service"
-version = "0.1.0-alpha.2"
+version = "0.1.0-alpha.3"
 dependencies = [
  "base64",
  "libc",
