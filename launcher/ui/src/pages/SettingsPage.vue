@@ -40,7 +40,7 @@ const root = ref<HTMLElement | null>(null);
 const { control, surface, reduced } = useControlMotion();
 const [, animate] = useAnimate();
 // 分类面板按首次访问挂载, 避免启动时构建全部设置项。
-const visited = reactive(new Set<SettingsCategory>(["appearance"]));
+const visited = reactive(new Set<SettingsCategory>());
 const snapshotRevision = ref(0);
 watch(
   () => [state.page, navigation.category] as const,

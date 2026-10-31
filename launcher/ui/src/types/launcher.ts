@@ -400,7 +400,6 @@ export interface Commands {
   attendance_run: AttendanceStatus;
   attendance_logout: AttendanceStatus;
   attendance_keyring_check: void;
-  play_hero_video: null;
   launcher_background: LauncherBackgroundMedia;
   bootstrap: Bootstrap;
   check_update: CheckResult;
@@ -437,7 +436,6 @@ export interface Commands {
   win_toggle_maximize: null;
   win_close: null;
   win_hide: null;
-  win_drag: null;
 }
 export interface CommandArgs {
   browse_files: { path: string | null };
@@ -460,7 +458,6 @@ export interface CommandArgs {
   attendance_run: undefined;
   attendance_logout: { accountId: string };
   attendance_keyring_check: undefined;
-  play_hero_video: undefined;
   launcher_background: undefined;
   bootstrap: undefined;
   check_update: { full: boolean };
@@ -508,7 +505,6 @@ export interface CommandArgs {
   win_toggle_maximize: undefined;
   win_close: undefined;
   win_hide: undefined;
-  win_drag: undefined;
 }
 export type PreviewPaths = Partial<
   Record<

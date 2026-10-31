@@ -3,8 +3,7 @@ import { defaultGamescope } from "./gameMode";
 import { defaultAttendanceTasks } from "./attendanceTasks";
 import { distributions } from "./distribution";
 import { APP_VERSION } from "./version";
-import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { nativeInvoke, isDesktop, listen } from "./desktop";
 import type {
   Bootstrap,
   CheckResult,
@@ -27,7 +26,7 @@ import type {
   SnapshotReference,
   SnapshotSummary,
 } from "../types/launcher";
-export { isTauri };
+export { isDesktop };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 
 const PREVIEW_KEYS = [
@@ -585,7 +584,7 @@ const previewAttendance: AttendanceStatus = {
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function listenGameState(handler: (status: GameStatus) => void) {
-  if (!isTauri()) {
+  if (!isDesktop()) {
     previewGameListeners.add(handler);
     return () => {
       previewGameListeners.delete(handler);
@@ -607,7 +606,7 @@ export function listenGameState(handler: (status: GameStatus) => void) {
 
 /// 外部启动切换地区或运行环境后, 后端推送新的 bootstrap 让界面同步.
 export function listenSettingsChanged(handler: (data: Bootstrap) => void) {
-  if (!isTauri()) return () => {};
+  if (!isDesktop()) return () => {};
   let disposed = false;
   let unlisten: (() => void) | null = null;
   listen<Bootstrap>("settings-changed", (event) => handler(event.payload))
@@ -624,7 +623,7 @@ export function listenSettingsChanged(handler: (data: Bootstrap) => void) {
 
 /// 后端创建游玩会话后通知前端补读记录, 避免 running 先于会话创建。
 export function listenPlaytimeStarted(handler: () => void) {
-  if (!isTauri()) return () => {};
+  if (!isDesktop()) return () => {};
   let disposed = false;
   let unlisten: (() => void) | null = null;
   listen("playtime-started", () => handler())
@@ -640,7 +639,7 @@ export function listenPlaytimeStarted(handler: () => void) {
 }
 
 export function listenDownloadState(handler: (status: DownloadStatus) => void) {
-  if (!isTauri()) return () => {};
+  if (!isDesktop()) return () => {};
   let disposed = false;
   let unlisten: (() => void) | null = null;
   listen<DownloadStatus>("game-download-state", (event) =>
@@ -692,7 +691,7 @@ export async function invoke<C extends keyof Commands>(
     ? [args?: undefined]
     : [args: CommandArgs[C]]
 ): Promise<Commands[C]> {
-  if (isTauri()) return tauriInvoke<Commands[C]>(command, params[0]);
+  if (isDesktop()) return nativeInvoke<C>(command, params[0]);
   return previewInvoke(command, params[0]) as Promise<Commands[C]>;
 }
 
@@ -1179,7 +1178,6 @@ async function previewInvoke(
     case "win_toggle_maximize":
     case "win_close":
     case "win_hide":
-    case "win_drag":
       return null;
     default:
       throw new Error("unknown command: " + command);

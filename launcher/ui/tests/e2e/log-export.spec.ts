@@ -15,14 +15,22 @@ for (const width of [1180, 640]) {
     await page.goto("/#settings");
     await settingsCategory(page, "maintenance");
     await expect(page.locator("#settings-export-logs")).toBeVisible();
+    await expect(page.locator("#update-state-title")).toHaveText("已是最新");
+    await expect(
+      page.locator("#page-update").getByRole("heading", {
+        name: "游戏资源已就绪",
+        exact: true,
+        includeHidden: true,
+      }),
+    ).toBeAttached();
     // 只替换日志相关 IPC; 页面初始化仍使用项目已有的浏览器预览数据.
     await page.evaluate(() => {
       const calls: string[] = [];
       let selections = 0;
       Object.assign(window, {
-        isTauri: true,
         logExportCalls: calls,
-        __TAURI_INTERNALS__: {
+        oddity: {
+          open: async () => (++selections === 1 ? null : "/tmp/log-export"),
           invoke: async (command: string, args?: { id?: string }) => {
             if (command === "game_status")
               return {
@@ -49,8 +57,6 @@ for (const width of [1180, 640]) {
                 })),
               };
             if (command === "discard_log_export") return;
-            if (command === "plugin:dialog|open")
-              return ++selections === 1 ? null : "/tmp/log-export";
             if (command === "save_log_export") {
               if (args?.id !== "fixture-snapshot")
                 throw new Error("wrong snapshot");

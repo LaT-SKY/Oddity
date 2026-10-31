@@ -24,7 +24,7 @@ impl ActivityInhibitor {
         let (sender, receiver) = mpsc::channel::<Option<Instant>>();
         let status = Arc::new(Mutex::new(Status::default()));
         let report = status.clone();
-        // 桌面总线请求不占用输入轮询或 Tauri 主线程.
+        // 桌面总线请求不占用输入轮询或输入主线程.
         std::thread::spawn(move || {
             let mut inhibitor = None;
             let mut expires: Option<Instant> = None;

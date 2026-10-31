@@ -5,15 +5,16 @@
 Oddity is a Linux launcher for *Neverness To Everness* (NTE).
 
 - **Platform:** Linux x86_64, Wayland and X11.
-- **UI:** Tauri 2, WebKitGTK 4.1, native window.
+- **UI:** Electron 44, Chromium, native window.
 - **Runtime:** `umu-run` with Proton.
 - **Scope:** Replaces the launcher, not the game itself.
 
 ### Architecture
 
-- `nte-core`: Shared business logic, independent of Tauri and CLI.
+- `nte-core`: Shared business logic, independent of Electron and CLI.
 - `nte-cli`: Command-line interface built on `nte-core`.
-- `nte-app`: Tauri application, UI and process lifecycle.
+- `nte-service`: Rust application state, commands and process lifecycle.
+- `launcher/ui/electron`: Electron main process and isolated preload.
 - `launcher/ui`: Vite + TypeScript + Vue 3 frontend.
 
 Prefer reusable logic in `nte-core` over duplication.

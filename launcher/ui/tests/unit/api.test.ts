@@ -9,11 +9,11 @@ const native = vi.hoisted(() => ({
   invoke: vi.fn(),
   listen: vi.fn(),
 }));
-vi.mock("@tauri-apps/api/core", () => ({
-  isTauri: () => native.enabled,
-  invoke: native.invoke,
+vi.mock("../../src/core/desktop", () => ({
+  isDesktop: () => native.enabled,
+  nativeInvoke: native.invoke,
+  listen: native.listen,
 }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: native.listen }));
 beforeEach(() => {
   native.enabled = false;
   native.invoke.mockReset();
@@ -325,7 +325,6 @@ describe("浏览器命令桥接", () => {
       "win_toggle_maximize",
       "win_close",
       "win_hide",
-      "win_drag",
     ] as const) {
       expect(await invoke(command)).toBeNull();
     }

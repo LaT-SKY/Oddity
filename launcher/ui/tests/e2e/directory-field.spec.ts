@@ -7,9 +7,8 @@ test("设置页安装目录均可选择、取消并自动保存", async ({ page 
   await page.addInitScript(() => {
     let selection = 0;
     Object.assign(window, {
-      __TAURI_INTERNALS__: {
-        invoke: async (command: string) => {
-          if (command !== "plugin:dialog|open") throw new Error(command);
+      oddity: {
+        open: async () => {
           selection++;
           return selection % 2 === 1 ? "/tmp/异环 Test" : null;
         },
@@ -51,9 +50,8 @@ test("更新页目录选择按地区保存并与设置页同步", async ({ page 
   await page.addInitScript(() => {
     let selection = 0;
     Object.assign(window, {
-      __TAURI_INTERNALS__: {
-        invoke: async (command: string) => {
-          if (command !== "plugin:dialog|open") throw new Error(command);
+      oddity: {
+        open: async () => {
           selection++;
           return selection === 1
             ? "/tmp/国服 Test"

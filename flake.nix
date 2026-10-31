@@ -42,9 +42,8 @@
             openssl
             nodejs
             pnpm
-            webkitgtk_4_1
+            electron_44
             gtk3
-            libayatana-appindicator
             libsecret
           ];
         };

@@ -7,8 +7,8 @@ dist/
 .vite/
 *.tsbuildinfo
 
-# Tauri generates these schemas at build time
-launcher/crates/nte-app/gen/
+# Electron main/preload build output
+launcher/ui/desktop-dist/
 
 # ============================================================
 # Test and coverage output
@@ -60,6 +60,7 @@ desktop.ini
 
 # Frontend browser checks
 launcher/ui/test-results/
+launcher/ui/test-results-desktop/
 launcher/ui/playwright-report/
 
 launcher/ui/coverage/

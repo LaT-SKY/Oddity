@@ -14,6 +14,12 @@ trap 'rm -rf "$work"' EXIT
 node "$root/scripts/render-pkgbuild.mjs" --version "$version" \
   --tarball "$tarball" --out "$work"
 
+if command -v makepkg >/dev/null 2>&1; then
+  (cd "$work" && makepkg --clean --nodeps --noconfirm)
+  cp "$work"/*.pkg.tar.zst "$out/"
+  exit 0
+fi
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "error: 需要 docker 才能在非 Arch 环境构建 .pkg.tar.zst" >&2
   exit 1

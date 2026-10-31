@@ -2,7 +2,7 @@
 import BaseButton from "./BaseButton.vue";
 import BaseInput from "./BaseInput.vue";
 import { ref } from "vue";
-import { homeDir, join } from "@tauri-apps/api/path";
+import { homeDir, join } from "../core/desktop";
 import { open } from "../core/filePicker";
 
 const props = defineProps<{

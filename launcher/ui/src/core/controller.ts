@@ -2,7 +2,7 @@ import { defaultGamepadOptions } from "../types/gamepad";
 import { defaultGamescope } from "./gameMode";
 import { defaultAttendanceTasks } from "./attendanceTasks";
 import { computed, nextTick, reactive, ref } from "vue";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { desktopWindow } from "./desktop";
 import type {
   AttendanceStatus,
   AttendanceTrigger,
@@ -21,7 +21,7 @@ import type {
 } from "../types/launcher";
 import {
   invoke,
-  isTauri,
+  isDesktop,
   listenGameState,
   listenDownloadState,
   listenPlaytimeStarted,
@@ -469,6 +469,7 @@ export const ui = reactive({
   saveState: "idle" as SaveState,
   redetecting: false,
   maximized: false,
+  windowVisible: true,
   introStarted: false,
   introDone: false,
   scrollEdge: { top: false, bottom: false },
@@ -488,7 +489,7 @@ export const media = reactive({
   videoKey: "",
   imageKey: "",
   loopCut: 1,
-  initialized: !isTauri(),
+  initialized: !isDesktop(),
 });
 let videoElement: HTMLVideoElement | null = null;
 export function setHeroVideo(video: HTMLVideoElement | null) {
@@ -868,7 +869,7 @@ function requestLaunchHide() {
   if (!launchHidePending) return;
   launchHidePending = false;
   launchCancelRequested = false;
-  if (isTauri()) void invoke("win_hide").catch(() => {});
+  if (isDesktop()) void invoke("win_hide").catch(() => {});
 }
 
 const pendingWaits = new Set<() => void>();
@@ -951,7 +952,7 @@ function heroBackgroundKey(data: Bootstrap | null = state.bootstrap) {
 }
 
 async function resolveLauncherBackground(): Promise<LauncherBackgroundMedia> {
-  if (!isTauri()) return EMPTY_BACKGROUND;
+  if (!isDesktop()) return EMPTY_BACKGROUND;
   const key = heroBackgroundKey();
   if (!key) return EMPTY_BACKGROUND;
   if (key === launcherBackgroundKey) return launcherBackground;
@@ -985,11 +986,9 @@ async function resolveLauncherBackground(): Promise<LauncherBackgroundMedia> {
 
 function releaseHeroMedia() {
   stopHeroVideo(videoElement);
-  if (media.url.startsWith("blob:")) URL.revokeObjectURL(media.url);
-  if (media.image.startsWith("blob:")) URL.revokeObjectURL(media.image);
   media.url = "";
   media.image = "";
-  media.initialized = !isTauri();
+  media.initialized = !isDesktop();
   media.officialVideo = false;
   media.officialImage = false;
   media.cropX = BUNDLED_CROP_X;
@@ -1004,7 +1003,7 @@ function releaseHeroMedia() {
 }
 
 function refreshLauncherBackground(data: Bootstrap) {
-  if (!isTauri()) return;
+  if (!isDesktop()) return;
   const key = heroBackgroundKey(data);
   if (key === launcherBackgroundKey) return;
   releaseHeroMedia();
@@ -1017,7 +1016,7 @@ function refreshLauncherBackground(data: Bootstrap) {
 }
 
 async function loadHeroImage() {
-  if (!isTauri() || state.page !== "home") return;
+  if (!isDesktop() || state.page !== "home") return;
   const epoch = generation;
   const key = heroBackgroundKey();
   if (!key || media.imageKey === key) return;
@@ -1032,7 +1031,6 @@ async function loadHeroImage() {
       media.officialImage = false;
       return;
     }
-    if (media.image.startsWith("blob:")) URL.revokeObjectURL(media.image);
     media.image = source.image;
     media.officialImage = true;
   })();
@@ -1065,13 +1063,8 @@ async function loadHeroVideo(video: HTMLVideoElement) {
         video.canPlayType(candidate.type),
       );
       if (!chosen) return false;
-      const response = await fetch(chosen.url, { cache: "no-store" });
-      if (!response.ok) return false;
-      const blob = await response.blob();
-      if (epoch !== generation || key !== heroBackgroundKey()) return false;
-      url = URL.createObjectURL(blob);
+      url = new URL(chosen.url, document.baseURI).href;
     }
-    if (media.url.startsWith("blob:")) URL.revokeObjectURL(media.url);
     media.url = url;
     media.videoKey = key;
     media.officialVideo = official;
@@ -1080,7 +1073,6 @@ async function loadHeroVideo(video: HTMLVideoElement) {
     media.loopCut = official ? 0.02 : 1;
     await nextTick();
     if (epoch !== generation || key !== heroBackgroundKey()) return false;
-    video.load();
     return true;
   })().catch(() => false);
   heroVideoRequest = promise;
@@ -1091,16 +1083,17 @@ async function loadHeroVideo(video: HTMLVideoElement) {
 }
 
 function canPlayHeroVideo() {
-  if (state.heroMedia !== "video" || state.page !== "home" || document.hidden)
+  if (
+    state.heroMedia !== "video" ||
+    state.page !== "home" ||
+    document.hidden ||
+    !ui.windowVisible
+  )
     return false;
   return !motionReduced();
 }
 
 function requestHeroPlayback(video: HTMLVideoElement) {
-  if (isTauri()) {
-    void invoke("play_hero_video").catch(() => {});
-    return;
-  }
   const attempt = video.play();
   if (attempt && typeof attempt.catch === "function") attempt.catch(() => {});
 }
@@ -1125,7 +1118,7 @@ export function applyHeroMedia(input: string) {
   state.heroMedia = value;
   form.heroMedia = value;
 
-  // 入场完成后再解码视频, 避免影响 WebKitGTK 的合成帧。
+  // 入场完成后再解码视频, 避免影响首屏的合成帧。
   if (!ui.introDone) {
     pendingHeroMedia = value;
     return value;
@@ -1352,7 +1345,7 @@ export async function loadDownloadStatus() {
 }
 
 function pollDownloadStatus() {
-  if (isTauri()) return;
+  if (isDesktop()) return;
   const poll = () => {
     if (!downloadBusy()) return;
     void loadDownloadStatus().then(() => schedule(poll, 250));
@@ -1591,7 +1584,7 @@ function applyGameStatus(
 
 async function syncGameStatus() {
   const epoch = generation;
-  if (!isTauri()) return;
+  if (!isDesktop()) return;
   try {
     const status = await invoke("game_status");
     if (epoch === generation) applyGameStatus(status);
@@ -1613,7 +1606,7 @@ async function launchGame() {
     });
     return;
   }
-  if (!isTauri()) notify("浏览器预览：模拟启动流程。", "ok", 2600);
+  if (!isDesktop()) notify("浏览器预览：模拟启动流程。", "ok", 2600);
   setLaunchState("launching");
   state.launch = null;
   launchHidePending = true;
@@ -2057,7 +2050,7 @@ export async function redetect() {
 
 export async function openUrl(url: string) {
   const epoch = generation;
-  if (!isTauri()) {
+  if (!isDesktop()) {
     window.open(url, "_blank", "noopener,noreferrer");
     notify("预览模式：已在新标签页打开。");
     return;
@@ -2142,7 +2135,7 @@ export function showPage(name: string | undefined, syncHash = true) {
 
 export async function windowAction(action: "minimize" | "maximize" | "close") {
   const epoch = generation;
-  if (!isTauri()) return;
+  if (!isDesktop()) return;
   const command =
     action === "minimize"
       ? "win_minimize"
@@ -2155,16 +2148,6 @@ export async function windowAction(action: "minimize" | "maximize" | "close") {
     if (epoch !== generation) return;
     notify(error instanceof Error ? error.message : String(error), "error");
   }
-}
-
-export function dragWindow(event: MouseEvent) {
-  if (event.button !== 0) return;
-  if (
-    event.target instanceof Element &&
-    event.target.closest("button, input, select, a")
-  )
-    return;
-  if (isTauri()) void invoke("win_drag").catch(() => {});
 }
 
 function bindInteractions() {
@@ -2249,17 +2232,21 @@ function bindInteractions() {
 
 async function watchWindowShape() {
   const epoch = generation;
-  if (!isTauri()) return;
+  if (!isDesktop()) return;
   try {
-    const win = getCurrentWindow();
+    const win = desktopWindow;
     const sync = async () => {
-      const maximized = await win.isMaximized();
-      if (epoch === generation) ui.maximized = maximized;
+      const snapshot = await win.getState();
+      if (epoch !== generation) return;
+      ui.maximized = snapshot.maximized;
+      ui.windowVisible = snapshot.visible;
     };
-    await sync();
     const stop = await win.onResized(sync);
     if (epoch !== generation) stop();
-    else disposers.push(stop);
+    else {
+      disposers.push(stop);
+      await sync();
+    }
   } catch {}
 }
 
@@ -2407,6 +2394,7 @@ export function dispose() {
     updateError: false,
     setupNeeded: false,
     maximized: false,
+    windowVisible: true,
     scrollEdge: { top: false, bottom: false },
   });
 }

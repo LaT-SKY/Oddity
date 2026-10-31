@@ -3,7 +3,7 @@ name = "nte-recovery"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Native emergency recovery window for Oddity, independent of WebKit"
+description = "Native emergency recovery window for Oddity, independent of Electron"
 
 [[bin]]
 name = "oddity-recovery"

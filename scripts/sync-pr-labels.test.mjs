@@ -5,7 +5,7 @@ import { calculateLabels, syncPrLabels } from "./sync-pr-labels.mjs";
 test("标题范围和路径范围取并集", () => {
   assert.deepEqual(calculateLabels("feat(proton): 添加运行环境", [
     "launcher/crates/nte-core/src/environment.rs",
-    "launcher/crates/nte-app/src/environment_commands.rs",
+    "launcher/crates/nte-service/src/environment_commands.rs",
     "launcher/ui/src/components/RuntimeEnvironments.vue",
   ], []), ["area: launcher", "area: proton", "area: ui", "feature"]);
 });

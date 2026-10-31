@@ -133,8 +133,10 @@ pub fn stop_launcher(paths: &UserPaths) -> Result<()> {
         .executable
         .file_name()
         .and_then(|name| name.to_str());
-    if !matches!(expected_name, Some("oddity" | ".oddity-wrapped"))
-        || fs::read_link(format!("/proc/{}/exe", identity.pid))? != identity.executable
+    if !matches!(
+        expected_name,
+        Some("oddity-backend" | ".oddity-backend-wrapped")
+    ) || fs::read_link(format!("/proc/{}/exe", identity.pid))? != identity.executable
         || fs::metadata(format!("/proc/{}", identity.pid))?.uid() != unsafe { libc::geteuid() }
     {
         bail!("登记的进程不是当前用户的 Oddity, 拒绝终止");
@@ -304,7 +306,7 @@ pub fn diagnose(paths: &UserPaths) -> String {
             }
         }
     }
-    for executable in ["oddity", "nte-cli", "gst-inspect-1.0", "umu-run"] {
+    for executable in ["oddity", "nte-cli", "umu-run"] {
         let found = std::env::var_os("PATH").is_some_and(|path| {
             std::env::split_paths(&path).any(|p| {
                 fs::metadata(p.join(executable))
@@ -500,7 +502,7 @@ mod tests {
     fn stop_uses_the_registered_identity_and_releases_the_lock() {
         let dir = TempDir::new("recovery-stop");
         let paths = paths(&dir);
-        let executable = dir.join("oddity");
+        let executable = dir.join("oddity-backend");
         fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
         let mut child = Command::new(&executable)
             .args([

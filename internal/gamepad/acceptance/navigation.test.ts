@@ -22,7 +22,7 @@ const bridge = vi.hoisted(() => ({
 }));
 vi.mock("../../../launcher/ui/src/core/api", () => ({
   invoke: bridge.invoke,
-  isTauri: () => bridge.native,
+  isDesktop: () => bridge.native,
 }));
 import {
   createGamepadNavigation,

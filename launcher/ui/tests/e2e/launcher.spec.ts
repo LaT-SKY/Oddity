@@ -238,9 +238,21 @@ test("视频双缓冲循环无黑帧, 离页暂停并保留进度", async ({ pag
   await expect.poll(clock, { timeout: 15_000 }).toBeGreaterThan(stopped);
 
   await page.locator('[data-page="settings"]').click();
+  const beforePhoto = await clock();
   await page.locator("#set-hero-media-trigger").click();
   await page.getByRole("option", { name: "静态照片", exact: true }).click();
   await expect(canvas).not.toHaveClass(/is-visible/);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        [
+          ...document.querySelectorAll<HTMLVideoElement>("video.hero__source"),
+        ].every(
+          (source) => !source.hasAttribute("src") && source.readyState === 0,
+        ),
+      ),
+    )
+    .toBe(true);
   await page.locator("#set-hero-media-trigger").click();
   await page.getByRole("option", { name: "动态视频", exact: true }).click();
   await expect
@@ -254,6 +266,24 @@ test("视频双缓冲循环无黑帧, 离页暂停并保留进度", async ({ pag
     .toBe(true);
   await page.locator('[data-page="home"]').click();
   await expect(canvas).toHaveClass(/is-visible/);
+  await expect.poll(clock).toBeGreaterThan(beforePhoto);
+  await expect(probe).toHaveAttribute("data-black-frames", "0");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(canvas).not.toHaveClass(/is-visible/);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        [
+          ...document.querySelectorAll<HTMLVideoElement>("video.hero__source"),
+        ].every(
+          (source) => !source.hasAttribute("src") && source.readyState === 0,
+        ),
+      ),
+    )
+    .toBe(true);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(canvas).toHaveClass(/is-visible/);
+  await expect.poll(clock).toBeGreaterThan(0.1);
 });
 
 test("多账号签到、自动保存和账号管理", async ({ page }) => {

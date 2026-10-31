@@ -1,4 +1,4 @@
-//! 原生 GTK 应急窗口, 不初始化 Tauri 或 WebKit.
+//! 原生 GTK 应急窗口, 不初始化 Electron.
 use std::sync::mpsc;
 use std::time::Duration;
 

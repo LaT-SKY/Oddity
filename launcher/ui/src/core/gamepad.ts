@@ -1,5 +1,5 @@
 import { computed, nextTick, reactive, shallowRef, watch } from "vue";
-import { invoke, isTauri } from "./api";
+import { invoke, isDesktop } from "./api";
 import {
   form,
   state,
@@ -698,7 +698,7 @@ export function startGamepad() {
   const stopIdleWatch = watch(
     () => gamepad.active,
     (active) => {
-      if (!active && isTauri())
+      if (!active && isDesktop())
         void invoke("gamepad_release_idle").catch((error) => {
           gamepad.deviceError = String(error);
         });
@@ -801,7 +801,7 @@ export function startGamepad() {
     }
     navigation.refresh();
   }
-  if (isTauri()) void poll();
+  if (isDesktop()) void poll();
   return () => {
     stopped = true;
     clearTimeout(timer);

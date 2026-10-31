@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "crates/nte-core",
     "crates/nte-cli",
-    "crates/nte-app",
+    "crates/nte-service",
     "crates/nte-recovery",
 ]
 
