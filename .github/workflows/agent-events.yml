@@ -30,17 +30,19 @@ jobs:
           set -euo pipefail
           if [ "$EVENT_NAME" = "release" ]; then
             title="[agent] Release $RELEASE_TAG 发布检查"
-            body=$(printf 'Release: %s
-Tag: %s
+            body=$(cat <<EOF
+          Release: $RELEASE_URL
+          Tag: $RELEASE_TAG
 
-请核对：release notes 与实际合并 PR、标签是否一致；AUR、Gentoo、Nix 打包是否成功；docs 版本引用是否需要更新。
-' "$RELEASE_URL" "$RELEASE_TAG")
+          请核对：release notes 与实际合并 PR、标签是否一致；AUR、Gentoo、Nix 打包是否成功；docs 版本引用是否需要更新。
+          EOF
+          )
           else
             date=$(date -u +%Y-%m-%d)
             title="[agent] 每周记忆整理 $date"
             body="每周一次的记忆整理：把 journal 合并进 MEMORY.md，去重并保持 200 行以内。"
           fi
-          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title "$title"" --json number --jq '.[0].number // empty')
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title $title" --json number --jq '.[0].number // empty')
           if [ -n "$existing" ]; then
             echo "Issue #$existing already open for: $title"
             exit 0
