@@ -34,6 +34,7 @@ fn persistent_stdio_roundtrip_errors_events_and_shutdown() {
         .spawn()
         .unwrap();
     let mut input = child.stdin.take().unwrap();
+    writeln!(input, "{{invalid json").unwrap();
     let output = child.stdout.take().unwrap();
     let (sender, replies) = mpsc::channel();
     std::thread::spawn(move || {

@@ -1,5 +1,12 @@
 import { test, expect, _electron as electron } from "@playwright/test";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  rm,
+  writeFile,
+  readdir,
+  readFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
@@ -13,7 +20,13 @@ test("真实 Rust 命令、窗口、导航、手柄与退出", async ({}, info) 
     join(temporary, "config", "oddity", "settings.json"),
     JSON.stringify({ theme: "dark", reduceMotion: false }),
   );
-  await mkdir(join(temporary, "data"));
+  await mkdir(join(temporary, "data/oddity/logs"), { recursive: true });
+  for (let n = 1; n <= 9; n++)
+    await writeFile(
+      join(temporary, `data/oddity/logs/oddity-startup-${n}-999.log`),
+      "old",
+    );
+  await writeFile(join(temporary, "data/oddity/logs/unrelated.log"), "keep");
   const executablePath =
     process.env.ODDITY_TEST_EXECUTABLE || (require("electron") as string);
   const args = process.env.ODDITY_TEST_EXECUTABLE ? [] : [resolve(".")];
@@ -43,6 +56,26 @@ test("真实 Rust 命令、窗口、导航、手柄与退出", async ({}, info) 
     );
     await page.waitForURL("oddity://app/**");
     await expect(page.locator("#app")).toBeVisible();
+    const logs = await readdir(join(temporary, "data/oddity/logs"));
+    expect(
+      logs.filter((name) => name.startsWith("oddity-startup-")).length,
+    ).toBe(5);
+    expect(
+      await readFile(join(temporary, "data/oddity/logs/unrelated.log"), "utf8"),
+    ).toBe("keep");
+    const security = await page.evaluate(async () => {
+      const response = await fetch("oddity://app/index.html");
+      const script = document.createElement("script");
+      script.textContent = "window.__cspProbe=true";
+      document.head.append(script);
+      script.remove();
+      return {
+        csp: response.headers.get("Content-Security-Policy"),
+        executed: Reflect.get(window, "__cspProbe") === true,
+      };
+    });
+    expect(security.csp).toContain("script-src 'self'");
+    expect(security.executed).toBe(false);
     const bootstrap = await page.evaluate(() =>
       window.oddity!.invoke("bootstrap"),
     );

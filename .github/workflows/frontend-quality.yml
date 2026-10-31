@@ -36,12 +36,15 @@ jobs:
             deps:
               - 'launcher/ui/package.json'
               - 'launcher/ui/pnpm-lock.yaml'
+              - 'launcher/ui/pnpm-workspace.yaml'
+              - 'launcher/ui/audit-exceptions.json'
+              - 'scripts/check-audit-exceptions.mjs'
               - '.github/workflows/frontend-quality.yml'
 
   frontend:
     needs: changes
     if: needs.changes.outputs.ui == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
@@ -91,7 +94,14 @@ jobs:
           cd launcher/ui
           pnpm exec install-electron
           pnpm run desktop:build
-          xvfb-run -a dbus-run-session pnpm run test:desktop
+          if command -v apparmor_parser >/dev/null && sudo aa-status --enabled; then
+            electron_path=$(node -p 'require("electron")')
+            printf 'abi <abi/4.0>,\nprofile oddity-ci "%s" flags=(unconfined) { userns, }\n' "$electron_path" >/tmp/oddity-ci.apparmor
+            sudo apparmor_parser -r /tmp/oddity-ci.apparmor
+          fi
+          sudo apt-get update
+          sudo apt-get install -y openbox
+          xvfb-run -a dbus-run-session sh -c 'openbox >/tmp/oddity-wm.log 2>&1 & pnpm run test:desktop'
 
   audit:
     needs: changes
@@ -108,7 +118,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - run: pnpm audit
+      - run: pnpm run audit:check
         working-directory: launcher/ui
 
   frontend-quality:

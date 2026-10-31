@@ -5,3 +5,9 @@ patchedDependencies:
 allowBuilds:
   esbuild: true
   electron-winstaller: false
+
+# 临时开发工具链豁免, 原因及到期检查见 audit-exceptions.json.
+auditConfig:
+  ignoreGhsas:
+    - GHSA-g3hv-75wg-m249
+    - GHSA-3g3m-2fjr-6pw4

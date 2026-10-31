@@ -34,7 +34,9 @@ it("原生命令和结构化错误透传, 事件订阅可解除", async () => {
   expect(await nativeInvoke("game_status")).toEqual({ running: false });
   const failure = { kind: "keyring", message: "无法解锁密钥环" };
   vi.mocked(bridge.invoke).mockRejectedValueOnce(failure);
-  await expect(nativeInvoke("attendance_status")).rejects.toBe(failure);
+  await expect(nativeInvoke("attendance_status")).rejects.toMatchObject(
+    failure,
+  );
   const event = vi.fn();
   const unsubscribe = await listen("game-state", event);
   callbacks.get("game-state")!({ running: true });

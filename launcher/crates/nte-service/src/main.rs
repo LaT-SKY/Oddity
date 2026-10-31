@@ -1410,8 +1410,16 @@ async fn check_update(state: &AppState, full: bool) -> Result<CheckResult, Strin
         .lock()
         .map(|s| s.clone())
         .map_err(|e| e.to_string())?;
-    let detected = detect_launcher_root(&settings);
-    let install_root = effective_install_root(&settings, detected.as_deref());
+    let (detected, install_root) = crate::service::spawn_blocking({
+        let settings = settings.clone();
+        move || {
+            let detected = detect_launcher_root(&settings);
+            let install = effective_install_root(&settings, detected.as_deref());
+            (detected, install)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?;
     let Some(root) = detected else {
         return Ok(CheckResult {
             installed: false,
@@ -2311,18 +2319,23 @@ async fn external_launch_impl(
     app: &ServiceHandle,
     request: &cli::LaunchRequest,
 ) -> Result<LaunchResult, String> {
-    let state = &app.state;
-    let downloads = &app.downloads;
-    let selection = environment_commands::select_for_launch(
-        state,
-        downloads,
-        request.region,
-        request.environment.as_deref(),
-    )?;
-    if selection.changed {
-        let bootstrap = bootstrap_impl(&selection.settings);
-        let _ = app.emit("settings-changed", bootstrap);
-    }
+    let selected_app = app.clone();
+    let region = request.region;
+    let environment = request.environment.clone();
+    let selection = crate::service::spawn_blocking(move || {
+        let selection = environment_commands::select_for_launch(
+            &selected_app.state,
+            &selected_app.downloads,
+            region,
+            environment.as_deref(),
+        )?;
+        if selection.changed {
+            let _ = selected_app.emit("settings-changed", bootstrap_impl(&selection.settings));
+        }
+        Ok::<_, String>(selection)
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     let mut settings = selection.settings;
     settings.launch_mode = request.mode.as_str().to_string();
     let result = start_launch(app.clone(), settings).await?;

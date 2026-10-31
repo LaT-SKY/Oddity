@@ -88,6 +88,8 @@ function stageTarball(version, target, out) {
   try {
     cpSync(join(root, "dist/electron/linux-unpacked"), directory, {
       recursive: true,
+      // 保留相对链接, 避免 cpSync 改写为构建机上的绝对路径.
+      verbatimSymlinks: true,
     });
     for (const name of [
       "oddity",

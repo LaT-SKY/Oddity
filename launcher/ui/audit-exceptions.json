@@ -1,0 +1,12 @@
+[
+  {
+    "id": "GHSA-g3hv-75wg-m249",
+    "expires": "2026-11-30",
+    "reason": "仅限 electron-builder 与 @vue/test-utils 的开发工具链; 未进入发行包 node_modules. 等待兼容的上游修复, 保持其他依赖全量审计."
+  },
+  {
+    "id": "GHSA-3g3m-2fjr-6pw4",
+    "expires": "2026-11-30",
+    "reason": "仅限 electron-builder 与 @vue/test-utils 的开发工具链; 未进入发行包 node_modules. 等待兼容的上游修复, 保持其他依赖全量审计."
+  }
+]

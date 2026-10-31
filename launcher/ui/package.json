@@ -18,9 +18,10 @@
     "test": "vitest run",
     "test:coverage": "node ../../scripts/check-frontend-coverage.mjs",
     "desktop:build": "pnpm run build && node electron/build.mjs",
-    "desktop:dev": "pnpm run desktop:build && electron .",
+    "desktop:dev": "node electron/dev.mjs",
     "desktop:package": "pnpm run desktop:build && electron-builder --linux --config electron-builder.cjs",
-    "test:desktop": "playwright test --config playwright.desktop.config.ts"
+    "test:desktop": "playwright test --config playwright.desktop.config.ts",
+    "audit:check": "node ../../scripts/check-audit-exceptions.mjs && pnpm audit"
   },
   "dependencies": {
     "@vueuse/core": "14.4.0",

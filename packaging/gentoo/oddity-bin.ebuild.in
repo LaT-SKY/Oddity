@@ -45,7 +45,7 @@ src_install() {
 	cp -a . "${ED}/opt/Oddity/" || die
 	fperms 0755 /opt/Oddity/oddity /opt/Oddity/oddity-shell /opt/Oddity/chrome-sandbox
 	for binary in oddity nte-cli oddity-recovery; do
-		dosym "/opt/Oddity/${binary}" "/usr/bin/${binary}"
+		dosym -r "/opt/Oddity/${binary}" "/usr/bin/${binary}"
 	done
 	fperms 0755 /opt/Oddity/resources/bin/oddity /opt/Oddity/resources/bin/oddity-backend /opt/Oddity/resources/bin/nte-cli /opt/Oddity/resources/bin/oddity-recovery
 	domenu oddity.desktop oddity-recovery.desktop

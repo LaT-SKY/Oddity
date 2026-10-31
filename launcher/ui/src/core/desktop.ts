@@ -29,11 +29,23 @@ declare global {
   }
 }
 export const isDesktop = () => Boolean(window.oddity?.invoke);
-export function nativeInvoke<K extends keyof Commands>(
+export async function nativeInvoke<K extends keyof Commands>(
   command: K,
   args?: CommandArgs[K],
 ) {
-  return window.oddity!.invoke(command, args);
+  try {
+    return await window.oddity!.invoke(command, args);
+  } catch (error) {
+    if (error instanceof Error) throw error;
+    if (
+      error &&
+      typeof error === "object" &&
+      "message" in error &&
+      typeof error.message === "string"
+    )
+      throw Object.assign(new Error(error.message), error);
+    throw new Error(String(error));
+  }
 }
 export async function listen<T>(
   event: string,

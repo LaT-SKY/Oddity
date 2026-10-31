@@ -126,7 +126,7 @@ for (const icon of [
 const require = createRequire(import.meta.url);
 const previous = process.cwd();
 process.chdir(join(root, "launcher/ui"));
-const config = require(join(root, "launcher/ui/electron-builder.cjs"));
+const config = await require(join(root, "launcher/ui/electron-builder.cjs"))();
 process.chdir(previous);
 const ui = JSON.parse(read("launcher/ui/package.json"));
 if (

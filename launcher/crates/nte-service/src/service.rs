@@ -20,8 +20,8 @@ pub struct Service {
     pub focused: AtomicBool,
     pub visible: AtomicBool,
     pub stopping: AtomicBool,
-    output: mpsc::Sender<Value>,
-    input: mpsc::Sender<InputTask>,
+    output: mpsc::SyncSender<Value>,
+    input: mpsc::SyncSender<InputTask>,
     #[cfg(test)]
     listeners: Mutex<Vec<Listener>>,
     #[cfg(test)]
@@ -30,8 +30,8 @@ pub struct Service {
 impl Service {
     fn new(
         settings: Settings,
-        output: mpsc::Sender<Value>,
-        input: mpsc::Sender<InputTask>,
+        output: mpsc::SyncSender<Value>,
+        input: mpsc::SyncSender<InputTask>,
         data: &std::path::Path,
     ) -> Self {
         Self {
@@ -107,8 +107,8 @@ pub fn block_on<F: std::future::Future>(job: F) -> F::Output {
 }
 #[cfg(test)]
 pub fn test_service() -> ServiceHandle {
-    let (output, _) = mpsc::channel();
-    let (input, _) = mpsc::channel();
+    let (output, _) = mpsc::sync_channel(256);
+    let (input, _) = mpsc::sync_channel(256);
     let directory = crate::tests::TempDir::new("service");
     let mut service = Service::new(Settings::default(), output, input, directory.path());
     service._directory = Some(directory);
@@ -147,7 +147,7 @@ pub fn run() {
         settings.reduce_motion = true;
         settings.minimize_to_tray_on_close = false;
     }
-    let (output, events) = mpsc::channel();
+    let (output, events) = mpsc::sync_channel(256);
     std::thread::spawn(move || {
         let stdout = std::io::stdout();
         let mut out = stdout.lock();
@@ -160,7 +160,7 @@ pub fn run() {
             }
         }
     });
-    let (input, jobs) = mpsc::channel();
+    let (input, jobs) = mpsc::sync_channel(256);
     let app = Arc::new(Service::new(settings, output, input, &crate::data_dir()));
     if !compatible
         && app.state.settings.lock().unwrap().distribution
@@ -203,7 +203,7 @@ pub fn run() {
                 }
                 Err(error) => {
                     eprintln!("无效宿主请求: {error}");
-                    break;
+                    continue;
                 }
             }
         }

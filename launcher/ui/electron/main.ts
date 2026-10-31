@@ -9,7 +9,7 @@ import {
   Tray,
 } from "electron";
 import { mkdirSync, createWriteStream } from "node:fs";
-import { access, stat } from "node:fs/promises";
+import { access, stat, readdir, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -32,6 +32,18 @@ const binRoot = bundled
 const backendPath =
   process.env.ODDITY_BACKEND || join(binRoot, "oddity-backend");
 const uiRoot = join(root, "dist");
+const devURL =
+  !app.isPackaged && process.env.ODDITY_DEV_SERVER
+    ? new URL(process.env.ODDITY_DEV_SERVER)
+    : undefined;
+if (
+  devURL &&
+  (devURL.protocol !== "http:" ||
+    devURL.hostname !== "127.0.0.1" ||
+    devURL.port !== "1420")
+)
+  throw new Error("开发服务地址必须为 http://127.0.0.1:1420");
+const rendererOrigin = devURL?.origin || "oddity://app";
 const profileRoot = process.env.XDG_CONFIG_HOME || join(homedir(), ".config");
 app.setName("Oddity");
 Menu.setApplicationMenu(null);
@@ -59,6 +71,7 @@ let quitting = false;
 // Wayland 不可靠回报最小化, 结合本窗口请求和恢复事件维护可见性.
 let minimized = false;
 let settings: Bootstrap["settings"] | undefined;
+let pendingShow = false;
 let mediaRevision = 0;
 let media: LauncherBackgroundMedia = { video: null, image: null };
 const knownCommands = new Set<string>(Object.keys(commands));
@@ -68,7 +81,7 @@ function authorized(event: Electron.IpcMainInvokeEvent) {
     !main ||
     event.sender !== main.webContents ||
     event.senderFrame !== main.webContents.mainFrame ||
-    !event.senderFrame.url.startsWith("oddity://app/")
+    !event.senderFrame.url.startsWith(rendererOrigin + "/")
   )
     throw new Error("无效的窗口请求");
 }
@@ -86,6 +99,10 @@ function windowEvent() {
     .catch((error) => console.error(error));
 }
 async function showMain() {
+  if (!settings) {
+    pendingShow = true;
+    return;
+  }
   if (!main || main.isDestroyed()) {
     main = new BrowserWindow({
       title: "Oddity",
@@ -116,7 +133,7 @@ async function showMain() {
     main.setMenu(null);
     main.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     main.webContents.on("will-navigate", (event, url) => {
-      if (!url.startsWith("oddity://app/")) event.preventDefault();
+      if (!url.startsWith(rendererOrigin + "/")) event.preventDefault();
     });
     main.on("close", (event) => {
       if (!quitting && settings?.minimizeToTrayOnClose !== false && tray) {
@@ -129,7 +146,14 @@ async function showMain() {
       windowEvent();
     });
     main.on("unmaximize", windowEvent);
-    main.on("resize", windowEvent);
+    let resizeTimer: ReturnType<typeof setTimeout> | undefined;
+    main.on("resize", () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(windowEvent, 80);
+    });
+    main.on("closed", () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+    });
     main.on("focus", () => {
       minimized = false;
       windowEvent();
@@ -148,7 +172,7 @@ async function showMain() {
       minimized = false;
       windowEvent();
     });
-    await main.loadURL("oddity://app/index.html");
+    await main.loadURL(devURL?.href || "oddity://app/index.html");
   }
   minimized = false;
   main.show();
@@ -164,6 +188,14 @@ async function start() {
     "logs",
   );
   mkdirSync(logs, { recursive: true, mode: 0o700 });
+  const previousLogs = (await readdir(logs))
+    .filter((name) => /^oddity-startup-\d+-\d+\.log$/.test(name))
+    .sort((a, b) => Number(b.split("-")[2]) - Number(a.split("-")[2]));
+  await Promise.all(
+    previousLogs
+      .slice(4)
+      .map((name) => unlink(join(logs, name)).catch(() => {})),
+  );
   const log = createWriteStream(
     join(logs, `oddity-startup-${Date.now()}-${process.pid}.log`),
     { mode: 0o600 },
@@ -173,6 +205,14 @@ async function start() {
     log.write(chunk);
     return Reflect.apply(stderr, process.stderr, [chunk, ...rest]);
   }) as typeof process.stderr.write;
+  let logClosed = false;
+  const closeLog = () => {
+    if (logClosed) return;
+    logClosed = true;
+    process.stderr.write = stderr;
+    log.end();
+  };
+  app.once("will-quit", closeLog);
   await access(backendPath);
   backend = new Backend(backendPath, compatible);
   backend.on("exit", () => {
@@ -188,6 +228,7 @@ async function start() {
       return;
     }
     if (name === "host-exit") {
+      closeLog();
       app.exit(typeof payload === "number" ? payload : 1);
       return;
     }
@@ -247,7 +288,11 @@ async function start() {
       headers: requestHeaders,
     });
     const headers = new Headers(response.headers);
-    headers.set("Access-Control-Allow-Origin", "oddity://app");
+    headers.set(
+      "Content-Security-Policy",
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' oddity://media https: data: blob:; media-src 'self' oddity://media blob:; font-src 'self'; connect-src 'self' oddity://media; object-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+    );
+    headers.set("Access-Control-Allow-Origin", rendererOrigin);
     headers.set("Accept-Ranges", "bytes");
     headers.set("Content-Length", String(end - start + 1));
     if (range)
@@ -390,6 +435,10 @@ async function start() {
       { label: "退出 Oddity", click: () => app.quit() },
     ]),
   );
+  if (pendingShow) {
+    pendingShow = false;
+    await showMain();
+  }
   if (hiddenLaunch)
     await backend.call("external_launch", { argv: args, cold: true });
   else await showMain();

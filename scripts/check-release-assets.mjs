@@ -6,13 +6,16 @@ import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   mkdtempSync,
+  lstatSync,
+  readlinkSync,
+  realpathSync,
   readFileSync,
   readdirSync,
   rmSync,
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, isAbsolute, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -191,6 +194,7 @@ function checkArch(path, version) {
     console.warn("跳过 .pkg.tar.zst 内部检查: 找不到 bsdtar");
     return;
   }
+  checkArchiveLinks(path);
   const files = output("bsdtar", ["-tf", path]);
   for (const name of [
     ".PKGINFO",
@@ -228,8 +232,42 @@ function checkArch(path, version) {
   checkDesktop(desktop, ".pkg.tar.zst");
 }
 
+function checkArchiveLinks(archive, prefix = "") {
+  const temporary = mkdtempSync(join(tmpdir(), "oddity-links-"));
+  try {
+    const extractor = have("bsdtar") ? "bsdtar" : "tar";
+    execFileSync(extractor, ["-xf", archive, "-C", temporary]);
+    const boundary = join(temporary, prefix);
+    const pending = [boundary];
+    while (pending.length) {
+      const entry = pending.pop();
+      const info = lstatSync(entry);
+      if (info.isSymbolicLink()) {
+        const target = readlinkSync(entry);
+        check(!isAbsolute(target), `归档包含绝对链接: ${entry}: ${target}`);
+        let resolved;
+        try {
+          resolved = realpathSync(entry);
+        } catch {
+          check(false, `归档链接目标不存在: ${entry}: ${target}`);
+          continue;
+        }
+        check(
+          resolved === boundary || resolved.startsWith(boundary + sep),
+          `归档链接逃逸: ${entry}: ${target}`,
+        );
+      } else if (info.isDirectory()) {
+        for (const name of readdirSync(entry)) pending.push(join(entry, name));
+      }
+    }
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
+  }
+}
+
 function checkTarball(path, version) {
   const name = `oddity-${version}-linux-x86_64`;
+  checkArchiveLinks(path, name);
   const files = output("tar", ["-tzf", path]);
   for (const file of [
     `${name}/oddity`,

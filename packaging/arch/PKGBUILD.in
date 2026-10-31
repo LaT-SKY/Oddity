@@ -44,7 +44,7 @@ package() {
   install -dm755 "$pkgdir/opt/Oddity" "$pkgdir/usr/bin"
   cp -a "$dir/." "$pkgdir/opt/Oddity/"
   for binary in oddity nte-cli oddity-recovery; do
-    ln -s "/opt/Oddity/$binary" "$pkgdir/usr/bin/$binary"
+    ln -s "../../opt/Oddity/$binary" "$pkgdir/usr/bin/$binary"
   done
   install -Dm644 "$dir/oddity-recovery.desktop" "$pkgdir/usr/share/applications/oddity-recovery.desktop"
   install -Dm644 "$dir/oddity.desktop" "$pkgdir/usr/share/applications/oddity.desktop"

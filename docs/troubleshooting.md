@@ -77,21 +77,19 @@ NTE_SOFTWARE_RENDER=1 oddity
 
 如果只是视频无法播放, 界面仍可操作, 也可以在 **设置 → 外观与交互 → 主页主视觉** 中选择 **静态照片** 临时规避.
 
-Debian, Arch 和 Gentoo 安装包会声明该依赖; AppImage, RPM 和源码构建不保证自带该插件, 需要结合系统环境确认. Nix 包已包含插件.
-
 ### 关闭窗口后 Oddity 没有退出
 
 如果开启了 **关闭窗口时最小化到托盘**, 关闭主窗口只会隐藏到后台. 可以从托盘菜单选择 **退出 Oddity**, 或在设置中关闭该选项.
-
-### 桌面入口打开后提示无法连接 127.0.0.1
-
-这通常出现在从源码运行后直接安装桌面入口的情况. 发布版会内嵌前端文件, 开发模式则依赖 Vite 服务. 处理方式见[安装指南](install.md#从源码构建).
 
 ### 桌面动作没有启动游戏
 
 先确认启动失败时是否出现 `异环启动失败` 或 `NTE 启动失败` 桌面通知. 没有通知时检查当前桌面是否提供 `org.freedesktop.Notifications`, 并查看 `~/.local/share/oddity/logs/` 下的启动日志.
 
 如果提示需要创建运行环境, 先在 **设置 → 运行环境** 中选择对应地区并创建环境. 同一地区有多个环境时, 使用 `oddity --launch --region ... --environment <名称>` 指定. 详细参数见[外部启动入口](external-launch.md).
+
+### Chromium 沙箱初始化失败
+
+Ubuntu 24.04 及更新版本可能通过 AppArmor 限制 user namespace. 优先使用 deb/rpm 安装包: 安装脚本会尝试安装随包的 AppArmor profile, 并按 user namespace 能力调整 chrome-sandbox. AppImage 与便携目录不能依赖 setuid; 若启动日志包含 `No usable sandbox` 或 user namespace 权限错误, 请改用 deb/rpm, 并附上系统版本和 AppArmor 拒绝记录. 不要全局关闭 AppArmor 或自动禁用 Chromium 沙箱.
 
 ## 游戏
 

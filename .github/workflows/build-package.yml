@@ -49,6 +49,7 @@ jobs:
               - 'launcher/ui/**'
               - 'packaging/**'
               - 'scripts/check-packaging.mjs'
+              - 'scripts/electron-builder.test.mjs'
               - 'scripts/release-version.mjs'
               - 'scripts/stage-release.mjs'
               - 'scripts/render-pkgbuild.mjs'
@@ -64,7 +65,7 @@ jobs:
     name: 构建 Linux 发行包
     needs: changes
     if: needs.changes.outputs.code == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: 检出源码
@@ -123,7 +124,9 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: 检查打包元数据
-        run: node scripts/check-packaging.mjs
+        run: |
+          node scripts/check-packaging.mjs
+          node --test scripts/electron-builder.test.mjs
 
       - name: 构建 Release 二进制文件
         working-directory: launcher
@@ -157,6 +160,32 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: ./scripts/build-arch-package.sh "$VERSION" "dist/release/oddity-${VERSION}-linux-x86_64.tar.gz" dist/release
+
+      - name: Ubuntu 24.04 安装包沙箱启动验证
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y openbox xvfb xdotool dbus-x11 ./dist/release/oddity_*_amd64.deb
+          # shellcheck disable=SC2016
+          xvfb-run -a dbus-run-session sh -c '
+            set -e
+            openbox >/tmp/oddity-wm.log 2>&1 &
+            /opt/Oddity/oddity >/tmp/oddity-package.log 2>&1 &
+            app_pid=$!
+            trap "kill $app_pid 2>/dev/null || true" EXIT
+            for _ in $(seq 1 30); do
+              if xdotool search --onlyvisible --pid "$app_pid" --name "^Oddity$" >/dev/null 2>&1; then
+                exit 0
+              fi
+              if ! kill -0 "$app_pid" 2>/dev/null; then
+                cat /tmp/oddity-package.log
+                exit 1
+              fi
+              sleep 1
+            done
+            cat /tmp/oddity-package.log
+            echo "Oddity 窗口未在 30 秒内出现" >&2
+            exit 1
+          '
 
       - name: 生成校验和
         run: node scripts/write-checksums.mjs --dir dist/release
