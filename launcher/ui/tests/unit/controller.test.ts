@@ -1,3 +1,4 @@
+import { resizeElement } from "./setup";
 import { defaultGamescope } from "../../src/core/gameMode";
 import { defaultAttendanceTasks } from "../../src/core/attendanceTasks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,7 +41,7 @@ const backend = vi.hoisted(() => ({
   resize: async () => {},
 }));
 vi.mock("../../src/core/api", () => ({
-  isTauri: () => backend.native,
+  isDesktop: () => backend.native,
   invoke: backend.invoke,
   listenGameState: (handler: (status: GameStatus) => void) => {
     backend.handler = handler;
@@ -87,11 +88,14 @@ vi.mock("../../src/composables/useNotificationArrival", async () => {
     }),
   };
 });
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({
-    isMaximized: backend.isMaximized,
+vi.mock("../../src/core/desktop", () => ({
+  desktopWindow: {
+    getState: async () => ({
+      maximized: await backend.isMaximized(),
+      visible: true,
+    }),
     onResized: backend.onResized,
-  }),
+  },
 }));
 let wrapper: VueWrapper | undefined;
 let listeners: [
@@ -376,6 +380,7 @@ describe("启动与设置", () => {
   it("设置分类按访问挂载, 已访问的面板保持挂载", async () => {
     const c = await boot();
     expect(document.querySelector("#set-install")).toBeNull();
+    expect(document.querySelector("#set-theme")).toBeNull();
     c.openSettings("game");
     await nextTick();
     expect(document.querySelector("#set-install")).not.toBeNull();
@@ -655,6 +660,8 @@ describe("启动与设置", () => {
 
   it("开关修改立即自动保存", async () => {
     const c = await boot();
+    c.openSettings("appearance");
+    await nextTick();
     const checkbox = document.querySelector<HTMLInputElement>(
       "#set-minimize-to-tray",
     )!;
@@ -724,6 +731,8 @@ describe("启动与设置", () => {
     expect(
       document.querySelector<HTMLInputElement>("#set-global-install")!.disabled,
     ).toBe(true);
+    c.openSettings("appearance");
+    await nextTick();
     expect(
       document.querySelector<HTMLSelectElement>("#set-theme")!.disabled,
     ).toBe(false);
@@ -840,6 +849,8 @@ describe("启动与设置", () => {
 
   it("关闭窗口时最小化到托盘配置支持切换与保存", async () => {
     const c = await boot();
+    c.openSettings("appearance");
+    await nextTick();
     expect(c.form.minimizeToTrayOnClose).toBe(true);
     const checkbox = document.querySelector<HTMLInputElement>(
       "#set-minimize-to-tray",
@@ -856,6 +867,8 @@ describe("启动与设置", () => {
 
   it("游戏退出后打开启动器配置支持切换与自动保存", async () => {
     const c = await boot();
+    c.openSettings("appearance");
+    await nextTick();
     expect(c.form.showLauncherAfterGameExit).toBe(true);
     const checkbox = document.querySelector<HTMLInputElement>(
       "#set-show-after-game-exit",
@@ -2120,17 +2133,6 @@ describe("导航和窗口交互", () => {
     backend.invoke.mockRejectedValueOnce("cannot open");
     await c.openUrl("https://example.com");
     expect(noticeMessage()).toBe("cannot open");
-    wrapper!
-      .find("#titlebar")
-      .element.dispatchEvent(
-        new MouseEvent("mousedown", { button: 1, bubbles: true }),
-      );
-    button("launch-btn").dispatchEvent(
-      new MouseEvent("mousedown", { bubbles: true }),
-    );
-    expect(backend.invoke).not.toHaveBeenCalledWith("win_drag");
-    await wrapper!.find("#titlebar").trigger("mousedown", { button: 0 });
-    expect(backend.invoke).toHaveBeenCalledWith("win_drag");
     backend.native = false;
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     await c.openUrl("https://example.com");
@@ -2142,7 +2144,6 @@ describe("导航和窗口交互", () => {
     expect(noticeMessage()).toBe("预览模式：已在新标签页打开。");
     backend.invoke.mockClear();
     await c.windowAction("minimize");
-    c.dragWindow(new MouseEvent("mousedown"));
     expect(backend.invoke).not.toHaveBeenCalled();
   });
 });
@@ -2158,9 +2159,10 @@ describe("主视觉和资源", () => {
     const video = document.getElementById("hero-video") as HTMLVideoElement;
     const canvas = document.getElementById("hero-canvas") as HTMLCanvasElement;
     const draw = vi.mocked(canvas.getContext("2d")!.drawImage);
-    expect(video.src).toContain("blob:");
-    expect(backend.invoke).toHaveBeenCalledWith("play_hero_video");
+    expect(video.src).toContain("assets/hero-loop.mp4");
+    expect(video.play).toHaveBeenCalled();
     expect(canvas.classList.contains("is-visible")).toBe(false);
+    expect([canvas.width, canvas.height]).toEqual([0, 0]);
     Object.defineProperties(video, {
       readyState: { value: 2, writable: true },
       paused: { value: false, writable: true },
@@ -2173,6 +2175,7 @@ describe("主视觉和资源", () => {
       clientWidth: { value: 800 },
       clientHeight: { value: 600 },
     });
+    resizeElement(canvas, 800, 600);
     await vi.advanceTimersByTimeAsync(40);
     expect(canvas.classList.contains("is-visible")).toBe(true);
     expect(draw).toHaveBeenLastCalledWith(
@@ -2225,11 +2228,19 @@ describe("主视觉和资源", () => {
     await vi.advanceTimersByTimeAsync(40);
     expect(video.currentTime).toBe(6);
     expect(canvas.classList.contains("is-visible")).toBe(true);
+    c.showPage("settings");
     c.applyHeroMedia("photo");
     await nextTick();
+    expect(video.hasAttribute("src")).toBe(false);
+    expect(document.getElementById("hero-video-b")!.hasAttribute("src")).toBe(
+      false,
+    );
     expect(canvas.classList.contains("is-visible")).toBe(false);
+    video.currentTime = 0;
     c.applyHeroMedia("video");
     await flushPromises();
+    video.dispatchEvent(new Event("loadedmetadata"));
+    expect(video.currentTime).toBe(6);
     c.applyReduceMotion(true);
     c.applyHeroMedia("video");
     await nextTick();
@@ -2238,7 +2249,7 @@ describe("主视觉和资源", () => {
       vi
         .mocked(fetch)
         .mock.calls.filter(([url]) => String(url).includes("hero-loop")),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("窗口隐藏时停止解码, 恢复可见后从头播放", async () => {
@@ -2251,10 +2262,15 @@ describe("主视觉和资源", () => {
     const video = document.getElementById("hero-video") as HTMLVideoElement;
     video.currentTime = 6;
     const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
     document.dispatchEvent(new Event("visibilitychange"));
     await nextTick();
     expect(c.media.looping).toBe(false);
     expect(video.currentTime).toBe(0);
+    expect(video.hasAttribute("src")).toBe(false);
+    visibility.mockReturnValue("visible");
     hidden.mockReturnValue(false);
     document.dispatchEvent(new Event("visibilitychange"));
     await flushPromises();
@@ -2262,8 +2278,10 @@ describe("主视觉和资源", () => {
     expect(video.currentTime).toBe(0);
   });
 
-  it("资源或原生窗口接口失败时仍显示主页", async () => {
-    vi.mocked(fetch).mockRejectedValue(new Error("asset missing"));
+  it("视频播放或原生窗口接口失败时仍显示主页", async () => {
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValue(
+      new DOMException("video unavailable", "NotSupportedError"),
+    );
     backend.isMaximized.mockRejectedValue(new Error("window unavailable"));
     backend.data.settings = {
       ...settings,
@@ -2335,9 +2353,10 @@ it("没有官方视频时回退内置视频", async () => {
     heroMedia: "video",
   };
   const c = await boot();
-  expect(fetch).toHaveBeenCalledWith("assets/hero-loop.mp4", {
-    cache: "no-store",
-  });
+  expect(
+    (document.getElementById("hero-video") as HTMLVideoElement).src,
+  ).toContain("assets/hero-loop.mp4");
+  expect(fetch).not.toHaveBeenCalled();
   expect(c.media.officialVideo).toBe(false);
   expect(c.media.cropX).toBeCloseTo(0.54);
   expect(c.media.cropY).toBeCloseTo(0.38);
@@ -2406,6 +2425,7 @@ it("在视频结尾切换到预载的备播元素", async () => {
     clientWidth: { value: 800 },
     clientHeight: { value: 600 },
   });
+  resizeElement(canvas, 800, 600);
   await vi.advanceTimersByTimeAsync(40);
   await vi.advanceTimersByTimeAsync(40);
   expect(draw).toHaveBeenLastCalledWith(
@@ -2525,15 +2545,14 @@ it("后台会话事件通过响应式绑定更新按钮文字、图标和禁用�
   expect(backend.invoke.mock.calls.length).toBe(calls);
 });
 
-it("组件卸载时释放原生订阅、视频 URL、定时器和全局事件", async () => {
+it("组件卸载时释放原生订阅、视频状态、定时器和全局事件", async () => {
   backend.data.settings = {
     ...settings,
     reduceMotion: false,
     heroMedia: "video",
   };
   const c = await boot();
-  const url = c.media.url;
-  const revoke = vi.spyOn(URL, "revokeObjectURL");
+
   await c.openUrl("https://example.com");
   expect(vi.getTimerCount()).toBeGreaterThan(0);
   wrapper!.unmount();
@@ -2541,7 +2560,7 @@ it("组件卸载时释放原生订阅、视频 URL、定时器和全局事件", 
   expect(backend.unlisten).toHaveBeenCalledOnce();
   expect(backend.downloadUnlisten).toHaveBeenCalledOnce();
   expect(backend.stopResize).toHaveBeenCalledOnce();
-  expect(revoke).toHaveBeenCalledWith(url);
+  expect(c.media.url).toBe("");
   expect(vi.getTimerCount()).toBe(0);
   backend.invoke.mockClear();
   window.dispatchEvent(new Event("focus"));

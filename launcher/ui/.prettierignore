@@ -1,8 +1,10 @@
 dist
+desktop-dist
 node_modules
 public
 
 test-results
+test-results-desktop
 playwright-report
 
 coverage

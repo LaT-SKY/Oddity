@@ -4,7 +4,7 @@ import {
   save as nativeSave,
   type OpenDialogOptions,
   type SaveDialogOptions,
-} from "@tauri-apps/plugin-dialog";
+} from "./desktop";
 import { gamepad } from "./gamepad";
 
 export interface FileEntry {

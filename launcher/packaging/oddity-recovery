@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /opt/Oddity/resources/bin/oddity-recovery "$@"

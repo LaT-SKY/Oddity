@@ -1,6 +1,5 @@
 {
   lib,
-  stdenv,
   rustPlatform,
   fetchPnpmDeps,
   pnpmConfigHook,
@@ -12,31 +11,25 @@
   alsa-lib,
   libpulseaudio,
   wrapGAppsHook3,
-  webkitgtk_4_1,
+  makeWrapper,
+  electron_44,
   gtk3,
-  glib-networking,
   libsecret,
-  libayatana-appindicator,
-  librsvg,
-  gdk-pixbuf,
-  libsoup_3,
   xdg-utils,
   umu-launcher,
-  gst_all_1,
   openssl,
   dbus,
   xz,
   zlib,
   src,
 }:
-
 let
-  version = (builtins.fromTOML (builtins.readFile (src + "/launcher/Cargo.toml"))).workspace.package.version;
+  version =
+    (builtins.fromTOML (builtins.readFile (src + "/launcher/Cargo.toml"))).workspace.package.version;
 in
 rustPlatform.buildRustPackage (finalAttrs: {
   pname = "oddity";
   inherit version src;
-
   cargoRoot = "launcher";
   buildAndTestSubdir = "launcher";
   cargoLock = {
@@ -47,22 +40,20 @@ rustPlatform.buildRustPackage (finalAttrs: {
   };
   cargoBuildFlags = [
     "-p"
-    "nte-app"
+    "nte-service"
     "-p"
     "nte-cli"
     "-p"
     "nte-recovery"
   ];
-
   pnpmRoot = "launcher/ui";
   pnpmDeps = fetchPnpmDeps {
     inherit (finalAttrs) pname version;
     src = ./../launcher/ui;
     inherit pnpm;
     fetcherVersion = 5;
-    hash = "sha256-jdT+pnlruqRLFFVYmwgTKegP3bj+DyC7foZGwRLTr7Q=";
+    hash = "sha256-INFSHvBueZapTtg6Uo4lVjVSQUoYeoI5INvJl9ioSro=";
   };
-
   nativeBuildInputs = [
     pnpmConfigHook
     pnpm
@@ -70,89 +61,83 @@ rustPlatform.buildRustPackage (finalAttrs: {
     pkg-config
     cmake
     wrapGAppsHook3
+    makeWrapper
   ];
-
   buildInputs = [
     udev
     alsa-lib
     libpulseaudio
-    webkitgtk_4_1
     gtk3
-    glib-networking
     libsecret
-    libayatana-appindicator
-    librsvg
-    gdk-pixbuf
-    libsoup_3
-    xdg-utils
-    umu-launcher
-    gst_all_1.gst-plugins-base
-    gst_all_1.gst-plugins-good
-    gst_all_1.gst-libav
     openssl
     dbus
     xz
     zlib
   ];
-
   preBuild = ''
-    (cd launcher/ui && pnpm run build)
+    (cd launcher/ui && pnpm run desktop:build)
   '';
-
-  postPatch = lib.optionalString stdenv.hostPlatform.isLinux ''
-    find "$cargoDepsCopy" -type f -path '*/libappindicator-sys-*/src/lib.rs' -exec \
-      substituteInPlace {} --replace-fail "libayatana-appindicator3.so.1" "${libayatana-appindicator}/lib/libayatana-appindicator3.so.1" \;
-  '';
-
-  preFixup = ''
-    gappsWrapperArgs+=(
-      --prefix LD_LIBRARY_PATH : ${lib.makeLibraryPath [ udev alsa-lib libpulseaudio ]}
-      --prefix PATH : ${lib.makeBinPath [ xdg-utils umu-launcher ]}
-      --set-default WEBKIT_GST_ALLOWED_URI_PROTOCOLS asset
-      --set-default __NV_DISABLE_EXPLICIT_SYNC 1
-      --prefix GST_PLUGIN_SYSTEM_PATH_1_0 : ${lib.makeSearchPath "lib/gstreamer-1.0" [
-        gst_all_1.gst-plugins-base
-        gst_all_1.gst-plugins-good
-        gst_all_1.gst-libav
-      ]}
-    )
-  '';
-
   installPhase = ''
     runHook preInstall
-
-    target="$(find . -type f -path '*/target/*/release/oddity' -print -quit)"
-    if [ -z "$target" ]; then
-      target="$(find . -type f -path '*/target/release/oddity' -print -quit)"
-    fi
+    target="$(find . -type f -path '*/release/oddity-backend' -print -quit)"
     test -n "$target"
     target="$(dirname "$target")"
-
-    install -Dm755 "$target/oddity" "$out/bin/oddity"
-    install -Dm755 "$target/nte-cli" "$out/bin/nte-cli"
-    install -Dm755 "$target/oddity-recovery" "$out/bin/oddity-recovery"
-    install -Dm644 launcher/packaging/oddity-recovery.desktop "$out/share/applications/oddity-recovery.desktop"
-    install -Dm644 launcher/packaging/oddity.desktop "$out/share/applications/oddity.desktop"
-
+    install -dm755 "$out/lib/oddity/resources/bin" "$out/bin"
+    for binary in oddity-backend nte-cli oddity-recovery; do
+      install -m755 "$target/$binary" "$out/lib/oddity/resources/bin/$binary"
+    done
+    cp -r launcher/ui/dist launcher/ui/desktop-dist "$out/lib/oddity/"
+    cp launcher/ui/package.json "$out/lib/oddity/"
+    install -Dm755 launcher/packaging/oddity "$out/lib/oddity/oddity"
+    makeWrapper ${electron_44}/bin/electron "$out/lib/oddity/oddity-shell" \
+      --add-flags "$out/lib/oddity" \
+      --set ODDITY_RESOURCES "$out/lib/oddity/resources" \
+      --prefix PATH : ${
+        lib.makeBinPath [
+          xdg-utils
+          umu-launcher
+        ]
+      } \
+      --prefix LD_LIBRARY_PATH : ${
+        lib.makeLibraryPath [
+          udev
+          alsa-lib
+          libpulseaudio
+        ]
+      }
+    # 系统 Electron 使用应用目录定位资源, 辅助程序保持同目录契约.
+    makeWrapper "$out/lib/oddity/oddity" "$out/bin/oddity"
+    makeWrapper "$out/lib/oddity/oddity" "$out/lib/oddity/resources/bin/oddity"
+    for binary in nte-cli oddity-recovery; do
+      ln -s "$out/lib/oddity/resources/bin/$binary" "$out/bin/$binary"
+    done
     for size in 16 22 24 32 48 64 128 256 512; do
-      install -Dm644 "launcher/crates/nte-app/icons/''${size}x''${size}.png" \
+      install -Dm644 "launcher/crates/nte-service/icons/''${size}x''${size}.png" \
         "$out/share/icons/hicolor/''${size}x''${size}/apps/oddity.png"
     done
-
+    cp -r launcher/crates/nte-service/icons "$out/lib/oddity/resources/icons"
+    install -Dm644 launcher/packaging/oddity.desktop "$out/share/applications/oddity.desktop"
+    install -Dm644 launcher/packaging/oddity-recovery.desktop "$out/share/applications/oddity-recovery.desktop"
     install -Dm644 LICENSE "$out/share/licenses/oddity/LICENSE"
     install -Dm644 THIRD_PARTY.md "$out/share/licenses/oddity/THIRD_PARTY.md"
     install -Dm644 README.md "$out/share/doc/oddity/README.md"
-
     runHook postInstall
   '';
-
+  preFixup = ''
+    gappsWrapperArgs+=(--prefix PATH : ${
+      lib.makeBinPath [
+        xdg-utils
+        umu-launcher
+      ]
+    })
+  '';
+  # Rust 测试由独立质量检查执行, 构建沙箱不提供桌面与发行版信息.
   doCheck = false;
-
   meta = {
-    description = "Native Linux launcher for Neverness To Everness";
+    description = "Linux launcher for Neverness To Everness";
     homepage = "https://github.com/LaT-SKY/Oddity";
     license = lib.licenses.gpl3Plus;
-    platforms = lib.platforms.linux;
+    platforms = [ "x86_64-linux" ];
     mainProgram = "oddity";
   };
 })

@@ -10,10 +10,10 @@ no-default-features = false
 ignore = [
   # 构建期宏 crate，由 gtk3-macros 0.18 引入，不进入运行时
   { id = "RUSTSEC-2024-0370", reason = "gtk3-macros 的构建期依赖，不进入运行时；2027-06 前随 gtk-rs 升级移除" },
-  # zbus 5 的子 crate，等 tauri-plugin-single-instance 升级到 zbus 6
-  { id = "RUSTSEC-2026-0370", reason = "由 tauri-plugin-single-instance 依赖的 zbus 5 引入，zbus 6 已合并该 crate；2027-06 前随插件升级移除" },
-  { id = "RUSTSEC-2026-0371", reason = "由 tauri-plugin-single-instance 依赖的 zbus 5 引入，zbus 6 已合并该 crate；2027-06 前随插件升级移除" },
-  { id = "RUSTSEC-2026-0372", reason = "由 tauri-plugin-single-instance 依赖的 zbus 5 引入，zbus 6 已合并该 crate；2027-06 前随插件升级移除" },
+  # keyring 和桌面服务使用的 zbus 5 子 crate, 随业务依赖升级移除
+  { id = "RUSTSEC-2026-0370", reason = "由 secret-service 和桌面服务依赖的 zbus 5 引入，zbus 6 已合并该 crate；2027-06 前随业务依赖升级移除" },
+  { id = "RUSTSEC-2026-0371", reason = "由 secret-service 和桌面服务依赖的 zbus 5 引入，zbus 6 已合并该 crate；2027-06 前随业务依赖升级移除" },
+  { id = "RUSTSEC-2026-0372", reason = "由 secret-service 和桌面服务依赖的 zbus 5 引入，zbus 6 已合并该 crate；2027-06 前随业务依赖升级移除" },
   { id = "RUSTSEC-2026-0391", reason = "固定版本 hdiffpatch-rs 使用 read::Decoder::new 独立上下文, 不调用受影响的 with_context; 2026-12 前随上游 zstd 升级移除" },
   { id = "RUSTSEC-2026-0398", reason = "hdiffpatch-rs 未启用 zstd-safe/seekable, 不包含受影响的 Seekable API; 2026-12 前随上游 zstd 升级移除" },
   { id = "RUSTSEC-2026-0403", reason = "hdiffpatch-rs 使用 stream::read::Decoder, 不使用受影响的流式写入解码器; 2026-12 前随上游 zstd 升级移除" },
@@ -42,10 +42,10 @@ exceptions = [
 ]
 
 [bans]
-# Tauri、GTK 和平台适配链由上游分别约束多个版本；强行收敛会引入不兼容升级。
+# GTK 和平台适配链由上游分别约束多个版本；强行收敛会引入不兼容升级。
 # 依赖更新仍由 Cargo.lock 和 advisories 检查负责，暂不把这类传递依赖提示当作告警。
 multiple-versions = "allow"
-# nte-app/nte-cli 对同一 workspace 内的 nte-core 使用 path dependency，版本字段没有意义。
+# nte-service/nte-cli 对同一 workspace 内的 nte-core 使用 path dependency，版本字段没有意义。
 wildcards = "allow"
 
 [sources]

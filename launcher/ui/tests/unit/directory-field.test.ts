@@ -7,8 +7,12 @@ const { open, homeDir, join } = vi.hoisted(() => ({
   homeDir: vi.fn(async () => "/home/test"),
   join: vi.fn(async (...parts: string[]) => parts.join("/")),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open }));
-vi.mock("@tauri-apps/api/path", () => ({ homeDir, join }));
+vi.mock("../../src/core/desktop", async (original) => ({
+  ...(await original<typeof import("../../src/core/desktop")>()),
+  open,
+  homeDir,
+  join,
+}));
 
 function field(modelValue = "/games/old", disabled = false) {
   return mount(DirectoryField, {

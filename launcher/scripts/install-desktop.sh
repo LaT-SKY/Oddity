@@ -7,7 +7,7 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-bin=${1:-"$root/target/debug/oddity"}
+bin=${1:-"$root/../dist/electron/linux-unpacked/oddity"}
 data=${XDG_DATA_HOME:-"$HOME/.local/share"}
 icons="$data/icons/hicolor"
 apps="$data/applications"
@@ -29,7 +29,7 @@ done
 
 install -Dm644 "$root/ui/public/assets/app-icon.svg" "$icons/scalable/apps/oddity.svg"
 for size in 16 22 24 32 48 64 128 256 512; do
-  install -Dm644 "$root/crates/nte-app/icons/${size}x${size}.png" \
+  install -Dm644 "$root/crates/nte-service/icons/${size}x${size}.png" \
     "$icons/${size}x${size}/apps/oddity.png"
 done
 

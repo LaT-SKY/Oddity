@@ -1,15 +1,34 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useReducedMotion } from "motion-v";
-import { media, setHeroVideo, state, form } from "../core/controller";
+import { useDocumentVisibility } from "@vueuse/core";
+import {
+  applyHeroMedia,
+  media,
+  setHeroVideo,
+  state,
+  form,
+  ui,
+} from "../core/controller";
 
 const videoA = ref<HTMLVideoElement | null>(null);
 const videoB = ref<HTMLVideoElement | null>(null);
 const canvas = ref<HTMLCanvasElement | null>(null);
 const ready = ref(false);
 const reduced = useReducedMotion();
+const visibility = useDocumentVisibility();
+const videoEnabled = computed(
+  () =>
+    state.heroMedia === "video" &&
+    !form.reduceMotion &&
+    !reduced.value &&
+    visibility.value === "visible" &&
+    ui.windowVisible,
+);
 const active = ref(0);
-const playing = computed(() => state.page === "home" && media.looping);
+const playing = computed(
+  () => videoEnabled.value && state.page === "home" && media.looping,
+);
 const currentVideo = computed(() =>
   active.value === 0 ? videoA.value : videoB.value,
 );
@@ -21,8 +40,12 @@ const artStyle = computed(() =>
 );
 let context: CanvasRenderingContext2D | null = null;
 let frame = 0;
-let lastFrame = -1;
+let painting: HTMLVideoElement | null = null;
+let resize: ResizeObserver | undefined;
+let cssWidth = 0;
+let cssHeight = 0;
 let switching = false;
+let resumeTime = 0;
 
 // 两个 video 交替播放, 在结尾前切到已经预载到首帧的备播元素。
 // 单元素 loop 会在回跳时等待解码器 seek, 看起来像少了几帧。
@@ -58,12 +81,8 @@ function switchLoop() {
   }
 }
 
-function paint(timestamp: number) {
-  frame = requestAnimationFrame(paint);
-  // 素材为 30fps, 避免重复拷贝同一帧。
-  const currentFrame = Math.floor((timestamp * 30) / 1000);
-  if (currentFrame === lastFrame) return;
-  lastFrame = currentFrame;
+function paint() {
+  if (painting) frame = painting.requestVideoFrameCallback(paint);
   const source = currentVideo.value;
   const target = canvas.value;
   // 回跳与缓冲期间保留上一帧, 不暴露解码器的空画面。
@@ -80,11 +99,11 @@ function paint(timestamp: number) {
     // 画布分辨率不超过源画面, 避免高 DPI 下的无效放大。
     const pixelRatio = Math.min(
       window.devicePixelRatio,
-      source.videoWidth / target.clientWidth,
-      source.videoHeight / target.clientHeight,
+      source.videoWidth / cssWidth,
+      source.videoHeight / cssHeight,
     );
-    const width = Math.round(target.clientWidth * pixelRatio);
-    const height = Math.round(target.clientHeight * pixelRatio);
+    const width = Math.round(cssWidth * pixelRatio);
+    const height = Math.round(cssHeight * pixelRatio);
     if (width > 0 && height > 0) {
       if (target.width !== width || target.height !== height) {
         target.width = width;
@@ -126,43 +145,79 @@ function paint(timestamp: number) {
 }
 
 function loadVideos() {
-  if (!media.url) return;
   for (const video of [videoA.value, videoB.value]) {
     if (!video) continue;
-    try {
-      video.pause();
-      video.currentTime = 0;
-      video.load();
-    } catch {}
+    video.pause();
+    video.load();
   }
   active.value = 0;
   setHeroVideo(videoA.value);
 }
 
 function syncPainting() {
-  cancelAnimationFrame(frame);
-  if (playing.value && context) frame = requestAnimationFrame(paint);
+  if (painting) painting.cancelVideoFrameCallback(frame);
+  if (playing.value && !context && canvas.value)
+    context = canvas.value.getContext("2d", { alpha: false });
+  painting = playing.value && context ? currentVideo.value : null;
+  if (painting) frame = painting.requestVideoFrameCallback(paint);
+}
+// 离页后释放解码器仍保留播放位置, 重新解码时从同一帧续播.
+watch(
+  videoEnabled,
+  (enabled) => {
+    if (!enabled)
+      resumeTime =
+        state.page === "home" ? 0 : (currentVideo.value?.currentTime ?? 0);
+  },
+  { flush: "sync" },
+);
+function restorePosition(event: Event) {
+  const video = event.currentTarget as HTMLVideoElement;
+  if (video === currentVideo.value && resumeTime > 0) {
+    video.currentTime = resumeTime;
+    resumeTime = 0;
+  }
 }
 watch(playing, syncPainting, { flush: "sync" });
+watch(currentVideo, syncPainting, { flush: "post" });
 // 只有换素材时才丢弃最后一帧, 页面切换要保留画面直接续播。
 watch(
   () => media.videoKey,
   () => {
     ready.value = false;
+    if (canvas.value) {
+      canvas.value.width = 0;
+      canvas.value.height = 0;
+    }
+    resumeTime = 0;
     active.value = 0;
     setHeroVideo(videoA.value);
   },
   { flush: "sync" },
 );
-watch(() => media.url, loadVideos, { flush: "post" });
+watch(
+  [() => media.url, videoEnabled],
+  () => {
+    loadVideos();
+    applyHeroMedia(state.heroMedia);
+  },
+  { flush: "post" },
+);
 onMounted(() => {
-  context = canvas.value!.getContext("2d", { alpha: false });
+  const target = canvas.value!;
+  resize = new ResizeObserver(([entry]) => {
+    if (!entry) return;
+    cssWidth = entry.contentRect.width;
+    cssHeight = entry.contentRect.height;
+  });
+  resize.observe(target);
   setHeroVideo(videoA.value);
   loadVideos();
   syncPainting();
 });
 onBeforeUnmount(() => {
-  cancelAnimationFrame(frame);
+  if (painting) painting.cancelVideoFrameCallback(frame);
+  resize?.disconnect();
   setHeroVideo(null);
 });
 </script>
@@ -182,11 +237,12 @@ onBeforeUnmount(() => {
     id="hero-video"
     ref="videoA"
     class="hero__source"
-    :src="media.url || undefined"
-    :preload="media.url ? 'auto' : 'none'"
+    :src="videoEnabled ? media.url || undefined : undefined"
+    :preload="videoEnabled && media.url ? 'auto' : 'none'"
     :autoplay="playing && active === 0"
     crossorigin="anonymous"
     muted
+    @loadedmetadata="restorePosition"
     @ended="switchLoop"
     playsinline
     hidden
@@ -196,11 +252,12 @@ onBeforeUnmount(() => {
     id="hero-video-b"
     ref="videoB"
     class="hero__source"
-    :src="media.url || undefined"
-    :preload="media.url ? 'auto' : 'none'"
+    :src="videoEnabled ? media.url || undefined : undefined"
+    :preload="videoEnabled && media.url ? 'auto' : 'none'"
     :autoplay="playing && active === 1"
     crossorigin="anonymous"
     muted
+    @loadedmetadata="restorePosition"
     @ended="switchLoop"
     playsinline
     hidden
@@ -209,6 +266,8 @@ onBeforeUnmount(() => {
   <canvas
     id="hero-canvas"
     ref="canvas"
+    width="0"
+    height="0"
     class="hero__video"
     :class="{
       'is-visible':

@@ -51,7 +51,7 @@ Oddity 不附带游戏文件, 资源来自官方服务. 它把检查, 下载, �
 | 项目   | 要求                                                       |
 |------|----------------------------------------------------------|
 | 系统   | Linux x86_64, Wayland 或 X11                              |
-| 运行库  | GTK 3, WebKitGTK 4.1, GStreamer (`gst-plugins-good`)     |
+| 运行库  | Electron 44 (随包提供), GTK 3, NSS, ALSA     |
 | 图形   | 支持 Vulkan 的显卡驱动                                          |
 | 游戏环境 | `umu-launcher`, Proton (推荐 GE-Proton); Wine prefix 由 Oddity 创建和管理 |
 | 存储   | 可写的游戏安装目录, 首次安装需要完整资源                                    |

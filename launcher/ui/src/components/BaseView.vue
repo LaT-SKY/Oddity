@@ -49,18 +49,14 @@ function transition(element: Element, done: () => void, entering: boolean) {
   const opacity = Number(getComputedStyle(view).opacity);
   const fromX = new DOMMatrixReadOnly(getComputedStyle(view).transform).m41;
   const targetX = entering ? 0 : -props.direction * 18;
-  const playback = animate(0, 1, {
-    ...surfaceSpring,
-    onUpdate: (progress) => {
-      view.style.transform = `translateX(${fromX + (targetX - fromX) * progress}px)`;
-      view.style.opacity = String(
-        Math.max(
-          0,
-          Math.min(1, opacity + ((entering ? 1 : 0) - opacity) * progress),
-        ),
-      );
+  const playback = animate(
+    view,
+    {
+      transform: [`translateX(${fromX}px)`, `translateX(${targetX}px)`],
+      opacity: [opacity, entering ? 1 : 0],
     },
-  });
+    surfaceSpring,
+  );
   animations.set(element, playback);
   void playback.then(() => {
     if (animations.get(element) === playback) {

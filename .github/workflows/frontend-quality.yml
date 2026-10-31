@@ -41,8 +41,8 @@ jobs:
   frontend:
     needs: changes
     if: needs.changes.outputs.ui == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v7
       - name: 安装 pnpm
@@ -79,6 +79,19 @@ jobs:
         working-directory: launcher/ui
       - run: pnpm run test:e2e
         working-directory: launcher/ui
+      - name: 安装原生测试依赖
+        uses: ./.github/actions/install-linux-deps
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: launcher
+      - name: 构建 Rust 服务并测试 Electron
+        run: |
+          cargo build --manifest-path launcher/Cargo.toml --locked -p nte-service
+          cd launcher/ui
+          pnpm exec install-electron
+          pnpm run desktop:build
+          xvfb-run -a dbus-run-session pnpm run test:desktop
 
   audit:
     needs: changes

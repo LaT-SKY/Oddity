@@ -32,10 +32,8 @@ function checkVersionConsistency() {
   }
 
   const version = cargo[1];
-  const tauri = JSON.parse(read("launcher/crates/nte-app/tauri.conf.json")).version;
   const versions = {
     "launcher/Cargo.toml": version,
-    "launcher/crates/nte-app/tauri.conf.json": tauri,
     "launcher/ui/package.json": JSON.parse(read("launcher/ui/package.json")).version,
   };
 
@@ -135,7 +133,7 @@ requireFile("SECURITY.md");
 requireFile("LICENSE");
 requireFile("launcher/Cargo.toml");
 requireFile("launcher/Cargo.lock");
-requireFile("launcher/crates/nte-app/tauri.conf.json");
+requireFile("launcher/ui/electron-builder.cjs");
 requireFile("docs/install.md");
 requireFile("docs/troubleshooting.md");
 requireFile("launcher/ui/public/assets/app-icon.svg");

@@ -3,7 +3,7 @@ const native = vi.hoisted(() => ({
   open: vi.fn().mockResolvedValue("/native"),
   save: vi.fn().mockResolvedValue("/save"),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => native);
+vi.mock("../../../launcher/ui/src/core/desktop", () => native);
 vi.mock("../../../launcher/ui/src/core/gamepad", async () => {
   const { reactive } = await import("vue");
   return { gamepad: reactive({ active: false }) };

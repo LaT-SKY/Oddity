@@ -9,7 +9,7 @@ import type {
 const api = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("../../src/core/api", () => ({
   invoke: api.invoke,
-  isTauri: () => false,
+  isDesktop: () => false,
 }));
 import * as c from "../../src/core/controller";
 import Component from "../../src/components/HomeGameRecords.vue";

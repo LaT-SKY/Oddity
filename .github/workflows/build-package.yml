@@ -102,11 +102,13 @@ jobs:
         with:
           workspaces: launcher
 
-      - name: 缓存 Tauri 打包工具
+      - name: 缓存 Electron 打包工具
         uses: actions/cache@v6
         with:
-          path: ~/.cache/tauri
-          key: tauri-tools-${{ runner.os }}-v1
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: electron-44-tools-${{ runner.os }}-v1
 
       - name: 读取版本
         id: version
@@ -125,45 +127,26 @@ jobs:
 
       - name: 构建 Release 二进制文件
         working-directory: launcher
-        run: cargo build --release --locked -p nte-app -p nte-cli -p nte-recovery
+        run: cargo build --release --locked -p nte-service -p nte-cli -p nte-recovery
 
       - name: 校验二进制文件类型
         run: |
-          file launcher/target/release/oddity
+          file launcher/target/release/oddity-backend
           file launcher/target/release/nte-cli
           file launcher/target/release/oddity-recovery
+
+      - name: 构建 Electron 44 发行包
+        working-directory: launcher/ui
+        run: |
+          pnpm exec install-electron
+          pnpm run desktop:package
 
       - name: 校验桌面入口安装
         run: |
           tmp="$(mktemp -d)"
-          HOME="$tmp" XDG_DATA_HOME="$tmp/share" \
-            ./launcher/scripts/install-desktop.sh "$PWD/launcher/target/release/oddity"
-          test -f "$tmp/share/applications/oddity.desktop"
+          XDG_DATA_HOME="$tmp/share" ./launcher/scripts/install-desktop.sh "$PWD/dist/electron/linux-unpacked/oddity"
           desktop-file-validate "$tmp/share/applications/oddity.desktop"
           desktop-file-validate "$tmp/share/applications/oddity-recovery.desktop"
-          for size in 16 22 24 32 48 64 128 256 512; do
-            test -f "$tmp/share/icons/hicolor/${size}x${size}/apps/oddity.png"
-          done
-          test -f "$tmp/share/icons/hicolor/scalable/apps/oddity.svg"
-
-      - name: 构建 Debian 与 AppImage
-        working-directory: launcher/crates/nte-app
-        run: ../../ui/node_modules/.bin/tauri build --bundles deb,appimage --ci
-
-      - name: 构建 RPM
-        working-directory: launcher/crates/nte-app
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          set -euo pipefail
-          if [[ "$VERSION" == *-* ]]; then
-            core="$(node ../../../scripts/release-version.mjs --version "$VERSION" --field rpm-version)"
-            release="$(node ../../../scripts/release-version.mjs --version "$VERSION" --field rpm-release)"
-            config="$(printf '{"version":"%s","bundle":{"linux":{"rpm":{"release":"%s"}}}}' "$core" "$release")"
-            ../../ui/node_modules/.bin/tauri bundle --bundles rpm --ci --config "$config"
-          else
-            ../../ui/node_modules/.bin/tauri bundle --bundles rpm --ci
-          fi
 
       - name: 整理发布资产
         env:

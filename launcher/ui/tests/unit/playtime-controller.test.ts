@@ -4,7 +4,7 @@ import type { PlaytimeHistory } from "../../src/types/launcher";
 const api = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock("../../src/core/api", () => ({
   invoke: api.invoke,
-  isTauri: () => false,
+  isDesktop: () => false,
 }));
 import * as controller from "../../src/core/controller";
 

@@ -5,13 +5,7 @@ export default mergeConfig(
   viteConfig,
   defineConfig({
     resolve: {
-      dedupe: [
-        "vue",
-        "vitest",
-        "@vue/test-utils",
-        "@tauri-apps/plugin-dialog",
-        "animejs",
-      ],
+      dedupe: ["vue", "vitest", "@vue/test-utils", "animejs"],
     },
     server: { fs: { allow: [new URL("../..", import.meta.url).pathname] } },
     test: {

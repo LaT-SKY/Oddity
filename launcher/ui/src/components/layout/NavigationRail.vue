@@ -33,21 +33,21 @@ function inCorridor(y: number) {
   return y >= box.top - 24 && y <= box.bottom + 24;
 }
 function select(x: number) {
-  const targets = buttons();
-  const nearest = targets.reduce((best, button) => {
-    const center = (element: HTMLElement) => {
-      const box = element.getBoundingClientRect();
-      return box.left + box.width / 2;
-    };
-    return Math.abs(center(button) - x) < Math.abs(center(best) - x)
-      ? button
-      : best;
+  const targets = buttons().map((button) => {
+    const box = button.getBoundingClientRect();
+    return { button, center: box.left + box.width / 2 };
   });
-  const active = targets.find((button) => button.dataset.page === state.page);
-  if (active && active !== nearest) {
-    const a = active.getBoundingClientRect();
-    const b = nearest.getBoundingClientRect();
-    const midpoint = (a.left + a.width / 2 + b.left + b.width / 2) / 2;
+  const nearest = targets.reduce((best, entry) =>
+    Math.abs(entry.center - x) < Math.abs(best.center - x) ? entry : best,
+  ).button;
+  const active = targets.find(
+    (entry) => entry.button.dataset.page === state.page,
+  );
+  if (active && active.button !== nearest) {
+    const midpoint =
+      (active.center +
+        targets.find((entry) => entry.button === nearest)!.center) /
+      2;
     if (Math.abs(x - midpoint) < 3) return;
   }
   if (nearest.dataset.page !== state.page) showPage(nearest.dataset.page!);

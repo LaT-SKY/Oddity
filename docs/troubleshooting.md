@@ -57,7 +57,7 @@ ls -d ~/.local/share/oddity/environments/环境ID/prefix/drive_c
 
 > 实际运行截图, 诊断内容以本机环境为准.
 
-兼容启动只影响本次运行, 使用静态背景和保守渲染设置. 若仍无法显示, 可以在同一窗口刷新诊断, 导出诊断包或恢复界面设置; 恢复前退出主程序, 原设置会备份. 应急窗口不依赖 WebKit, 也可以直接运行 `oddity-recovery`.
+兼容启动只影响本次运行, 使用静态背景和保守渲染设置. 若仍无法显示, 可以在同一窗口刷新诊断, 导出诊断包或恢复界面设置; 恢复前退出主程序, 原设置会备份. 应急窗口不依赖 Electron, 也可以直接运行 `oddity-recovery`.
 
 ### 窗口黑屏, 花屏或闪退
 
@@ -71,26 +71,9 @@ NTE_SOFTWARE_RENDER=1 oddity
 
 ### 主页视频无法播放或窗口启动后冻结
 
-首页视频需要 GStreamer 的 `autodetect` 插件. 缺少 `gst-plugins-good` 时, WebKit 可能在建立视频管线后退出, 表现为窗口冻结在最后一帧或直接消失, 主进程与托盘仍在.
+确认正在使用完整发行目录, 其中包含 `libffmpeg.so`、`resources/app.asar` 和 `resources/bin/oddity-backend`. 单独复制主程序会缺少必要资源.
 
-先确认插件可用:
-
-```bash
-gst-inspect-1.0 autoaudiosink
-```
-
-如果提示找不到元素或命令, 按发行版安装:
-
-```bash
-# Arch
-sudo pacman -S --needed gst-plugins-good
-# Debian / Ubuntu
-sudo apt install gstreamer1.0-plugins-good gstreamer1.0-tools
-# Fedora
-sudo dnf install gstreamer1-plugins-good
-# openSUSE
-sudo zypper install gstreamer-plugins-good
-```
+先通过 `oddity --recovery` 打开应急恢复, 查看启动日志. 同时记录显卡型号、驱动版本、Wayland/X11 会话和窗口所在屏幕. 可以使用 `NTE_SOFTWARE_RENDER=1 oddity` 对比图形驱动路径.
 
 如果只是视频无法播放, 界面仍可操作, 也可以在 **设置 → 外观与交互 → 主页主视觉** 中选择 **静态照片** 临时规避.
 

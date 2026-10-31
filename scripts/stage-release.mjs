@@ -1,13 +1,15 @@
 #!/usr/bin/env node
-// 把 Tauri 的打包结果整理成发布资产, 并生成通用 tarball.
+// 整理 Electron 发行包和完整便携运行目录.
 import { execFileSync } from "node:child_process";
 import {
   chmodSync,
+  cpSync,
   copyFileSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,7 +22,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const iconSizes = [16, 22, 24, 32, 48, 64, 128, 256, 512];
 
 function usage() {
-  console.log("用法: node scripts/stage-release.mjs [--version <版本>] [--out <目录>]");
+  console.log(
+    "用法: node scripts/stage-release.mjs [--version <版本>] [--out <目录>]",
+  );
 }
 
 function parseArgs(argv) {
@@ -47,7 +51,7 @@ function parseArgs(argv) {
 
 function requireFile(path) {
   try {
-    readFileSync(path);
+    if (!statSync(path).isFile()) throw new Error(`构建产物不是文件: ${path}`);
   } catch {
     throw new Error(`缺少构建产物: ${path}`);
   }
@@ -63,7 +67,10 @@ function rewriteDeb(source, destination, version) {
     if (!/^Version: /m.test(text)) {
       throw new Error("Debian control 中没有 Version 字段");
     }
-    writeFileSync(control, text.replace(/^Version: .*$/m, `Version: ${version}`));
+    writeFileSync(
+      control,
+      text.replace(/^Version: .*$/m, `Version: ${version}`),
+    );
     execFileSync(
       "dpkg-deb",
       ["--build", "--root-owner-group", temporary, destination],
@@ -79,25 +86,20 @@ function stageTarball(version, target, out) {
   const name = `oddity-${version}-linux-x86_64`;
   const directory = join(stageRoot, name);
   try {
-    mkdirSync(join(directory, "icons"), { recursive: true });
-    for (const binary of ["oddity", "nte-cli", "oddity-recovery"]) {
-      const source = join(target, binary);
-      requireFile(source);
-      copyFileSync(source, join(directory, binary));
-      chmodSync(join(directory, binary), 0o755);
-    }
-
-    copyFileSync(join(root, "launcher/packaging/oddity.desktop"), join(directory, "oddity.desktop"));
-    copyFileSync(join(root, "launcher/packaging/oddity-recovery.desktop"), join(directory, "oddity-recovery.desktop"));
-    for (const size of iconSizes) {
-      copyFileSync(
-        join(root, `launcher/crates/nte-app/icons/${size}x${size}.png`),
-        join(directory, `icons/${size}x${size}.png`),
-      );
-    }
-    for (const file of ["LICENSE", "THIRD_PARTY.md", "README.md"]) {
-      copyFileSync(join(root, file), join(directory, file));
-    }
+    cpSync(join(root, "dist/electron/linux-unpacked"), directory, {
+      recursive: true,
+    });
+    for (const name of [
+      "oddity",
+      "oddity-shell",
+      "resources/bin/oddity-backend",
+      "resources/bin/nte-cli",
+      "resources/bin/oddity-recovery",
+      "resources/app.asar",
+      "libffmpeg.so",
+      "LICENSES.chromium.html",
+    ])
+      requireFile(join(directory, name));
 
     const archive = join(out, `${name}.tar.gz`);
     execFileSync(
@@ -123,7 +125,7 @@ function stageTarball(version, target, out) {
 function main() {
   const args = parseArgs(process.argv.slice(2));
   const version = args.version || projectVersion();
-  const target = join(root, "launcher/target/release");
+  const target = join(root, "dist/electron");
   if (args.out === "/" || args.out === root) {
     throw new Error("拒绝把仓库根目录或文件系统根目录作为输出目录");
   }
@@ -131,11 +133,13 @@ function main() {
   rmSync(args.out, { recursive: true, force: true });
   mkdirSync(args.out, { recursive: true });
 
-  const debSource = requireFile(
-    join(target, "bundle/deb", `oddity_${version}_amd64.deb`),
-  );
+  const debSource = requireFile(join(target, `oddity_${version}_amd64.deb`));
   const debTarget = join(args.out, `oddity_${debVersion(version)}_amd64.deb`);
-  if (debVersion(version) === version) {
+  if (
+    execFileSync("dpkg-deb", ["-f", debSource, "Version"], {
+      encoding: "utf8",
+    }).trim() === debVersion(version)
+  ) {
     copyFileSync(debSource, debTarget);
   } else {
     rewriteDeb(debSource, debTarget, debVersion(version));
@@ -143,7 +147,7 @@ function main() {
 
   const rpm = rpmMetadata(version);
   const rpmSource = requireFile(
-    join(target, "bundle/rpm", `oddity-${rpm.version}-${rpm.release}.x86_64.rpm`),
+    join(target, `oddity-${rpm.version}-${rpm.release}.x86_64.rpm`),
   );
   const rpmTarget = join(
     args.out,
@@ -153,7 +157,7 @@ function main() {
   chmodSync(rpmTarget, 0o644);
 
   const appImageSource = requireFile(
-    join(target, "bundle/appimage", `oddity_${version}_amd64.AppImage`),
+    join(target, `oddity-${version}-x86_64.AppImage`),
   );
   const appImageTarget = join(args.out, `oddity-${version}-x86_64.AppImage`);
   copyFileSync(appImageSource, appImageTarget);
