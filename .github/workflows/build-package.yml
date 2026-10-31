@@ -123,6 +123,10 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: 安装 Electron 二进制
+        working-directory: launcher/ui
+        run: pnpm exec install-electron
+
       - name: 检查打包元数据
         run: |
           node scripts/check-packaging.mjs
@@ -140,9 +144,7 @@ jobs:
 
       - name: 构建 Electron 44 发行包
         working-directory: launcher/ui
-        run: |
-          pnpm exec install-electron
-          pnpm run desktop:package
+        run: pnpm run desktop:package
 
       - name: 校验桌面入口安装
         run: |
