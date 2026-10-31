@@ -20,7 +20,8 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: agent-events
+  # 标签与评审桥接各自独立成组，避免连续事件互相替换；其余事件继续串行。
+  group: ${{ (github.event_name == 'issues' || github.event_name == 'pull_request_target') && format('agent-events-{0}', github.run_id) || 'agent-events' }}
   cancel-in-progress: false
 
 jobs:
