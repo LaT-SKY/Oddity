@@ -1,6 +1,9 @@
 name: 智能体事件通知
 
 on:
+  workflow_run:
+    workflows: ["发布版本"]
+    types: [completed]
   release:
     types: [published]
   schedule:
@@ -26,9 +29,27 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           RELEASE_TAG: ${{ github.event.release.tag_name }}
           RELEASE_URL: ${{ github.event.release.html_url }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
         run: |
           set -euo pipefail
-          if [ "$EVENT_NAME" = "release" ]; then
+          if [ "$EVENT_NAME" = "workflow_run" ]; then
+            tag="$RUN_BRANCH"
+            case "$tag" in
+              oddity-v*) ;;
+              *) echo "Skip non-release workflow run on $tag"; exit 0 ;;
+            esac
+            title="[agent] Release $tag 发布检查"
+            body=$(cat <<EOF
+          发布工作流状态：$RUN_CONCLUSION
+          工作流运行：$RUN_URL
+          Release 链接：https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag
+
+          请核对：release notes 与实际合并 PR、标签是否一致；AUR、Gentoo、Nix 打包是否成功；docs 版本引用是否需要更新。
+          EOF
+          )
+          elif [ "$EVENT_NAME" = "release" ]; then
             title="[agent] Release $RELEASE_TAG 发布检查"
             body=$(cat <<EOF
           Release: $RELEASE_URL
@@ -42,7 +63,7 @@ jobs:
             title="[agent] 每周记忆整理 $date"
             body="每周一次的记忆整理：把 journal 合并进 MEMORY.md，去重并保持 200 行以内。"
           fi
-          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title $title" --json number --jq '.[0].number // empty')
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "in:title $title" --json number,title | jq --arg t "$title" -r 'map(select(.title == $t)) | .[0].number // empty')
           if [ -n "$existing" ]; then
             echo "Issue #$existing already open for: $title"
             exit 0
