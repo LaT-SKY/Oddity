@@ -103,9 +103,6 @@ Oddity 针对官方启动器的部分行为进行了改进，重点在于下载�
 
 ## _License_
 
-
-## License
-
 项目代码采用 [GPL-3.0-or-later](LICENSE) 许可。第三方组件的许可信息见 [THIRD_PARTY.md](THIRD_PARTY.md)，官方游戏美术素材不在 GPL 授权范围内，详见 [ASSETS.md](ASSETS.md)。
 
 <div align="center">
