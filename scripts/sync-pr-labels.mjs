@@ -3,11 +3,11 @@ import { matchesGlob } from "node:path";
 const pathRules = {
   "area: ui": ["launcher/ui/**"],
   "area: cli": ["launcher/crates/nte-cli/**"],
-  "area: launcher": ["launcher/crates/nte-app/**"],
+  "area: launcher": ["launcher/crates/nte-service/**"],
   "area: packaging": [
     "launcher/packaging/**",
     "launcher/scripts/install-desktop.sh",
-    "launcher/crates/nte-app/tauri.conf.json",
+    "launcher/ui/electron-builder.cjs",
     "packaging/**",
     "scripts/release-version.mjs",
     "scripts/stage-release.mjs",

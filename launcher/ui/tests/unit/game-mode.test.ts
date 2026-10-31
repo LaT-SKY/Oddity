@@ -10,7 +10,7 @@ const { invoke, notify } = vi.hoisted(() => ({
   notify: vi.fn(),
 }));
 vi.mock("../../src/core/notifications", () => ({ notify }));
-vi.mock("../../src/core/api", () => ({ invoke, isTauri: () => true }));
+vi.mock("../../src/core/api", () => ({ invoke, isDesktop: () => true }));
 vi.mock("../../src/core/controller", async () => {
   const { reactive } = await import("vue");
   return {

@@ -47,12 +47,11 @@ watch(
         body.style.height = `${height}px`;
         return;
       }
-      resizeAnimation = animate(Number.parseFloat(body.style.height), height, {
-        ...surfaceSpring,
-        onUpdate: (value) => {
-          body.style.height = `${value}px`;
-        },
-      });
+      resizeAnimation = animate(
+        body,
+        { height: [Number.parseFloat(body.style.height), height] },
+        surfaceSpring,
+      );
     });
     resizeObserver.observe(element);
   },
@@ -95,18 +94,24 @@ function transition(element: Element, done: () => void, entering: boolean) {
   const run = animationRun;
   const start = reveal;
   animations = [
-    animate(Number(getComputedStyle(backdrop).opacity), entering ? 1 : 0, {
-      duration: entering ? 0.2 : 0.16,
-      onUpdate: (value) => {
-        backdrop.style.opacity = String(value);
+    animate(
+      backdrop,
+      {
+        opacity: [Number(getComputedStyle(backdrop).opacity), entering ? 1 : 0],
       },
-    }),
-    animate(Number(getComputedStyle(surface).opacity), entering ? 1 : 0, {
-      duration: entering ? 0.12 : 0.16,
-      onUpdate: (value) => {
-        surface.style.opacity = String(value);
+      {
+        duration: entering ? 0.2 : 0.16,
       },
-    }),
+    ),
+    animate(
+      surface,
+      {
+        opacity: [Number(getComputedStyle(surface).opacity), entering ? 1 : 0],
+      },
+      {
+        duration: entering ? 0.12 : 0.16,
+      },
+    ),
     animate(start, entering ? 1 : 0, {
       ...(entering
         ? surfaceSpring

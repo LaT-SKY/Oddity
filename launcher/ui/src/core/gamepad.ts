@@ -1,5 +1,5 @@
 import { computed, nextTick, reactive, shallowRef, watch } from "vue";
-import { invoke, isTauri } from "./api";
+import { invoke, isDesktop } from "./api";
 import {
   form,
   state,
@@ -166,7 +166,9 @@ export function createGamepadNavigation() {
     ].filter((item) => {
       if (
         !visible(item) ||
-        item.matches("[data-page],.drawer-dismiss,.drawer-close,select")
+        item.matches(
+          "[data-page],.drawer-dismiss,.drawer-close,select,[data-pad-skip]",
+        )
       )
         return false;
       if (navigation)
@@ -279,7 +281,9 @@ export function createGamepadNavigation() {
       !gamepad.windowControls &&
       state.page === "home" &&
       !playerExpanded.value
-        ? document.getElementById("launch-btn")
+        ? document.getElementById(
+            state.game === "launching" ? "launch-region" : "launch-btn",
+          )
         : null;
     point(
       remembered && items.includes(remembered)
@@ -694,7 +698,7 @@ export function startGamepad() {
   const stopIdleWatch = watch(
     () => gamepad.active,
     (active) => {
-      if (!active && isTauri())
+      if (!active && isDesktop())
         void invoke("gamepad_release_idle").catch((error) => {
           gamepad.deviceError = String(error);
         });
@@ -797,7 +801,7 @@ export function startGamepad() {
     }
     navigation.refresh();
   }
-  if (isTauri()) void poll();
+  if (isDesktop()) void poll();
   return () => {
     stopped = true;
     clearTimeout(timer);

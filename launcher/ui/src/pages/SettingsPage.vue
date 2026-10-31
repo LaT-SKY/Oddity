@@ -40,7 +40,7 @@ const root = ref<HTMLElement | null>(null);
 const { control, surface, reduced } = useControlMotion();
 const [, animate] = useAnimate();
 // 分类面板按首次访问挂载, 避免启动时构建全部设置项。
-const visited = reactive(new Set<SettingsCategory>(["appearance"]));
+const visited = reactive(new Set<SettingsCategory>());
 const snapshotRevision = ref(0);
 watch(
   () => [state.page, navigation.category] as const,
@@ -463,6 +463,22 @@ const isActive = computed(() => state.page === "settings");
                         applyHeroMedia(form.heroMedia);
                         queueSettingsSave(0);
                       "
+                    />
+                  </SettingRow>
+                  <SettingRow
+                    data-setting="adaptive-theme"
+                    tabindex="-1"
+                    :label="entry('adaptive-theme').label"
+                    :description="entry('adaptive-theme').description"
+                    for="set-adaptive-theme"
+                    v-slot="{ describedby }"
+                  >
+                    <BaseSwitch
+                      id="set-adaptive-theme"
+                      v-model="form.adaptiveTheme"
+                      :label="entry('adaptive-theme').label"
+                      :describedby="describedby"
+                      @change="queueSettingsSave(0)"
                     />
                   </SettingRow>
                   <SettingRow

@@ -1,13 +1,13 @@
-/* 通知拥有独立材质, 位置跟随窗口左侧内边距。 */
+/* 通知沿用二级界面的磨砂材质, 位置跟随窗口左侧内边距。 */
 .notification-stack {
-  --notice-bg: rgb(247 249 251 / 97%);
-  --notice-text: #202832;
-  --notice-muted: #5b6672;
-  --notice-line: rgb(30 45 60 / 12%);
-  --notice-hover: rgb(30 45 60 / 6%);
-  --notice-primary: #293a4c;
-  --notice-primary-text: #fff;
-  --notice-error: #9c4136;
+  --notice-bg: var(--glass-bg-strong);
+  --notice-text: var(--bone);
+  --notice-muted: var(--muted);
+  --notice-line: var(--glass-line);
+  --notice-hover: var(--hover);
+  --notice-primary: var(--signal-strong);
+  --notice-primary-text: var(--selection-fg);
+  --notice-error: var(--danger);
   --notice-width: min(352px, calc(100vw - 48px));
   position: absolute;
   z-index: var(--z-notification);
@@ -18,16 +18,6 @@
   color: var(--notice-text);
   font-family: var(--font);
   transform-origin: 28px 0;
-}
-.notification-stack[data-theme="dark"] {
-  --notice-bg: rgb(25 31 40 / 97%);
-  --notice-text: #f0f3f7;
-  --notice-muted: #b3bdca;
-  --notice-line: rgb(225 235 245 / 14%);
-  --notice-hover: rgb(225 235 245 / 8%);
-  --notice-primary: #dbe6f1;
-  --notice-primary-text: #1b2632;
-  --notice-error: #f2b8af;
 }
 .notification-stack.is-expanded:not(.is-animating) {
   overflow: hidden auto;
@@ -67,6 +57,8 @@
   border: 1px solid var(--notice-line);
   border-radius: 20px;
   background: var(--notice-bg);
+  -webkit-backdrop-filter: blur(36px) saturate(var(--glass-saturate));
+  backdrop-filter: blur(36px) saturate(var(--glass-saturate));
 }
 .is-arriving .notification-surface,
 .is-retiring .notification-surface {

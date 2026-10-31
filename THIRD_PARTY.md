@@ -18,6 +18,14 @@ Rust 依赖见 [Cargo.lock](launcher/Cargo.lock), 许可证检查配置见 [deny
 
 游戏差分补丁使用 [hdiffpatch-rs](https://github.com/TwintailTeam/hdiffpatch-rs), 许可证为 MIT.
 
+## 颜色计算
+
+| 用途       | 来源                                                                                                              | 许可证          |
+|----------|-----------------------------------------------------------------------------------------------------------------|--------------|
+| Oklab 颜色空间 | [Björn Ottosson, A perceptual color space for image processing (2020)](https://bottosson.github.io/posts/oklab/) | Public domain |
+
+主视觉取色在 `launcher/ui/src/core/palette.ts` 中实现, 只使用 Oklab 的公开转换矩阵, 不引入额外依赖.
+
 ## 图像与素材
 
 | 素材 | 位置 | 授权 |
@@ -35,3 +43,7 @@ Rust 依赖见 [Cargo.lock](launcher/Cargo.lock), 许可证检查配置见 [deny
 |------------------|-------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------|
 | 登录, 签到, 金币与云异环任务 | [taygedo-auto-attendance](https://github.com/zzstar101/taygedo-auto-attendance/tree/cc8c036d0a66802a39b4ecc10f7095e38f695151) | [MIT](licenses/taygedo-auto-attendance-MIT.txt) |
 | 游戏状态查询与字段解析      | [NTEUID](https://github.com/tyql688/NTEUID/tree/8fc59ff35b7fdbd1e31bf6b15ec4ba0c8d36b7cb)                                     | [GPL-3.0](licenses/NTEUID-GPL-3.0.txt)          |
+
+## Electron 运行时
+
+图形界面使用 Electron 44 (MIT), 其中的 Chromium、Node.js 与 FFmpeg 使用各自许可. 发行目录保留 Electron 的 `LICENSE` 与完整 `LICENSES.chromium.html`; Oddity 的 GPL-3.0-or-later 许可证位于 `LICENSE.oddity`.

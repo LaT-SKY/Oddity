@@ -29,15 +29,6 @@ const cargo = read("launcher/Cargo.toml").match(
 );
 versions["launcher/Cargo.toml"] = cargo?.[1];
 
-try {
-  versions["launcher/crates/nte-app/tauri.conf.json"] = JSON.parse(
-    read("launcher/crates/nte-app/tauri.conf.json"),
-  ).version;
-} catch (error) {
-  console.error(`无法解析 tauri.conf.json: ${error.message}`);
-  process.exit(1);
-}
-
 versions["launcher/ui/package.json"] = JSON.parse(read("launcher/ui/package.json")).version;
 
 let failed = false;

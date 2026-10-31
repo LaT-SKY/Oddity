@@ -98,7 +98,7 @@ test("同来源公告按需堆叠, 展开与收回保持连续布局", async ({ 
   page.on("pageerror", (error) => errors.push(error.message));
   await page.addInitScript(() => {
     localStorage.setItem(
-      "nte.bulletins.v2.cn",
+      "nte.bulletins.v3.cn",
       JSON.stringify({
         savedAt: Date.now(),
         feed: {

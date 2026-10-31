@@ -49,11 +49,15 @@
   z-index: var(--z-select);
   overflow: hidden auto;
   padding: 6px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--glass-line);
   border-radius: var(--r-md);
-  background: var(--surface-solid);
+  background: var(--glass-bg-strong);
   color: var(--bone);
-  box-shadow: var(--surface-elevation);
+  box-shadow:
+    var(--surface-elevation),
+    inset 0 1px 0 var(--glass-highlight);
+  -webkit-backdrop-filter: blur(40px) saturate(var(--glass-saturate));
+  backdrop-filter: blur(40px) saturate(var(--glass-saturate));
   display: flex;
   flex-direction: column;
   gap: 2px;

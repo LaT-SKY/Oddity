@@ -8,8 +8,8 @@ runs:
       uses: actions/cache@v6
       with:
         path: ~/.cache/oddity-apt
-        # 改动包列表后递增 v5
-        key: apt-archives-${{ runner.os }}-v5
+        # 改动包列表后递增 v6
+        key: apt-archives-${{ runner.os }}-v6
         restore-keys: |
           apt-archives-${{ runner.os }}-
 
@@ -41,12 +41,8 @@ runs:
           libasound2-dev \
           libpulse-dev \
           libssl-dev \
-          libwebkit2gtk-4.1-dev \
-          gstreamer1.0-plugins-good \
           libgtk-3-dev \
-          libayatana-appindicator3-dev \
           librsvg2-dev \
-          libxdo-dev \
           patchelf \
           file \
           desktop-file-utils \

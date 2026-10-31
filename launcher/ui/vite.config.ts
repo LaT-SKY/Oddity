@@ -14,5 +14,21 @@ export default defineConfig({
   base: "./",
   publicDir: "public",
   clearScreen: false,
-  build: { target: "es2022" },
+  build: {
+    target: "es2022",
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: "motion",
+              test: /node_modules\/.*(?:motion-dom|motion-v|motion-utils|framer-motion)/,
+            },
+            { name: "vue", test: /node_modules\/.*(?:@vue|vue@)/ },
+            { name: "animation", test: /node_modules\/.*animejs/ },
+          ],
+        },
+      },
+    },
+  },
 });

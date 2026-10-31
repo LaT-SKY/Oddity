@@ -3,14 +3,14 @@ import { flushPromises, mount } from "@vue/test-utils";
 import LogExport from "../../src/components/LogExport.vue";
 import type { LogPreview } from "../../src/types/launcher";
 
-const { open, invoke, isTauri, notify } = vi.hoisted(() => ({
+const { open, invoke, isDesktop, notify } = vi.hoisted(() => ({
   open: vi.fn(),
   invoke: vi.fn(),
-  isTauri: vi.fn(),
+  isDesktop: vi.fn(),
   notify: vi.fn(),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ open }));
-vi.mock("../../src/core/api", () => ({ invoke, isTauri }));
+vi.mock("../../src/core/desktop", () => ({ open }));
+vi.mock("../../src/core/api", () => ({ invoke, isDesktop }));
 vi.mock("../../src/core/notifications", () => ({ notify }));
 
 const preview: LogPreview = {
@@ -57,7 +57,7 @@ beforeEach(() => {
   open.mockReset();
   invoke.mockReset();
   notify.mockReset();
-  isTauri.mockReturnValue(true);
+  isDesktop.mockReturnValue(true);
   invoke.mockImplementation(async (command: string) =>
     command === "prepare_log_export"
       ? structuredClone(preview)
@@ -209,7 +209,7 @@ describe("日志隐私检查与导出", () => {
   });
 
   it("浏览器预览明确提示需要桌面应用", async () => {
-    isTauri.mockReturnValue(false);
+    isDesktop.mockReturnValue(false);
     await prepare();
     expect(invoke).not.toHaveBeenCalled();
     expect(open).not.toHaveBeenCalled();

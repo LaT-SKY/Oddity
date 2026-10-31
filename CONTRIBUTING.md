@@ -69,7 +69,7 @@ cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo llvm-cov --workspace --locked --lcov --output-path lcov.info
 cargo llvm-cov report --fail-under-lines 80
-cargo build --release --locked -p nte-app -p nte-cli -p nte-recovery
+cargo build --release --locked -p nte-service -p nte-cli -p nte-recovery
 cd ..
 ```
 
@@ -84,8 +84,9 @@ node --test scripts/release-version.test.mjs
 如果改动涉及 UI、桌面入口或打包，本地至少构建一次 Debian 包：
 
 ```bash
-cd launcher/crates/nte-app
-../../ui/node_modules/.bin/tauri build --bundles deb --ci
+cd launcher/ui
+pnpm exec install-electron
+pnpm run desktop:package
 ```
 
 完整发布流程会在 Ubuntu 22.04 上构建 `.deb`、`.rpm`、`.pkg.tar.zst` 和 `.AppImage`，

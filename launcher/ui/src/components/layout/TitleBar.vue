@@ -1,17 +1,11 @@
 <script setup lang="ts">
 import { motion } from "motion-v";
 import NavigationRail from "./NavigationRail.vue";
-import {
-  ui,
-  state,
-  openSettings,
-  windowAction,
-  dragWindow,
-} from "../../core/controller";
+import { ui, state, openSettings, windowAction } from "../../core/controller";
 </script>
 
 <template>
-  <header class="titlebar" id="titlebar" @mousedown="dragWindow">
+  <header class="titlebar" id="titlebar">
     <div class="titlebar__brand" title="Oddity">
       <img
         src="assets/app-icon.svg"

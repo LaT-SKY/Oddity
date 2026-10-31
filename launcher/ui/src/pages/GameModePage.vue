@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import { motion, useAnimate } from "motion-v";
 import { form, queueSettingsSave, state, ui } from "../core/controller";
 import { notify } from "../core/notifications";
-import { invoke, isTauri } from "../core/api";
+import { invoke, isDesktop } from "../core/api";
 import type { GameModeOptions, GameModeStatus } from "../types/launcher";
 import { useControlMotion } from "../composables/useControlMotion";
 import GamescopeSettings from "../components/GamescopeSettings.vue";
@@ -233,7 +233,7 @@ function description(item: {
   const capability = status.value?.capabilities.find(
     (feature) => feature.id === item.id,
   );
-  if (!isTauri() || !capability || capability.available)
+  if (!isDesktop() || !capability || capability.available)
     return item.description;
   return {
     performance: "需安装并启动 GameMode.",

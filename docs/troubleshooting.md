@@ -57,7 +57,7 @@ ls -d ~/.local/share/oddity/environments/环境ID/prefix/drive_c
 
 > 实际运行截图, 诊断内容以本机环境为准.
 
-兼容启动只影响本次运行, 使用静态背景和保守渲染设置. 若仍无法显示, 可以在同一窗口刷新诊断, 导出诊断包或恢复界面设置; 恢复前退出主程序, 原设置会备份. 应急窗口不依赖 WebKit, 也可以直接运行 `oddity-recovery`.
+兼容启动只影响本次运行, 使用静态背景和保守渲染设置. 若仍无法显示, 可以在同一窗口刷新诊断, 导出诊断包或恢复界面设置; 恢复前退出主程序, 原设置会备份. 应急窗口不依赖 Electron, 也可以直接运行 `oddity-recovery`.
 
 ### 窗口黑屏, 花屏或闪退
 
@@ -71,38 +71,25 @@ NTE_SOFTWARE_RENDER=1 oddity
 
 ### 主页视频无法播放或窗口启动后冻结
 
-首页视频需要 GStreamer 的 `autodetect` 插件. 缺少 `gst-plugins-good` 时, WebKit 可能在建立视频管线后退出, 表现为窗口冻结在最后一帧或直接消失, 主进程与托盘仍在.
+确认正在使用完整发行目录, 其中包含 `libffmpeg.so`、`resources/app.asar` 和 `resources/bin/oddity-backend`. 单独复制主程序会缺少必要资源.
 
-先确认插件可用:
-
-```bash
-gst-inspect-1.0 autoaudiosink
-```
-
-如果提示找不到元素或命令, 按发行版安装:
-
-```bash
-# Arch
-sudo pacman -S --needed gst-plugins-good
-# Debian / Ubuntu
-sudo apt install gstreamer1.0-plugins-good gstreamer1.0-tools
-# Fedora
-sudo dnf install gstreamer1-plugins-good
-# openSUSE
-sudo zypper install gstreamer-plugins-good
-```
+先通过 `oddity --recovery` 打开应急恢复, 查看启动日志. 同时记录显卡型号、驱动版本、Wayland/X11 会话和窗口所在屏幕. 可以使用 `NTE_SOFTWARE_RENDER=1 oddity` 对比图形驱动路径.
 
 如果只是视频无法播放, 界面仍可操作, 也可以在 **设置 → 外观与交互 → 主页主视觉** 中选择 **静态照片** 临时规避.
-
-Debian, Arch 和 Gentoo 安装包会声明该依赖; AppImage, RPM 和源码构建不保证自带该插件, 需要结合系统环境确认. Nix 包已包含插件.
 
 ### 关闭窗口后 Oddity 没有退出
 
 如果开启了 **关闭窗口时最小化到托盘**, 关闭主窗口只会隐藏到后台. 可以从托盘菜单选择 **退出 Oddity**, 或在设置中关闭该选项.
 
-### 桌面入口打开后提示无法连接 127.0.0.1
+### 桌面动作没有启动游戏
 
-这通常出现在从源码运行后直接安装桌面入口的情况. 发布版会内嵌前端文件, 开发模式则依赖 Vite 服务. 处理方式见[安装指南](install.md#从源码构建).
+先确认启动失败时是否出现 `异环启动失败` 或 `NTE 启动失败` 桌面通知. 没有通知时检查当前桌面是否提供 `org.freedesktop.Notifications`, 并查看 `~/.local/share/oddity/logs/` 下的启动日志.
+
+如果提示需要创建运行环境, 先在 **设置 → 运行环境** 中选择对应地区并创建环境. 同一地区有多个环境时, 使用 `oddity --launch --region ... --environment <名称>` 指定. 详细参数见[外部启动入口](external-launch.md).
+
+### Chromium 沙箱初始化失败
+
+Ubuntu 24.04 及更新版本可能通过 AppArmor 限制 user namespace. 优先使用 deb/rpm 安装包: 安装脚本会尝试安装随包的 AppArmor profile, 并按 user namespace 能力调整 chrome-sandbox. AppImage 与便携目录不能依赖 setuid; 若启动日志包含 `No usable sandbox` 或 user namespace 权限错误, 请改用 deb/rpm, 并附上系统版本和 AppArmor 拒绝记录. 不要全局关闭 AppArmor 或自动禁用 Chromium 沙箱.
 
 ## 游戏
 
@@ -114,6 +101,8 @@ Debian, Arch 和 Gentoo 安装包会声明该依赖; AppImage, RPM 和源码构�
 4. 若日志提示找不到可用服务器, 优先检查游戏目录的权限.
 5. 若后台启动失败或提示组件版本尚未验证, 切换 **前台启动** 查看官方窗口.
 6. 若怀疑文件损坏, 在 **更新** 中执行 **完整校验**, 再修复资源.
+
+后台启动期间, 首页启动按钮会显示当前阶段, 右侧子按钮可以暂停启动. 暂停后官方后台进程会被清理, 可以重新启动.
 
 ### 下载中断或校验失败
 

@@ -150,6 +150,7 @@ export interface Settings {
   stackBulletins: boolean;
   theme: string;
   heroMedia: string;
+  adaptiveTheme?: boolean;
   minimizeToTrayOnClose: boolean;
   showLauncherAfterGameExit: boolean;
   snapshotSuccessMinutes: number;
@@ -238,6 +239,13 @@ export interface LaunchResult {
   log: string;
   startedAt: number;
 }
+export type LaunchStage =
+  "preparing" | "helper" | "resources" | "game" | "running";
+export interface LaunchProgress {
+  stage: LaunchStage;
+  startedAt: number;
+  cancelling: boolean;
+}
 export interface GameStatus {
   error?: string | null;
   running: boolean;
@@ -246,6 +254,7 @@ export interface GameStatus {
   startedAt: number;
   exe: string;
   log: string;
+  launch?: LaunchProgress | null;
 }
 export type DownloadPhase =
   | "idle"
@@ -391,7 +400,6 @@ export interface Commands {
   attendance_run: AttendanceStatus;
   attendance_logout: AttendanceStatus;
   attendance_keyring_check: void;
-  play_hero_video: null;
   launcher_background: LauncherBackgroundMedia;
   bootstrap: Bootstrap;
   check_update: CheckResult;
@@ -410,7 +418,9 @@ export interface Commands {
   open_directory: null;
   open_url: null;
   launch_official: LaunchResult;
+  cancel_launch: GameStatus;
   game_status: GameStatus;
+  take_launch_error: string | null;
   playtime_history: PlaytimeHistory;
   playtime_export_poster: string;
   game_mode_status: GameModeStatus;
@@ -426,7 +436,6 @@ export interface Commands {
   win_toggle_maximize: null;
   win_close: null;
   win_hide: null;
-  win_drag: null;
 }
 export interface CommandArgs {
   browse_files: { path: string | null };
@@ -449,7 +458,6 @@ export interface CommandArgs {
   attendance_run: undefined;
   attendance_logout: { accountId: string };
   attendance_keyring_check: undefined;
-  play_hero_video: undefined;
   launcher_background: undefined;
   bootstrap: undefined;
   check_update: { full: boolean };
@@ -479,7 +487,9 @@ export interface CommandArgs {
   open_directory: { path: string };
   open_url: { url: string };
   launch_official: undefined;
+  cancel_launch: undefined;
   game_status: undefined;
+  take_launch_error: undefined;
   playtime_history: undefined;
   playtime_export_poster: { destination: string; data: string };
   game_mode_status: undefined;
@@ -495,7 +505,6 @@ export interface CommandArgs {
   win_toggle_maximize: undefined;
   win_close: undefined;
   win_hide: undefined;
-  win_drag: undefined;
 }
 export type PreviewPaths = Partial<
   Record<

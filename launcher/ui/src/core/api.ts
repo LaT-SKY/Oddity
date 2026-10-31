@@ -3,13 +3,14 @@ import { defaultGamescope } from "./gameMode";
 import { defaultAttendanceTasks } from "./attendanceTasks";
 import { distributions } from "./distribution";
 import { APP_VERSION } from "./version";
-import { invoke as tauriInvoke, isTauri } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { nativeInvoke, isDesktop, listen } from "./desktop";
 import type {
   Bootstrap,
   CheckResult,
   Settings,
   GameStatus,
+  LaunchProgress,
+  LaunchStage,
   DownloadStatus,
   Commands,
   CommandArgs,
@@ -25,7 +26,7 @@ import type {
   SnapshotReference,
   SnapshotSummary,
 } from "../types/launcher";
-export { isTauri };
+export { isDesktop };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 
 const PREVIEW_KEYS = [
@@ -269,8 +270,8 @@ function previewSnapshotComparison(
       key: "launcher.version",
       section: "启动器",
       label: "Oddity 版本",
-      baseline: "0.1.0-alpha.2",
-      current: "0.1.0-alpha.2",
+      baseline: "0.1.0-alpha.3",
+      current: "0.1.0-alpha.3",
       status: "same",
     },
     {
@@ -476,10 +477,55 @@ const previewGame = {
   startedAt: 0,
   exe: preview.gameExe,
   log: "",
+  launch: null as LaunchProgress | null,
 };
+const previewGameListeners = new Set<(status: GameStatus) => void>();
+let previewLaunchTimers: number[] = [];
 
 function previewGameStatus() {
   return clone(previewGame);
+}
+
+function emitPreviewGameStatus() {
+  const status = previewGameStatus();
+  for (const handler of previewGameListeners) handler(status);
+}
+
+function clearPreviewLaunchTimers() {
+  for (const timer of previewLaunchTimers) window.clearTimeout(timer);
+  previewLaunchTimers = [];
+}
+
+function startPreviewLaunch() {
+  clearPreviewLaunchTimers();
+  const startedAt = Date.now();
+  previewGame.running = true;
+  previewGame.closing = false;
+  previewGame.pid = 23140;
+  previewGame.startedAt = startedAt;
+  previewGame.launch = { stage: "preparing", startedAt, cancelling: false };
+  emitPreviewGameStatus();
+  const stages: { stage: LaunchStage; delay: number }[] = [
+    { stage: "helper", delay: 600 },
+    { stage: "resources", delay: 1300 },
+    { stage: "game", delay: 3000 },
+  ];
+  for (const item of stages) {
+    previewLaunchTimers.push(
+      window.setTimeout(() => {
+        if (!previewGame.launch || previewGame.launch.cancelling) return;
+        previewGame.launch = { ...previewGame.launch, stage: item.stage };
+        emitPreviewGameStatus();
+      }, item.delay),
+    );
+  }
+  previewLaunchTimers.push(
+    window.setTimeout(() => {
+      if (!previewGame.launch || previewGame.launch.cancelling) return;
+      previewGame.launch = null;
+      emitPreviewGameStatus();
+    }, 3700),
+  );
 }
 
 function previewSessions(): PlaytimeSession[] {
@@ -538,7 +584,12 @@ const previewAttendance: AttendanceStatus = {
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function listenGameState(handler: (status: GameStatus) => void) {
-  if (!isTauri()) return () => {};
+  if (!isDesktop()) {
+    previewGameListeners.add(handler);
+    return () => {
+      previewGameListeners.delete(handler);
+    };
+  }
   let disposed = false;
   let unlisten: (() => void) | null = null;
   listen<GameStatus>("game-state", (event) => handler(event.payload))
@@ -553,9 +604,26 @@ export function listenGameState(handler: (status: GameStatus) => void) {
   };
 }
 
+/// 外部启动切换地区或运行环境后, 后端推送新的 bootstrap 让界面同步.
+export function listenSettingsChanged(handler: (data: Bootstrap) => void) {
+  if (!isDesktop()) return () => {};
+  let disposed = false;
+  let unlisten: (() => void) | null = null;
+  listen<Bootstrap>("settings-changed", (event) => handler(event.payload))
+    .then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    })
+    .catch(() => {});
+  return () => {
+    disposed = true;
+    if (unlisten) unlisten();
+  };
+}
+
 /// 后端创建游玩会话后通知前端补读记录, 避免 running 先于会话创建。
 export function listenPlaytimeStarted(handler: () => void) {
-  if (!isTauri()) return () => {};
+  if (!isDesktop()) return () => {};
   let disposed = false;
   let unlisten: (() => void) | null = null;
   listen("playtime-started", () => handler())
@@ -571,7 +639,7 @@ export function listenPlaytimeStarted(handler: () => void) {
 }
 
 export function listenDownloadState(handler: (status: DownloadStatus) => void) {
-  if (!isTauri()) return () => {};
+  if (!isDesktop()) return () => {};
   let disposed = false;
   let unlisten: (() => void) | null = null;
   listen<DownloadStatus>("game-download-state", (event) =>
@@ -623,7 +691,7 @@ export async function invoke<C extends keyof Commands>(
     ? [args?: undefined]
     : [args: CommandArgs[C]]
 ): Promise<Commands[C]> {
-  if (isTauri()) return tauriInvoke<Commands[C]>(command, params[0]);
+  if (isDesktop()) return nativeInvoke<C>(command, params[0]);
   return previewInvoke(command, params[0]) as Promise<Commands[C]>;
 }
 
@@ -1017,18 +1085,31 @@ async function previewInvoke(
     case "launch_official":
       if (!mock.settings.activeEnvironment)
         throw new Error("请先创建 Proton 运行环境");
-      previewGame.running = true;
-      previewGame.closing = false;
-      previewGame.pid = 23140;
-      previewGame.startedAt = Date.now();
+      startPreviewLaunch();
       return {
-        mode: "official",
+        mode: "background",
         pid: previewGame.pid,
         exe: previewGame.exe,
         prefix: mock.prefix,
         log: "",
         startedAt: previewGame.startedAt,
       };
+    case "cancel_launch":
+      clearPreviewLaunchTimers();
+      if (previewGame.launch) {
+        previewGame.launch = {
+          ...previewGame.launch,
+          cancelling: true,
+        };
+        emitPreviewGameStatus();
+      }
+      await delay(450);
+      previewGame.running = false;
+      previewGame.closing = false;
+      previewGame.pid = 0;
+      previewGame.launch = null;
+      emitPreviewGameStatus();
+      return previewGameStatus();
     case "game_mode_tuning_info":
       return { pinCores: null, parkCores: null, renice: null, ioprio: null };
     case "game_mode_tuning_apply":
@@ -1068,6 +1149,8 @@ async function previewInvoke(
       };
     case "game_status":
       return previewGameStatus();
+    case "take_launch_error":
+      return null;
     case "playtime_history":
       return previewHistory();
     case "playtime_export_poster": {
@@ -1075,7 +1158,10 @@ async function previewInvoke(
       return destination;
     }
     case "close_game":
+      clearPreviewLaunchTimers();
       previewGame.closing = true;
+      previewGame.launch = null;
+      emitPreviewGameStatus();
       await delay(850);
       previewGame.running = false;
       previewGame.closing = false;
@@ -1086,12 +1172,12 @@ async function previewInvoke(
         mode: "background",
         distribution: "cn",
       });
+      emitPreviewGameStatus();
       return previewGameStatus();
     case "win_minimize":
     case "win_toggle_maximize":
     case "win_close":
     case "win_hide":
-    case "win_drag":
       return null;
     default:
       throw new Error("unknown command: " + command);

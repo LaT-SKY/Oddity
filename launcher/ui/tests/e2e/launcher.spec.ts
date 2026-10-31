@@ -108,8 +108,19 @@ test("导航、更新、设置、快捷键与启动关闭流程", async ({ page 
   await page.keyboard.press("Control+1");
   await expect(page.locator("#page-home")).toBeVisible();
   await page.locator("#launch-btn").click();
-  await expect(page.locator("#launch-btn")).toHaveText(/正在启动/);
-  await expect(page.locator("#launch-btn")).toHaveText(/关闭游戏/);
+  await expect(page.locator("#launch-btn")).toHaveText(
+    /正在(准备环境|启动后台|等待资源|启动游戏)/,
+  );
+  await expect(page.locator("#launch-pause-btn")).toBeVisible();
+  await page.locator("#launch-pause-btn").click();
+  await expect(page.locator("#launch-btn")).toHaveText(/正在暂停/);
+  await expect(page.locator("#launch-btn")).toHaveText(/启动游戏/);
+  await expect(page.locator("#launch-pause-btn")).toHaveCount(0);
+
+  await page.locator("#launch-btn").click();
+  await expect(page.locator("#launch-btn")).toHaveText(/关闭游戏/, {
+    timeout: 10_000,
+  });
   await page.locator("#launch-btn").click();
   await expect(page.locator("#launch-btn")).toHaveText(/正在关闭/);
   await expect(page.locator("#launch-btn")).toHaveText(/启动游戏/);
@@ -227,9 +238,21 @@ test("视频双缓冲循环无黑帧, 离页暂停并保留进度", async ({ pag
   await expect.poll(clock, { timeout: 15_000 }).toBeGreaterThan(stopped);
 
   await page.locator('[data-page="settings"]').click();
+  const beforePhoto = await clock();
   await page.locator("#set-hero-media-trigger").click();
   await page.getByRole("option", { name: "静态照片", exact: true }).click();
   await expect(canvas).not.toHaveClass(/is-visible/);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        [
+          ...document.querySelectorAll<HTMLVideoElement>("video.hero__source"),
+        ].every(
+          (source) => !source.hasAttribute("src") && source.readyState === 0,
+        ),
+      ),
+    )
+    .toBe(true);
   await page.locator("#set-hero-media-trigger").click();
   await page.getByRole("option", { name: "动态视频", exact: true }).click();
   await expect
@@ -243,6 +266,24 @@ test("视频双缓冲循环无黑帧, 离页暂停并保留进度", async ({ pag
     .toBe(true);
   await page.locator('[data-page="home"]').click();
   await expect(canvas).toHaveClass(/is-visible/);
+  await expect.poll(clock).toBeGreaterThan(beforePhoto);
+  await expect(probe).toHaveAttribute("data-black-frames", "0");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(canvas).not.toHaveClass(/is-visible/);
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        [
+          ...document.querySelectorAll<HTMLVideoElement>("video.hero__source"),
+        ].every(
+          (source) => !source.hasAttribute("src") && source.readyState === 0,
+        ),
+      ),
+    )
+    .toBe(true);
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await expect(canvas).toHaveClass(/is-visible/);
+  await expect.poll(clock).toBeGreaterThan(0.1);
 });
 
 test("多账号签到、自动保存和账号管理", async ({ page }) => {

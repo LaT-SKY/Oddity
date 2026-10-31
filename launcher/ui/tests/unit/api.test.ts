@@ -1,19 +1,19 @@
 import { defaultAttendanceTasks } from "../../src/core/attendanceTasks";
 import { APP_VERSION } from "../../src/core/version";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { settings } from "./fixtures";
-import type { GameStatus } from "../../src/types/launcher";
+import { bootstrap, settings } from "./fixtures";
+import type { Bootstrap, GameStatus } from "../../src/types/launcher";
 
 const native = vi.hoisted(() => ({
   enabled: false,
   invoke: vi.fn(),
   listen: vi.fn(),
 }));
-vi.mock("@tauri-apps/api/core", () => ({
-  isTauri: () => native.enabled,
-  invoke: native.invoke,
+vi.mock("../../src/core/desktop", () => ({
+  isDesktop: () => native.enabled,
+  nativeInvoke: native.invoke,
+  listen: native.listen,
 }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: native.listen }));
 beforeEach(() => {
   native.enabled = false;
   native.invoke.mockReset();
@@ -139,6 +139,54 @@ describe("浏览器命令桥接", () => {
     ).rejects.toThrow("不存在");
   });
 
+  it("预览启动按阶段广播进度并支持暂停", async () => {
+    const { invoke, listenGameState } = await import("../../src/core/api");
+    const statuses: GameStatus[] = [];
+    const dispose = listenGameState((status) => statuses.push(status));
+    await invoke("environment_create", {
+      distribution: "cn",
+      name: "测试",
+      protonPath: "/proton",
+      sourceId: null,
+    });
+    await invoke("launch_official");
+    expect(statuses.at(-1)?.launch).toMatchObject({
+      stage: "preparing",
+      cancelling: false,
+    });
+    await vi.advanceTimersByTimeAsync(600);
+    expect(statuses.at(-1)?.launch?.stage).toBe("helper");
+    await vi.advanceTimersByTimeAsync(700);
+    expect(statuses.at(-1)?.launch?.stage).toBe("resources");
+    await vi.advanceTimersByTimeAsync(1700);
+    expect(statuses.at(-1)?.launch?.stage).toBe("game");
+    await vi.advanceTimersByTimeAsync(700);
+    expect(statuses.at(-1)?.launch).toBeNull();
+    expect(statuses.at(-1)?.running).toBe(true);
+
+    await invoke("launch_official");
+    await vi.advanceTimersByTimeAsync(600);
+    expect(statuses.at(-1)?.launch?.stage).toBe("helper");
+    const clear = vi.spyOn(window, "clearTimeout");
+    const cancelling = invoke("cancel_launch");
+    await vi.advanceTimersByTimeAsync(1);
+    expect(clear).toHaveBeenCalledTimes(4);
+    expect(statuses.at(-1)?.launch).toMatchObject({
+      stage: "helper",
+      cancelling: true,
+    });
+    await vi.advanceTimersByTimeAsync(450);
+    expect(await cancelling).toMatchObject({ running: false, launch: null });
+    expect(statuses.at(-1)?.running).toBe(false);
+    clear.mockRestore();
+    dispose();
+
+    const before = statuses.length;
+    await invoke("launch_official");
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(statuses.length).toBe(before);
+  });
+
   it("使用默认路径并返回互不共享的启动快照", async () => {
     const { invoke, listenGameState } = await import("../../src/core/api");
     const first = await invoke("bootstrap");
@@ -242,13 +290,14 @@ describe("浏览器命令桥接", () => {
       sourceId: null,
     });
     expect(await invoke("launch_official")).toMatchObject({
-      mode: "official",
+      mode: "background",
       pid: 23140,
     });
     const snapshot = await invoke("game_status");
     expect(snapshot.running).toBe(true);
     snapshot.running = false;
     expect((await invoke("game_status")).running).toBe(true);
+    const clear = vi.spyOn(window, "clearTimeout");
     const closing = invoke("close_game");
     expect((await invoke("game_status")).closing).toBe(true);
     await vi.advanceTimersByTimeAsync(850);
@@ -257,6 +306,10 @@ describe("浏览器命令桥接", () => {
       closing: false,
       pid: 0,
     });
+    expect(clear).toHaveBeenCalledTimes(4);
+    clear.mockRestore();
+    await vi.advanceTimersByTimeAsync(4000);
+    expect((await invoke("game_status")).launch).toBeNull();
     const playtime = await invoke("playtime_history");
     expect(playtime.sessions.length).toBeGreaterThan(0);
     expect(playtime.active).toBeNull();
@@ -272,7 +325,6 @@ describe("浏览器命令桥接", () => {
       "win_toggle_maximize",
       "win_close",
       "win_hide",
-      "win_drag",
     ] as const) {
       expect(await invoke(command)).toBeNull();
     }
@@ -293,6 +345,48 @@ describe("原生命令和事件", () => {
     });
     expect(native.invoke).toHaveBeenCalledWith("save_settings", { settings });
     await expect(invoke("bootstrap")).rejects.toThrow("offline");
+  });
+
+  it("传递设置变更事件并在订阅完成后解除监听", async () => {
+    const { listenSettingsChanged } = await import("../../src/core/api");
+    const stop = vi.fn();
+    native.listen.mockResolvedValue(stop);
+    const handler = vi.fn();
+    const dispose = listenSettingsChanged(handler);
+    const callback = native.listen.mock.calls[0][1] as (event: {
+      payload: Bootstrap;
+    }) => void;
+    const payload = bootstrap({ installRoot: "/games/global" });
+    callback({ payload });
+    expect(handler).toHaveBeenCalledWith(payload);
+    await Promise.resolve();
+    dispose();
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("设置变更订阅完成前解除也能释放资源", async () => {
+    const { listenSettingsChanged } = await import("../../src/core/api");
+    let resolve!: (stop: () => void) => void;
+    native.listen.mockReturnValue(
+      new Promise<() => void>((done) => {
+        resolve = done;
+      }),
+    );
+    const dispose = listenSettingsChanged(vi.fn());
+    dispose();
+    const stop = vi.fn();
+    resolve(stop);
+    await Promise.resolve();
+    expect(stop).toHaveBeenCalledOnce();
+  });
+
+  it("设置变更监听注册失败时不产生未处理的拒绝", async () => {
+    const { listenSettingsChanged } = await import("../../src/core/api");
+    native.listen.mockRejectedValue(new Error("listener failed"));
+    const dispose = listenSettingsChanged(vi.fn());
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(dispose).not.toThrow();
   });
 
   it("传递事件快照并在订阅完成后解除监听", async () => {

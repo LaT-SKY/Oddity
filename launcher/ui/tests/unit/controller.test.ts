@@ -1,3 +1,4 @@
+import { resizeElement } from "./setup";
 import { defaultGamescope } from "../../src/core/gameMode";
 import { defaultAttendanceTasks } from "../../src/core/attendanceTasks";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,9 +20,11 @@ const backend = vi.hoisted(() => ({
   native: true,
   unlisten: vi.fn(),
   downloadUnlisten: vi.fn(),
+  settingsUnlisten: vi.fn(),
   stopResize: vi.fn(),
   invoke: vi.fn(),
   handler: (_status: GameStatus) => {},
+  settingsHandler: (_data: Bootstrap) => {},
   playtimeStarted: () => {},
   playtimeUnlisten: vi.fn(),
   downloadHandler: (_status: DownloadStatus) => {},
@@ -38,7 +41,7 @@ const backend = vi.hoisted(() => ({
   resize: async () => {},
 }));
 vi.mock("../../src/core/api", () => ({
-  isTauri: () => backend.native,
+  isDesktop: () => backend.native,
   invoke: backend.invoke,
   listenGameState: (handler: (status: GameStatus) => void) => {
     backend.handler = handler;
@@ -51,6 +54,10 @@ vi.mock("../../src/core/api", () => ({
   listenDownloadState: (handler: (status: DownloadStatus) => void) => {
     backend.downloadHandler = handler;
     return backend.downloadUnlisten;
+  },
+  listenSettingsChanged: (handler: (data: Bootstrap) => void) => {
+    backend.settingsHandler = handler;
+    return backend.settingsUnlisten;
   },
 }));
 vi.mock("../../src/core/gamepad", async (original) => ({
@@ -81,11 +88,14 @@ vi.mock("../../src/composables/useNotificationArrival", async () => {
     }),
   };
 });
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({
-    isMaximized: backend.isMaximized,
+vi.mock("../../src/core/desktop", () => ({
+  desktopWindow: {
+    getState: async () => ({
+      maximized: await backend.isMaximized(),
+      visible: true,
+    }),
     onResized: backend.onResized,
-  }),
+  },
 }));
 let wrapper: VueWrapper | undefined;
 let listeners: [
@@ -102,7 +112,9 @@ beforeEach(() => {
   backend.native = true;
   backend.unlisten.mockClear();
   backend.downloadUnlisten.mockClear();
+  backend.settingsUnlisten.mockClear();
   backend.stopResize.mockClear();
+  backend.settingsHandler = () => {};
   backend.data = bootstrap();
   backend.result = check();
   backend.status = session();
@@ -368,6 +380,7 @@ describe("启动与设置", () => {
   it("设置分类按访问挂载, 已访问的面板保持挂载", async () => {
     const c = await boot();
     expect(document.querySelector("#set-install")).toBeNull();
+    expect(document.querySelector("#set-theme")).toBeNull();
     c.openSettings("game");
     await nextTick();
     expect(document.querySelector("#set-install")).not.toBeNull();
@@ -647,6 +660,8 @@ describe("启动与设置", () => {
 
   it("开关修改立即自动保存", async () => {
     const c = await boot();
+    c.openSettings("appearance");
+    await nextTick();
     const checkbox = document.querySelector<HTMLInputElement>(
       "#set-minimize-to-tray",
     )!;
@@ -716,6 +731,8 @@ describe("启动与设置", () => {
     expect(
       document.querySelector<HTMLInputElement>("#set-global-install")!.disabled,
     ).toBe(true);
+    c.openSettings("appearance");
+    await nextTick();
     expect(
       document.querySelector<HTMLSelectElement>("#set-theme")!.disabled,
     ).toBe(false);
@@ -832,6 +849,8 @@ describe("启动与设置", () => {
 
   it("关闭窗口时最小化到托盘配置支持切换与保存", async () => {
     const c = await boot();
+    c.openSettings("appearance");
+    await nextTick();
     expect(c.form.minimizeToTrayOnClose).toBe(true);
     const checkbox = document.querySelector<HTMLInputElement>(
       "#set-minimize-to-tray",
@@ -848,6 +867,8 @@ describe("启动与设置", () => {
 
   it("游戏退出后打开启动器配置支持切换与自动保存", async () => {
     const c = await boot();
+    c.openSettings("appearance");
+    await nextTick();
     expect(c.form.showLauncherAfterGameExit).toBe(true);
     const checkbox = document.querySelector<HTMLInputElement>(
       "#set-show-after-game-exit",
@@ -1634,10 +1655,10 @@ describe("游戏会话", () => {
 
   it("启动反馈期间忽略事件和重复操作, 启动成功后收起窗口", async () => {
     const c = await boot();
-    c.handleLaunchAction();
+    button("launch-btn").click();
     expect(c.state.game).toBe("launching");
     backend.handler(session());
-    c.handleLaunchAction();
+    button("launch-btn").click();
     window.dispatchEvent(new Event("focus"));
     expect(c.state.game).toBe("launching");
     await vi.advanceTimersByTimeAsync(900);
@@ -1648,6 +1669,226 @@ describe("游戏会话", () => {
     await nextTick();
     await flushPromises();
     expect(noticeMessage()).toBe("游戏已退出。");
+  });
+
+  it("后台启动时只在主按钮展示阶段并露出暂停子按钮", async () => {
+    const c = await boot();
+    const startedAt = Date.now();
+    backend.invoke.mockResolvedValueOnce({ pid: 123, mode: "background" });
+    c.handleLaunchAction();
+    backend.handler(
+      session({
+        running: false,
+        launch: { stage: "preparing", startedAt, cancelling: false },
+      }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("launching");
+    expect(c.state.launch?.stage).toBe("preparing");
+    await nextTick();
+    expect(button("launch-btn").getAttribute("aria-label")).toBe(
+      "正在准备环境",
+    );
+    expect(button("launch-btn").getAttribute("aria-disabled")).toBe("true");
+    expect(button("launch-pause-btn").disabled).toBe(false);
+    backend.handler(
+      session({
+        running: true,
+        pid: 123,
+        launch: { stage: "resources", startedAt, cancelling: false },
+      }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("launching");
+    expect(c.state.launch?.stage).toBe("resources");
+    expect(backend.invoke).not.toHaveBeenCalledWith("win_hide");
+    expect(button("launch-btn").getAttribute("aria-label")).toBe(
+      "正在等待资源",
+    );
+    expect(button("launch-pause-btn").disabled).toBe(false);
+  });
+
+  it.each(["official", "direct"])("%s 启动不提供暂停入口", async (mode) => {
+    backend.data.settings.launchMode = mode;
+    const c = await boot();
+    button("launch-btn").click();
+    await nextTick();
+    expect(c.state.game).toBe("launching");
+    expect(c.launchView.value.pauseAvailable).toBe(false);
+    expect(c.launchView.value.label).toBe("正在启动");
+    expect(document.getElementById("launch-pause-btn")).toBeNull();
+    await c.pauseLaunch();
+    c.handleLaunchAction();
+    await flushPromises();
+    expect(backend.invoke).not.toHaveBeenCalledWith("cancel_launch");
+  });
+
+  it("后台阶段完成时收起窗口并只隐藏一次", async () => {
+    const c = await boot();
+    backend.invoke.mockResolvedValueOnce({ pid: 123, mode: "background" });
+    c.handleLaunchAction();
+    backend.handler(
+      session({
+        running: true,
+        pid: 123,
+        launch: {
+          stage: "running",
+          startedAt: Date.now(),
+          cancelling: false,
+        },
+      }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("running");
+    expect(c.state.launch).toBeNull();
+    expect(
+      backend.invoke.mock.calls.filter(([command]) => command === "win_hide"),
+    ).toHaveLength(1);
+  });
+
+  it("关闭游戏时保留关闭反馈, 不被已完成阶段覆盖", async () => {
+    const c = await boot();
+    backend.handler(
+      session({
+        running: true,
+        pid: 123,
+        launch: {
+          stage: "running",
+          startedAt: Date.now(),
+          cancelling: false,
+        },
+      }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("running");
+    backend.handler(
+      session({
+        running: true,
+        closing: true,
+        pid: 123,
+        launch: {
+          stage: "running",
+          startedAt: Date.now(),
+          cancelling: false,
+        },
+      }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("closing");
+    expect(button("launch-btn").getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("恢复启动中状态时主按钮展示阶段并允许暂停", async () => {
+    backend.status = session({
+      running: true,
+      pid: 123,
+      launch: {
+        stage: "helper",
+        startedAt: Date.now() - 5000,
+        cancelling: false,
+      },
+    });
+    const c = await boot();
+    expect(c.state.game).toBe("launching");
+    expect(c.state.launch?.stage).toBe("helper");
+    expect(button("launch-btn").getAttribute("aria-label")).toBe(
+      "正在启动后台",
+    );
+    expect(button("launch-btn").getAttribute("aria-disabled")).toBe("true");
+    expect(button("launch-pause-btn").disabled).toBe(false);
+  });
+
+  it("后台启动失败时清除阶段", async () => {
+    const c = await boot();
+    backend.invoke.mockResolvedValueOnce({ pid: 123, mode: "background" });
+    c.handleLaunchAction();
+    backend.handler(
+      session({
+        running: true,
+        pid: 123,
+        launch: {
+          stage: "resources",
+          startedAt: Date.now(),
+          cancelling: false,
+        },
+      }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("launching");
+    backend.handler(
+      session({ error: "官方后台未能在 180 秒内完成资源初始化." }),
+    );
+    await flushPromises();
+    expect(c.state.game).toBe("idle");
+    expect(c.state.launch).toBeNull();
+    expect(noticeMessage()).toBe("官方后台未能在 180 秒内完成资源初始化.");
+  });
+
+  it("暂停子按钮暂停后台启动且不提示错误", async () => {
+    const c = await boot();
+    let rejectLaunch!: (error: Error) => void;
+    backend.invoke.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectLaunch = reject;
+        }),
+    );
+    button("launch-btn").click();
+    backend.handler(
+      session({
+        running: false,
+        launch: {
+          stage: "preparing",
+          startedAt: Date.now(),
+          cancelling: false,
+        },
+      }),
+    );
+    await nextTick();
+    backend.invoke.mockResolvedValueOnce(
+      session({
+        running: false,
+        launch: {
+          stage: "preparing",
+          startedAt: Date.now(),
+          cancelling: true,
+        },
+      }),
+    );
+    button("launch-pause-btn").click();
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("cancel_launch");
+    expect(c.state.game).toBe("launching");
+    expect(c.state.launch?.cancelling).toBe(true);
+    expect(button("launch-btn").getAttribute("aria-label")).toBe("正在暂停");
+    expect(button("launch-pause-btn").disabled).toBe(true);
+    rejectLaunch(new Error("启动已暂停。"));
+    await flushPromises();
+    expect(c.state.game).toBe("idle");
+    expect(noticeMessage()).toBeUndefined();
+  });
+
+  it("手柄西键在启动中暂停启动", async () => {
+    const c = await boot();
+    backend.invoke.mockResolvedValueOnce({ pid: 123, mode: "background" });
+    button("launch-btn").click();
+    backend.handler(
+      session({
+        running: true,
+        pid: 123,
+        launch: {
+          stage: "helper",
+          startedAt: Date.now(),
+          cancelling: false,
+        },
+      }),
+    );
+    await flushPromises();
+    backend.invoke.mockResolvedValueOnce(session());
+    c.handleLaunchAction();
+    await flushPromises();
+    expect(backend.invoke).toHaveBeenCalledWith("cancel_launch");
+    expect(c.state.game).toBe("idle");
   });
 
   it("游戏退出后读取本次时长并提示查看记录", async () => {
@@ -1892,17 +2133,6 @@ describe("导航和窗口交互", () => {
     backend.invoke.mockRejectedValueOnce("cannot open");
     await c.openUrl("https://example.com");
     expect(noticeMessage()).toBe("cannot open");
-    wrapper!
-      .find("#titlebar")
-      .element.dispatchEvent(
-        new MouseEvent("mousedown", { button: 1, bubbles: true }),
-      );
-    button("launch-btn").dispatchEvent(
-      new MouseEvent("mousedown", { bubbles: true }),
-    );
-    expect(backend.invoke).not.toHaveBeenCalledWith("win_drag");
-    await wrapper!.find("#titlebar").trigger("mousedown", { button: 0 });
-    expect(backend.invoke).toHaveBeenCalledWith("win_drag");
     backend.native = false;
     const open = vi.spyOn(window, "open").mockReturnValue(null);
     await c.openUrl("https://example.com");
@@ -1914,7 +2144,6 @@ describe("导航和窗口交互", () => {
     expect(noticeMessage()).toBe("预览模式：已在新标签页打开。");
     backend.invoke.mockClear();
     await c.windowAction("minimize");
-    c.dragWindow(new MouseEvent("mousedown"));
     expect(backend.invoke).not.toHaveBeenCalled();
   });
 });
@@ -1930,9 +2159,10 @@ describe("主视觉和资源", () => {
     const video = document.getElementById("hero-video") as HTMLVideoElement;
     const canvas = document.getElementById("hero-canvas") as HTMLCanvasElement;
     const draw = vi.mocked(canvas.getContext("2d")!.drawImage);
-    expect(video.src).toContain("blob:");
-    expect(backend.invoke).toHaveBeenCalledWith("play_hero_video");
+    expect(video.src).toContain("assets/hero-loop.mp4");
+    expect(video.play).toHaveBeenCalled();
     expect(canvas.classList.contains("is-visible")).toBe(false);
+    expect([canvas.width, canvas.height]).toEqual([0, 0]);
     Object.defineProperties(video, {
       readyState: { value: 2, writable: true },
       paused: { value: false, writable: true },
@@ -1945,6 +2175,7 @@ describe("主视觉和资源", () => {
       clientWidth: { value: 800 },
       clientHeight: { value: 600 },
     });
+    resizeElement(canvas, 800, 600);
     await vi.advanceTimersByTimeAsync(40);
     expect(canvas.classList.contains("is-visible")).toBe(true);
     expect(draw).toHaveBeenLastCalledWith(
@@ -1997,11 +2228,19 @@ describe("主视觉和资源", () => {
     await vi.advanceTimersByTimeAsync(40);
     expect(video.currentTime).toBe(6);
     expect(canvas.classList.contains("is-visible")).toBe(true);
+    c.showPage("settings");
     c.applyHeroMedia("photo");
     await nextTick();
+    expect(video.hasAttribute("src")).toBe(false);
+    expect(document.getElementById("hero-video-b")!.hasAttribute("src")).toBe(
+      false,
+    );
     expect(canvas.classList.contains("is-visible")).toBe(false);
+    video.currentTime = 0;
     c.applyHeroMedia("video");
     await flushPromises();
+    video.dispatchEvent(new Event("loadedmetadata"));
+    expect(video.currentTime).toBe(6);
     c.applyReduceMotion(true);
     c.applyHeroMedia("video");
     await nextTick();
@@ -2010,7 +2249,7 @@ describe("主视觉和资源", () => {
       vi
         .mocked(fetch)
         .mock.calls.filter(([url]) => String(url).includes("hero-loop")),
-    ).toHaveLength(1);
+    ).toHaveLength(0);
   });
 
   it("窗口隐藏时停止解码, 恢复可见后从头播放", async () => {
@@ -2023,10 +2262,15 @@ describe("主视觉和资源", () => {
     const video = document.getElementById("hero-video") as HTMLVideoElement;
     video.currentTime = 6;
     const hidden = vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
     document.dispatchEvent(new Event("visibilitychange"));
     await nextTick();
     expect(c.media.looping).toBe(false);
     expect(video.currentTime).toBe(0);
+    expect(video.hasAttribute("src")).toBe(false);
+    visibility.mockReturnValue("visible");
     hidden.mockReturnValue(false);
     document.dispatchEvent(new Event("visibilitychange"));
     await flushPromises();
@@ -2034,8 +2278,10 @@ describe("主视觉和资源", () => {
     expect(video.currentTime).toBe(0);
   });
 
-  it("资源或原生窗口接口失败时仍显示主页", async () => {
-    vi.mocked(fetch).mockRejectedValue(new Error("asset missing"));
+  it("视频播放或原生窗口接口失败时仍显示主页", async () => {
+    vi.mocked(HTMLMediaElement.prototype.play).mockRejectedValue(
+      new DOMException("video unavailable", "NotSupportedError"),
+    );
     backend.isMaximized.mockRejectedValue(new Error("window unavailable"));
     backend.data.settings = {
       ...settings,
@@ -2107,9 +2353,10 @@ it("没有官方视频时回退内置视频", async () => {
     heroMedia: "video",
   };
   const c = await boot();
-  expect(fetch).toHaveBeenCalledWith("assets/hero-loop.mp4", {
-    cache: "no-store",
-  });
+  expect(
+    (document.getElementById("hero-video") as HTMLVideoElement).src,
+  ).toContain("assets/hero-loop.mp4");
+  expect(fetch).not.toHaveBeenCalled();
   expect(c.media.officialVideo).toBe(false);
   expect(c.media.cropX).toBeCloseTo(0.54);
   expect(c.media.cropY).toBeCloseTo(0.38);
@@ -2178,6 +2425,7 @@ it("在视频结尾切换到预载的备播元素", async () => {
     clientWidth: { value: 800 },
     clientHeight: { value: 600 },
   });
+  resizeElement(canvas, 800, 600);
   await vi.advanceTimersByTimeAsync(40);
   await vi.advanceTimersByTimeAsync(40);
   expect(draw).toHaveBeenLastCalledWith(
@@ -2277,7 +2525,7 @@ it("版本显示随后台快照刷新, 缺失值显示未知而非固定版本",
 });
 
 it("后台会话事件通过响应式绑定更新按钮文字、图标和禁用状态", async () => {
-  await boot();
+  const c = await boot();
   backend.handler(session({ running: true }));
   await nextTick();
   expect(text("launch-btn")).toContain("关闭游戏");
@@ -2286,22 +2534,25 @@ it("后台会话事件通过响应式绑定更新按钮文字、图标和禁用�
   backend.handler(session({ running: true, closing: true }));
   await nextTick();
   expect(text("launch-btn")).toContain("正在关闭");
-  expect(button("launch-btn").disabled).toBe(true);
+  expect(button("launch-btn").getAttribute("aria-disabled")).toBe("true");
   expect(button("launch-btn").getAttribute("aria-busy")).toBe("true");
   backend.handler(session());
   // 关闭期间由命令维护中间状态, 避免后台事件覆盖反馈。
-  expect(button("launch-btn").disabled).toBe(true);
+  expect(button("launch-btn").getAttribute("aria-disabled")).toBe("true");
+  const calls = backend.invoke.mock.calls.length;
+  c.handleLaunchAction();
+  expect(c.state.game).toBe("closing");
+  expect(backend.invoke.mock.calls.length).toBe(calls);
 });
 
-it("组件卸载时释放原生订阅、视频 URL、定时器和全局事件", async () => {
+it("组件卸载时释放原生订阅、视频状态、定时器和全局事件", async () => {
   backend.data.settings = {
     ...settings,
     reduceMotion: false,
     heroMedia: "video",
   };
   const c = await boot();
-  const url = c.media.url;
-  const revoke = vi.spyOn(URL, "revokeObjectURL");
+
   await c.openUrl("https://example.com");
   expect(vi.getTimerCount()).toBeGreaterThan(0);
   wrapper!.unmount();
@@ -2309,7 +2560,7 @@ it("组件卸载时释放原生订阅、视频 URL、定时器和全局事件", 
   expect(backend.unlisten).toHaveBeenCalledOnce();
   expect(backend.downloadUnlisten).toHaveBeenCalledOnce();
   expect(backend.stopResize).toHaveBeenCalledOnce();
-  expect(revoke).toHaveBeenCalledWith(url);
+  expect(c.media.url).toBe("");
   expect(vi.getTimerCount()).toBe(0);
   backend.invoke.mockClear();
   window.dispatchEvent(new Event("focus"));
@@ -2533,6 +2784,30 @@ it("签到保存失败明确提示并保留错误状态", async () => {
   expect(c.attendance.busy).toBe(false);
 });
 
+it("外部启动切换地区后刷新设置表单", async () => {
+  const c = await boot();
+  const data = structuredClone(backend.data);
+  data.settings.distribution = "global";
+  data.settings.globalInstallRoot = "/games/global";
+  data.installRoot = "/games/global";
+  backend.settingsHandler(data);
+  await nextTick();
+  expect(c.state.bootstrap?.settings.distribution).toBe("global");
+  expect(c.form.distribution).toBe("global");
+});
+
+it("外部启动失败的错误在初始化后提示", async () => {
+  const original = backend.invoke.getMockImplementation()!;
+  backend.invoke.mockImplementation(async (command, args) => {
+    if (command === "take_launch_error") return "异环启动失败: 缺少运行环境";
+    return original(command, args);
+  });
+  const c = await boot();
+  expect(
+    c.notifications.some((item) => item.message.includes("异环启动失败")),
+  ).toBe(true);
+});
+
 it("短信控制器保留未保存偏好, 发送失败复位并阻止并发", async () => {
   const c = await import("../../src/core/controller");
   Object.assign(c.attendance, { busy: false, running: false, error: "" });
@@ -2593,7 +2868,7 @@ it("短信控制器保留未保存偏好, 发送失败复位并阻止并发", as
 
 it("区服切换后隔离公告缓存并丢弃旧请求", async () => {
   const c = await boot();
-  localStorage.removeItem("nte.bulletins.v2.cn");
+  localStorage.removeItem("nte.bulletins.v3.cn");
   const original = backend.invoke.getMockImplementation()!;
   let finishCn!: (feed: { items: []; errors: string[] }) => void;
   const globalFeed = { items: [], errors: ["global feed"] };
@@ -2617,8 +2892,8 @@ it("区服切换后隔离公告缓存并丢弃旧请求", async () => {
   finishCn({ items: [], errors: ["old cn feed"] });
   await pending;
   expect(c.state.bulletins).toEqual(globalFeed);
-  expect(localStorage.getItem("nte.bulletins.v2.global")).toBeNull();
-  expect(localStorage.getItem("nte.bulletins.v2.cn")).toBeNull();
+  expect(localStorage.getItem("nte.bulletins.v3.global")).toBeNull();
+  expect(localStorage.getItem("nte.bulletins.v3.cn")).toBeNull();
   expect(wrapper!.findComponent({ name: "HomeGameRecords" }).exists()).toBe(
     true,
   );
@@ -2626,18 +2901,18 @@ it("区服切换后隔离公告缓存并丢弃旧请求", async () => {
 
 it("公告来源失败不缓存, 下次读取会重新请求", async () => {
   const c = await boot();
-  localStorage.removeItem("nte.bulletins.v2.cn");
+  localStorage.removeItem("nte.bulletins.v3.cn");
   backend.invoke.mockResolvedValueOnce({
     items: [],
     errors: ["B站动态: 暂时不可用"],
   });
   await c.fetchBulletins(true, true);
   expect(c.state.bulletins?.errors).toHaveLength(1);
-  expect(localStorage.getItem("nte.bulletins.v2.cn")).toBeNull();
+  expect(localStorage.getItem("nte.bulletins.v3.cn")).toBeNull();
   backend.invoke.mockResolvedValueOnce({ items: [], errors: [] });
   await c.fetchBulletins();
   expect(c.state.bulletins?.errors).toEqual([]);
-  expect(localStorage.getItem("nte.bulletins.v2.cn")).toContain('"errors":[]');
+  expect(localStorage.getItem("nte.bulletins.v3.cn")).toContain('"errors":[]');
   backend.invoke.mockResolvedValueOnce({ items: [], errors: ["临时失败"] });
   await c.fetchBulletins(true, true);
   backend.invoke.mockResolvedValueOnce({ items: [], errors: [] });

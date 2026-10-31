@@ -10,7 +10,7 @@ import SettingRow from "./settings/SettingRow.vue";
 import SettingGroup from "./settings/SettingGroup.vue";
 import BaseButton from "./BaseButton.vue";
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
-import { isTauri } from "../core/api";
+import { isDesktop } from "../core/api";
 import {
   attendance,
   attendanceForm,
@@ -100,7 +100,7 @@ onBeforeUnmount(() => clearInterval(poll));
         >管理账号
       </BaseButton>
     </template>
-    <p v-if="!isTauri()" class="attendance__hint">浏览器预览使用模拟数据</p>
+    <p v-if="!isDesktop()" class="attendance__hint">浏览器预览使用模拟数据</p>
     <SettingRow
       label="自动签到"
       for="attendance-enabled"

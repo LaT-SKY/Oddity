@@ -6,7 +6,7 @@ import BaseModal from "./BaseModal.vue";
 import BaseDisclosure from "./BaseDisclosure.vue";
 import { onBeforeUnmount, ref } from "vue";
 import { open } from "../core/filePicker";
-import { invoke, isTauri } from "../core/api";
+import { invoke, isDesktop } from "../core/api";
 import { notify } from "../core/notifications";
 import type { LogPreview } from "../types/launcher";
 
@@ -23,7 +23,7 @@ async function exportLogs() {
   savedPath.value = "";
   error.value = "";
   try {
-    if (!isTauri()) throw new Error("请在 Oddity 桌面应用中导出日志");
+    if (!isDesktop()) throw new Error("请在 Oddity 桌面应用中导出日志");
     notify("正在检查日志...", "info", 0, { key: "log-export" });
     const result = await invoke("prepare_log_export");
     if (disposed) {

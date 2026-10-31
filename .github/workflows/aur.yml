@@ -22,7 +22,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: '要发布到 AUR 的 tag，例如 oddity-v0.1.0-alpha.2'
+        description: '要发布到 AUR 的 tag，例如 oddity-v0.1.0-alpha.3'
         required: true
         type: string
 

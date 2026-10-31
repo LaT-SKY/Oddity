@@ -1,0 +1,24 @@
+[package]
+name = "nte-service"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust application service for Oddity"
+
+[[bin]]
+name = "oddity-backend"
+path = "src/main.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+nte-core = { path = "../nte-core" }
+libc = "0.2"
+zeroize = "1"
+base64 = "0.23"
+sdl3 = { version = "0.20.0", features = ["build-from-source-static"] }
+sdl3-sys = { version = "0.7.2", features = ["sdl-unix-console-build", "no-sdl-video", "no-sdl-gpu", "no-sdl-render", "no-sdl-camera", "no-sdl-dialog", "no-sdl-tray"] }
+tokio = { version = "1", features = ["sync", "rt-multi-thread", "time", "macros"] }
+
+[dev-dependencies]
+zip.workspace = true

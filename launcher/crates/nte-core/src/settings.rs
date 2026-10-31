@@ -21,6 +21,7 @@ pub struct Settings {
     pub stack_bulletins: bool,
     pub theme: String,
     pub hero_media: String,
+    pub adaptive_theme: bool,
     pub minimize_to_tray_on_close: bool,
     pub show_launcher_after_game_exit: bool,
     pub snapshot_success_minutes: u64,
@@ -44,6 +45,7 @@ impl Default for Settings {
             stack_bulletins: false,
             theme: "light".to_string(),
             hero_media: "video".to_string(),
+            adaptive_theme: true,
             minimize_to_tray_on_close: true,
             show_launcher_after_game_exit: true,
             snapshot_success_minutes: crate::snapshots::DEFAULT_SUCCESS_MINUTES,
@@ -85,5 +87,24 @@ impl UserPaths {
     }
     pub fn instance_lock(&self) -> PathBuf {
         self.config_base.join("oddity-instance.lock")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_settings_enable_adaptive_theme() {
+        let settings: Settings =
+            serde_json::from_str(r#"{"theme":"dark","heroMedia":"photo"}"#).unwrap();
+        assert!(settings.adaptive_theme);
+        assert_eq!(settings.theme, "dark");
+    }
+
+    #[test]
+    fn adaptive_theme_can_be_disabled() {
+        let settings: Settings = serde_json::from_str(r#"{"adaptiveTheme":false}"#).unwrap();
+        assert!(!settings.adaptive_theme);
     }
 }

@@ -4,7 +4,7 @@ import { motion } from "motion-v";
 import { save as saveDialog } from "../../core/filePicker";
 import BaseButton from "../../components/BaseButton.vue";
 import BaseModal from "../../components/BaseModal.vue";
-import { invoke, isTauri } from "../../core/api";
+import { invoke, isDesktop } from "../../core/api";
 import { formatPlaytime, type PlaytimeStats } from "../../core/playtime";
 import { notify } from "../../core/notifications";
 import { useControlMotion } from "../../composables/useControlMotion";
@@ -189,7 +189,7 @@ async function savePoster() {
   saving.value = true;
   error.value = "";
   try {
-    if (!isTauri()) {
+    if (!isDesktop()) {
       const link = document.createElement("a");
       link.href = posterUrl.value;
       link.download = posterName();
@@ -249,7 +249,7 @@ function loadImage(src: string, anonymous = false) {
 function loadWallpaper() {
   if (wallpaperRequest) return wallpaperRequest;
   wallpaperRequest = (async () => {
-    if (isTauri()) {
+    if (isDesktop()) {
       try {
         const media = await invoke("launcher_background");
         if (media.image) {

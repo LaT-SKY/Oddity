@@ -3,7 +3,7 @@ import { mount, flushPromises, type VueWrapper } from "@vue/test-utils";
 import { nextTick } from "vue";
 vi.mock("../../../launcher/ui/src/core/api", () => ({
   invoke: vi.fn().mockResolvedValue(null),
-  isTauri: () => false,
+  isDesktop: () => false,
 }));
 import * as c from "../../../launcher/ui/src/core/controller";
 import { settingsNavigation } from "../../../launcher/ui/src/core/settingsCatalog";

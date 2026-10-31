@@ -7,7 +7,7 @@
 set -euo pipefail
 
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-bin=${1:-"$root/target/debug/oddity"}
+bin=${1:-"$root/../dist/electron/linux-unpacked/oddity"}
 data=${XDG_DATA_HOME:-"$HOME/.local/share"}
 icons="$data/icons/hicolor"
 apps="$data/applications"
@@ -29,13 +29,17 @@ done
 
 install -Dm644 "$root/ui/public/assets/app-icon.svg" "$icons/scalable/apps/oddity.svg"
 for size in 16 22 24 32 48 64 128 256 512; do
-  install -Dm644 "$root/crates/nte-app/icons/${size}x${size}.png" \
+  install -Dm644 "$root/crates/nte-service/icons/${size}x${size}.png" \
     "$icons/${size}x${size}/apps/oddity.png"
 done
 
 tmp=$(mktemp)
 trap 'rm -f "$tmp"' EXIT
-sed -e "s|^Exec=oddity$|Exec=$bin|" -e "s|^Exec=oddity --recovery$|Exec=$bin --recovery|" -e "s|^TryExec=oddity$|TryExec=$bin|" \
+sed -e "s|^Exec=oddity$|Exec=$bin|" \
+  -e "s|^Exec=oddity --recovery$|Exec=$bin --recovery|" \
+  -e "s|^Exec=oddity --launch --region cn --launch-mode background$|Exec=$bin --launch --region cn --launch-mode background|" \
+  -e "s|^Exec=oddity --launch --region global --launch-mode background$|Exec=$bin --launch --region global --launch-mode background|" \
+  -e "s|^TryExec=oddity$|TryExec=$bin|" \
   "$root/packaging/oddity.desktop" >"$tmp"
 install -Dm644 "$tmp" "$apps/oddity.desktop"
 recovery="$(dirname "$bin")/oddity-recovery"

@@ -1,0 +1,21 @@
+#!/bin/sh
+appdir=$(dirname "$(readlink -f "$0")")
+headless=0
+recovery=0
+launch=0
+help=0
+for argument do
+  case "$argument" in
+    --taygedo-attendance) headless=1 ;;
+    --recovery) recovery=1 ;;
+    --launch) launch=1 ;;
+    --help|-h) help=1 ;;
+  esac
+done
+if [ "$headless" = 1 ] || { [ "$launch" = 1 ] && [ "$help" = 1 ]; }; then
+  exec "$appdir/resources/bin/oddity-backend" "$@"
+fi
+if [ "$recovery" = 1 ]; then
+  exec "$appdir/resources/bin/oddity-recovery" "$@"
+fi
+exec "$appdir/oddity-shell" "$@"

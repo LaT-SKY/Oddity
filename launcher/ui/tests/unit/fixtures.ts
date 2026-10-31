@@ -34,6 +34,7 @@ export const settings: Settings = {
   stackBulletins: false,
   theme: "light",
   heroMedia: "photo",
+  adaptiveTheme: true,
   minimizeToTrayOnClose: true,
   showLauncherAfterGameExit: true,
   snapshotSuccessMinutes: 1,

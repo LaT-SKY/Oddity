@@ -25,13 +25,13 @@
   --surface: rgb(250 252 255 / 82%);
   --surface-2: rgb(255 255 255 / 46%);
   --surface-solid: #f5f7fa;
-  --input-bg: #ffffff;
+  --input-bg: color-mix(in srgb, var(--scene-tint-light) 82%, #fff);
   --hero-bg: #131d27;
 
   --bone: #202832;
   --text-soft: #34404d;
-  --muted: #566270;
-  --faint: #637181;
+  --muted: #4a5664;
+  --faint: #515d6b;
   --ink: #161e27;
   --line: rgba(32, 40, 50, 0.14);
   --line-strong: rgba(32, 40, 50, 0.28);
@@ -88,6 +88,28 @@
   --tag-border: rgba(32, 40, 50, 0.18);
   --input-focus-border: rgba(53, 76, 101, 0.52);
   --window-border: rgba(32, 40, 50, 0.12);
+
+  /* 磨砂材质。--scene-* 由 useScenePalette 按主视觉写入, 这里只是回退值。 */
+  --scene-tint-light: #e2e9f1;
+  --scene-tint-dark: #222a35;
+  --scene-accent-light: #7f9bb7;
+  --scene-accent-dark: #a8c2dc;
+  --hero-accent: #d5e0ec;
+  --glass-blur: 56px;
+  --glass-saturate: 160%;
+  --glass-bg: color-mix(in srgb, var(--scene-tint-light) 60%, transparent);
+  --glass-bg-strong: color-mix(
+    in srgb,
+    var(--scene-tint-light) 90%,
+    transparent
+  );
+  --glass-veil: color-mix(in srgb, var(--scene-tint-light) 12%, transparent);
+  --glass-card: color-mix(in srgb, var(--scene-tint-light) 48%, transparent);
+  --glass-chip: rgb(255 255 255 / 62%);
+  --glass-line: rgb(32 40 50 / 9%);
+  --glass-highlight: rgb(255 255 255 / 62%);
+  --glass-glow: color-mix(in srgb, var(--scene-accent-light) 16%, transparent);
+  --glass-shadow: -18px 14px 64px rgb(10 18 28 / 22%);
 
   --control-height: 40px;
   --control-height-sm: 32px;
@@ -192,7 +214,7 @@
   --surface: rgba(25, 32, 42, 0.55);
   --surface-2: rgba(19, 26, 35, 0.42);
   --surface-solid: #19212c;
-  --input-bg: rgba(12, 18, 26, 0.6);
+  --input-bg: color-mix(in srgb, var(--scene-tint-dark) 72%, transparent);
   --hero-bg: #151b24;
 
   --bone: #edf2f8;
@@ -255,4 +277,18 @@
   --tag-border: rgba(227, 236, 248, 0.14);
   --input-focus-border: rgba(176, 200, 225, 0.52);
   --window-border: rgba(227, 236, 248, 0.1);
+
+  --glass-bg: color-mix(in srgb, var(--scene-tint-dark) 60%, transparent);
+  --glass-bg-strong: color-mix(
+    in srgb,
+    var(--scene-tint-dark) 90%,
+    transparent
+  );
+  --glass-veil: color-mix(in srgb, var(--scene-tint-dark) 15%, transparent);
+  --glass-card: color-mix(in srgb, var(--scene-tint-dark) 58%, transparent);
+  --glass-chip: rgb(255 255 255 / 8%);
+  --glass-line: rgb(227 236 248 / 12%);
+  --glass-highlight: rgb(255 255 255 / 9%);
+  --glass-glow: color-mix(in srgb, var(--scene-accent-dark) 18%, transparent);
+  --glass-shadow: -18px 14px 64px rgb(0 0 0 / 46%);
 }

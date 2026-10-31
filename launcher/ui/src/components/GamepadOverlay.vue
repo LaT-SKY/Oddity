@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { motion, useReducedMotion } from "motion-v";
 import { createTimeline } from "animejs";
 import { gamepad, gamepadTarget, gamepadViewport } from "../core/gamepad";
-import { form, state } from "../core/controller";
+import { form, launchPauseAvailable, state } from "../core/controller";
 import { playerExpanded, sceneEntering } from "../composables/useSceneMotion";
 import GamepadHints from "./GamepadHints.vue";
 import type { GamepadHint } from "../types/gamepad";
@@ -204,9 +204,26 @@ const hints = computed<GamepadHint[]>(() => {
       },
       { id: "back", buttons: ["back"], label: "返回" },
     ];
-  if (state.page === "home" && !local.value)
+  if (state.page === "home" && !local.value) {
+    const launching = state.game === "launching";
+    const running = state.game === "running";
+    const closing = state.game === "closing";
+    const launch = launching
+      ? launchPauseAvailable.value
+        ? state.launch?.cancelling
+          ? { id: "pause", label: "正在暂停" }
+          : { id: "pause", label: "暂停启动" }
+        : null
+      : running
+        ? { id: "close", label: "关闭游戏" }
+        : closing
+          ? { id: "close", label: "正在关闭" }
+          : { id: "launch", label: "启动" };
+    const launchHints: GamepadHint[] = launch
+      ? [{ ...launch, buttons: ["west"] }]
+      : [];
     return [
-      { id: "launch", buttons: ["west"], label: "启动" },
+      ...launchHints,
       {
         id: "player",
         buttons: ["north"],
@@ -214,6 +231,7 @@ const hints = computed<GamepadHint[]>(() => {
       },
       { id: "page", buttons: ["lb", "rb"], label: "切页" },
     ];
+  }
   if (selectOpen.value)
     return [
       { id: "move", buttons: ["move"], label: "选择" },

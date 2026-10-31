@@ -6,13 +6,13 @@ import PlaytimePoster from "../../src/components/playtime/PlaytimePoster.vue";
 const backend = vi.hoisted(() => ({
   save: vi.fn(),
   invoke: vi.fn(),
-  isTauri: vi.fn(),
+  isDesktop: vi.fn(),
   notify: vi.fn(),
 }));
-vi.mock("@tauri-apps/plugin-dialog", () => ({ save: backend.save }));
+vi.mock("../../src/core/desktop", () => ({ save: backend.save }));
 vi.mock("../../src/core/api", () => ({
   invoke: backend.invoke,
-  isTauri: backend.isTauri,
+  isDesktop: backend.isDesktop,
 }));
 vi.mock("../../src/core/notifications", () => ({ notify: backend.notify }));
 
@@ -52,7 +52,7 @@ beforeEach(() => {
         ? { image: "/official.jpg", video: null }
         : "/saved/poster.png",
     );
-  backend.isTauri.mockReset().mockReturnValue(true);
+  backend.isDesktop.mockReset().mockReturnValue(true);
   backend.notify.mockReset();
   images = [];
   vi.stubGlobal(
@@ -299,7 +299,7 @@ it("保存进行中阻止重复保存和关闭", async () => {
 });
 
 it("浏览器预览通过下载链接保存并清理链接", async () => {
-  backend.isTauri.mockReturnValue(false);
+  backend.isDesktop.mockReturnValue(false);
   const click = vi
     .spyOn(HTMLAnchorElement.prototype, "click")
     .mockImplementation(function (this: HTMLAnchorElement) {

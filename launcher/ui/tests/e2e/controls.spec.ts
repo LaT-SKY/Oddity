@@ -61,7 +61,37 @@ test("分段控件保持键盘焦点, 登录表单跟随选择切换", async ({ 
 });
 
 test("登录字段横向交接、弹窗高度连续变化与快速切换", async ({ page }) => {
+  // 假时钟同时推进 JS 与原生动画, 逐帧核对浏览器插值后的几何.
   await pauseClock(page);
+  await page.addInitScript(() => {
+    const nativeAnimate = Element.prototype.animate;
+    Element.prototype.animate = function (frames, options) {
+      const animation = nativeAnimate.call(this, frames, options);
+      animation.pause();
+      let started = performance.now();
+      Object.defineProperty(animation, "startTime", {
+        get: () => started,
+        set: (value: number) => {
+          started = value;
+          animation.pause();
+        },
+      });
+      const end = Number(animation.effect!.getComputedTiming().endTime);
+      function tick() {
+        if (
+          animation.playState === "idle" ||
+          animation.playState === "finished"
+        )
+          return;
+        const elapsed = performance.now() - started;
+        animation.currentTime = Math.min(elapsed, end);
+        if (elapsed >= end) animation.finish();
+        else requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+      return animation;
+    };
+  });
   await page.goto("/#settings");
   await page.clock.runFor(1500);
   await settingsCategory(page, "account");

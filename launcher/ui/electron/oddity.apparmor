@@ -1,0 +1,7 @@
+abi <abi/4.0>,
+include <tunables/global>
+
+profile "${executable}-shell" "/opt/${sanitizedProductName}/${executable}-shell" flags=(unconfined) {
+  userns,
+  include if exists <local/${executable}-shell>
+}

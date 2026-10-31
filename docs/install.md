@@ -7,14 +7,14 @@ Oddity 负责资源检查, 下载和启动; 游戏本身仍由 Proton 运行. �
 | 项目 | 要求 |
 | --- | --- |
 | 系统 | Linux x86_64, Wayland 或 X11 |
-| 运行库 | GTK 3, WebKitGTK 4.1, GStreamer (`gst-plugins-good`), `libsecret`, `xdg-utils` |
+| 运行库 | Electron 44 (随包提供), GTK 3, NSS, ALSA, `libsecret`, `xdg-utils` |
 | 图形 | 支持 Vulkan 的显卡驱动 |
 | 游戏环境 | `umu-launcher`, Proton, 在设置中创建的运行环境 |
 | 存储 | 可写的游戏安装目录, 首次安装需要完整游戏资源 |
 
-> 安装包会声明 GTK 3, WebKitGTK 4.1 等必需依赖. `umu-launcher` 在 `.deb` 和 `.rpm` 中为推荐依赖, 在 Arch 包中为可选依赖, 需要确认已经安装.
+> 安装包会声明 GTK 3, NSS 等必需依赖. `umu-launcher` 在 `.deb` 和 `.rpm` 中为推荐依赖, 在 Arch 包中为可选依赖, 需要确认已经安装.
 
-> 首页视频需要 GStreamer 的 `autodetect` 插件. 缺少 `gst-plugins-good` 时, WebKitGTK 可能在启动后直接退出. `.deb`, `.pkg.tar.zst` (含 AUR) 和 Gentoo 包会声明该依赖; RPM, AppImage 与源码构建请按[排障指南](troubleshooting.md#主页视频无法播放或窗口启动后冻结)检查.
+> 视频解码使用随应用提供的 Chromium/FFmpeg. 安装包包含运行时, 无需另行安装 Electron.
 
 ## 安装 Oddity
 
@@ -210,13 +210,15 @@ Proton 运行环境保存 Windows 环境和登录状态. 在 **设置 → 运行
 
 | 启动方式 | 行为 |
 | --- | --- |
-| **后台启动** (推荐) | 等待官方资源检查并尝试自动启动游戏, 隐藏官方主窗口. |
+| **后台启动** (推荐) | 等待官方资源检查并尝试自动启动游戏, 启动按钮显示阶段, 右侧子按钮可以暂停启动; 隐藏官方主窗口. |
 | **前台启动** | 显示官方窗口, 需要在该窗口中点击启动游戏. |
 | **直接启动** | 跳过官方登录, 目前在界面中标为开发中. |
 
 若后台启动出现异常或提示官方组件版本尚未验证, 请改用 **前台启动**.
 
 游戏退出后默认重新显示 Oddity, 可以在设置中关闭 **游戏退出后打开启动器**. 开启 **关闭窗口时最小化到托盘** 后, 关闭主窗口不会退出 Oddity, 可以从托盘菜单重新打开.
+
+需要从应用菜单, 桌面快捷方式或 Steam 直接启动时, 见[外部启动入口](external-launch.md).
 
 ## 公告
 
@@ -270,12 +272,10 @@ rm -f "${XDG_DATA_HOME:-$HOME/.local/share}"/icons/hicolor/*/apps/oddity.png
 需要 Rust 工具链, Node.js >= 24.19.0 和 pnpm 12.14.0. Debian / Ubuntu 的构建依赖可以按 [CI 依赖列表](../.github/actions/install-linux-deps/action.yml)安装:
 
 ```bash
-pkexec apt install build-essential pkg-config libssl-dev libxdo-dev \
-  libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-  librsvg2-dev gstreamer1.0-plugins-good
+pkexec apt install build-essential pkg-config cmake libssl-dev libudev-dev \
+  libasound2-dev libpulse-dev libgtk-3-dev libsecret-1-dev \
+  librsvg2-dev libnss3 libgbm1 libxss1 dpkg-dev rpm
 ```
-
-`gst-plugins-good` 是首页视频的运行时依赖, 不参与链接. 其他发行版的包名为 Arch `gst-plugins-good`, Fedora `gstreamer1-plugins-good`, openSUSE `gstreamer-plugins-good`.
 
 在仓库根目录执行:
 
@@ -284,12 +284,14 @@ git clone https://github.com/LaT-SKY/Oddity.git
 cd Oddity/launcher
 pnpm --dir ui install --frozen-lockfile
 pnpm --dir ui run build
-cargo build --release --locked -p nte-app -p nte-cli -p nte-recovery
-./scripts/install-desktop.sh ./target/release/oddity
-./target/release/oddity
+cargo build --release --locked -p nte-service -p nte-cli -p nte-recovery
+pnpm --dir ui exec install-electron
+pnpm --dir ui run desktop:package
+./scripts/install-desktop.sh ../dist/electron/linux-unpacked/oddity
+../dist/electron/linux-unpacked/oddity
 ```
 
-发布构建会内嵌前端文件, 所以需要先执行 `pnpm --dir ui run build`. 桌面入口指向构建目录中的可执行文件, 移动源码目录后需要重新运行安装脚本.
+发行目录包含 Electron 44、前端资源、Rust 后端与应急恢复程序, 需要保留完整目录. 桌面入口指向构建目录中的可执行文件, 移动源码目录后需要重新运行安装脚本.
 
 ## 遇到问题
 
