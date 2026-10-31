@@ -16,7 +16,12 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { debVersion, projectVersion, rpmMetadata } from "./release-version.mjs";
+import {
+  debFileName,
+  debVersion,
+  projectVersion,
+  rpmMetadata,
+} from "./release-version.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const iconSizes = [16, 22, 24, 32, 48, 64, 128, 256, 512];
@@ -136,7 +141,7 @@ function main() {
   mkdirSync(args.out, { recursive: true });
 
   const debSource = requireFile(join(target, `oddity_${version}_amd64.deb`));
-  const debTarget = join(args.out, `oddity_${debVersion(version)}_amd64.deb`);
+  const debTarget = join(args.out, debFileName(version));
   if (
     execFileSync("dpkg-deb", ["-f", debSource, "Version"], {
       encoding: "utf8",
