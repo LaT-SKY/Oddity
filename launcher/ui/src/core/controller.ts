@@ -35,7 +35,7 @@ import { APP_VERSION } from "./version";
 
 let generation = 0;
 let events = new window.AbortController();
-const BULLETIN_CACHE_KEY = "nte.bulletins.v2";
+const BULLETIN_CACHE_KEY = "nte.bulletins.v3";
 let bulletinRequest = 0;
 const BULLETIN_CACHE_TTL_MS = 15 * 60 * 1000;
 const disposers: (() => void)[] = [];

@@ -338,6 +338,12 @@ fn contains_lottery(value: &Value) -> bool {
     }
 }
 
+/// 图片地址统一改用 HTTPS, 避免被界面 CSP 与混合内容策略拦截.
+fn secure_image_url(url: &str) -> String {
+    url.strip_prefix("http://")
+        .map_or_else(|| url.to_string(), |rest| format!("https://{rest}"))
+}
+
 /// 解析 B 站空间动态 API。接口可能因风控返回错误码，此时返回可展示的解析错误。
 pub fn parse_bilibili_json(body: &str) -> Result<Vec<BulletinItem>> {
     let root: Value = serde_json::from_str(body)
@@ -413,7 +419,7 @@ pub fn parse_bilibili_json(body: &str) -> Result<Vec<BulletinItem>> {
                     .and_then(Value::as_str)
             })
             .filter(|value| !value.is_empty())
-            .map(str::to_string);
+            .map(secure_image_url);
         let author = module(modules, "module_author").unwrap_or(&Value::Null);
         let published_at = {
             let value = value_text(author.get("pub_time"));
@@ -737,6 +743,16 @@ mod tests {
         assert_eq!(
             items[0].image_url.as_deref(),
             Some("https://img.test/v.jpg")
+        );
+    }
+
+    #[test]
+    fn bilibili_image_urls_use_https() {
+        let body = r#"{"code":0,"data":{"items":[{"id_str":"789","modules":[{"module_author":{"pub_text":"今天"}},{"module_dynamic":{"dyn_archive":{"title":"视频标题","cover":"http://i0.hdslb.com/bfs/archive/a.jpg"}}}]}]}}"#;
+        let items = parse_bilibili_json(body).expect("desktop archive");
+        assert_eq!(
+            items[0].image_url.as_deref(),
+            Some("https://i0.hdslb.com/bfs/archive/a.jpg")
         );
     }
 

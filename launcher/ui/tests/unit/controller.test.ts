@@ -2868,7 +2868,7 @@ it("短信控制器保留未保存偏好, 发送失败复位并阻止并发", as
 
 it("区服切换后隔离公告缓存并丢弃旧请求", async () => {
   const c = await boot();
-  localStorage.removeItem("nte.bulletins.v2.cn");
+  localStorage.removeItem("nte.bulletins.v3.cn");
   const original = backend.invoke.getMockImplementation()!;
   let finishCn!: (feed: { items: []; errors: string[] }) => void;
   const globalFeed = { items: [], errors: ["global feed"] };
@@ -2892,8 +2892,8 @@ it("区服切换后隔离公告缓存并丢弃旧请求", async () => {
   finishCn({ items: [], errors: ["old cn feed"] });
   await pending;
   expect(c.state.bulletins).toEqual(globalFeed);
-  expect(localStorage.getItem("nte.bulletins.v2.global")).toBeNull();
-  expect(localStorage.getItem("nte.bulletins.v2.cn")).toBeNull();
+  expect(localStorage.getItem("nte.bulletins.v3.global")).toBeNull();
+  expect(localStorage.getItem("nte.bulletins.v3.cn")).toBeNull();
   expect(wrapper!.findComponent({ name: "HomeGameRecords" }).exists()).toBe(
     true,
   );
@@ -2901,18 +2901,18 @@ it("区服切换后隔离公告缓存并丢弃旧请求", async () => {
 
 it("公告来源失败不缓存, 下次读取会重新请求", async () => {
   const c = await boot();
-  localStorage.removeItem("nte.bulletins.v2.cn");
+  localStorage.removeItem("nte.bulletins.v3.cn");
   backend.invoke.mockResolvedValueOnce({
     items: [],
     errors: ["B站动态: 暂时不可用"],
   });
   await c.fetchBulletins(true, true);
   expect(c.state.bulletins?.errors).toHaveLength(1);
-  expect(localStorage.getItem("nte.bulletins.v2.cn")).toBeNull();
+  expect(localStorage.getItem("nte.bulletins.v3.cn")).toBeNull();
   backend.invoke.mockResolvedValueOnce({ items: [], errors: [] });
   await c.fetchBulletins();
   expect(c.state.bulletins?.errors).toEqual([]);
-  expect(localStorage.getItem("nte.bulletins.v2.cn")).toContain('"errors":[]');
+  expect(localStorage.getItem("nte.bulletins.v3.cn")).toContain('"errors":[]');
   backend.invoke.mockResolvedValueOnce({ items: [], errors: ["临时失败"] });
   await c.fetchBulletins(true, true);
   backend.invoke.mockResolvedValueOnce({ items: [], errors: [] });
