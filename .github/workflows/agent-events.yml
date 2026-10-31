@@ -6,6 +6,10 @@ on:
     types: [completed]
   release:
     types: [published]
+  issues:
+    types: [labeled]
+  pull_request_target:
+    types: [labeled, review_requested]
   schedule:
     - cron: '0 1 * * 1'
   workflow_dispatch:
@@ -13,9 +17,11 @@ on:
 permissions:
   contents: read
   issues: write
+  pull-requests: write
 
 concurrency:
-  group: agent-events
+  # 标签与评审桥接各自独立成组，避免连续事件互相替换；其余事件继续串行。
+  group: ${{ (github.event_name == 'issues' || github.event_name == 'pull_request_target') && format('agent-events-{0}', github.run_id) || 'agent-events' }}
   cancel-in-progress: false
 
 jobs:
@@ -23,7 +29,7 @@ jobs:
     name: 通知 dsh-superagent
     runs-on: ubuntu-latest
     steps:
-      - name: 创建或复用通知 Issue
+      - name: 处理事件并通知
         env:
           GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
@@ -32,8 +38,26 @@ jobs:
           RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
           RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
+          EVENT_LABEL: ${{ github.event.label.name }}
+          EVENT_ISSUE: ${{ github.event.issue.number }}
+          EVENT_PR: ${{ github.event.pull_request.number }}
+          REQUESTED_REVIEWER: ${{ github.event.requested_reviewer.login }}
         run: |
           set -euo pipefail
+          if [ "$EVENT_NAME" = "issues" ]; then
+            if [ "$EVENT_LABEL" != "TypeRota: implement" ]; then
+              echo "Skip label: $EVENT_LABEL"
+              exit 0
+            fi
+            gh issue comment "$EVENT_ISSUE" --repo "$GITHUB_REPOSITORY" --body "@TypeRota 受理这个 Issue：请按仓库规则实现并提交 PR；如果范围或设计不明确，先留下方案与问题并停下。"
+            exit 0
+          fi
+          if [ "$EVENT_NAME" = "pull_request_target" ]; then
+            if [ "$EVENT_LABEL" = "TypeRota: Review" ] || [ "$REQUESTED_REVIEWER" = "TypeRota" ]; then
+              gh pr comment "$EVENT_PR" --repo "$GITHUB_REPOSITORY" --body "@TypeRota 请评审这个 PR：给出具体问题、风险与验证建议；没有阻塞问题时可以批准。"
+            fi
+            exit 0
+          fi
           if [ "$EVENT_NAME" = "workflow_run" ]; then
             tag="$RUN_BRANCH"
             case "$tag" in
