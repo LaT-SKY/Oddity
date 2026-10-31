@@ -11,7 +11,7 @@ nix run github:LaT-SKY/Oddity
 也可以指定发布标签:
 
 ```bash
-nix run github:LaT-SKY/Oddity/oddity-v0.1.0-alpha.2
+nix run github:LaT-SKY/Oddity/oddity-v0.1.0-alpha.3
 ```
 
 ## 加入 NixOS 配置
@@ -19,7 +19,7 @@ nix run github:LaT-SKY/Oddity/oddity-v0.1.0-alpha.2
 在现有 flake 的 `inputs` 中添加:
 
 ```nix
-oddity.url = "github:LaT-SKY/Oddity/oddity-v0.1.0-alpha.2";
+oddity.url = "github:LaT-SKY/Oddity/oddity-v0.1.0-alpha.3";
 ```
 
 将 `oddity` 传入现有 `outputs` 参数, 再在 NixOS 模块中加入:
