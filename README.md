@@ -19,7 +19,7 @@
   <img src="docs/assets/launcher-home.png" width="1280" alt="Oddity 启动界面">
 </p>
 
-Oddity 通过 `umu-run` 和 Proton 管理游戏运行环境, 并集成了资源检查, 下载, 校验和启动.
+Oddity 通过 `umu-run` 和 Proton 管理游戏运行环境，并集成了资源检查、下载、校验和启动。
 
 ## _Features_
 
@@ -40,7 +40,7 @@ Oddity 通过 `umu-run` 和 Proton 管理游戏运行环境, 并集成了资源�
 
 ## _Installation_
 
-从 [Releases](https://github.com/LaT-SKY/Oddity/releases) 下载对应安装包:
+从 [Releases](https://github.com/LaT-SKY/Oddity/releases) 下载对应安装包：
 
 | _发行版_ | 软件包 |
 |:---|:---|
@@ -109,7 +109,7 @@ Oddity 针对官方启动器的部分行为进行了改进，重点在于下载�
 项目代码采用 [GPL-3.0-or-later](LICENSE) 许可。第三方组件的许可信息见 [THIRD_PARTY.md](THIRD_PARTY.md)，官方游戏美术素材不在 GPL 授权范围内，详见 [ASSETS.md](ASSETS.md)。
 
 <div align="center">
-<sub>Oddity 是第三方项目, 与《异环》开发方和发行方无隶属关系.</sub>
+<sub>Oddity 是第三方项目，与《异环》开发方和发行方无隶属关系。</sub>
 
-<sub>游戏名称, 商标与官方美术素材归其权利人所有.</sub>
+<sub>游戏名称、商标与官方美术素材归其权利人所有。</sub>
 </div>
