@@ -382,8 +382,14 @@ pub fn check_bundle_cancellable(
             .unwrap_or(false);
 
         if let Some(info) = info {
-            if info.size == size && info.md5 == md5 && !forced && !opts.full && !metadata_changed {
-                // 文件元数据和账本均未变化时才复用校验结果。
+            if info.size == size
+                && info.md5 == md5
+                && !forced
+                && !opts.full
+                && !metadata_changed
+                && size > SMALL_HASH_LIMIT
+            {
+                // 大文件才允许复用账本；小文件始终哈希，避免同尺寸同时间戳的篡改漏检。
                 continue;
             }
             if info.size == size
@@ -1039,7 +1045,7 @@ mod tests {
         assert_eq!(plan.items.len(), 1);
         assert_eq!(plan.items[0].reason, UpdateReason::Md5);
 
-        // 时间戳一致且 md5 一致：走快速路径，完全不读文件
+        // 时间戳一致也不能跳过小文件哈希：内容仍是 hello，账本写的是 world。
         let mtime = fs::metadata(&path)
             .expect("stat")
             .modified()
@@ -1059,7 +1065,8 @@ mod tests {
             CheckOptions::default(),
         )
         .expect("check");
-        assert!(plan.items.is_empty());
+        assert_eq!(plan.items.len(), 1);
+        assert_eq!(plan.items[0].reason, UpdateReason::Md5);
     }
 
     #[test]
