@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   archVersion,
+  debFileName,
   debVersion,
   projectVersion,
   rpmMetadata,
@@ -340,7 +341,7 @@ function main() {
   const version = args.version || projectVersion();
   const rpm = rpmMetadata(version);
   const expected = [
-    `oddity_${debVersion(version)}_amd64.deb`,
+    debFileName(version),
     `oddity-${rpm.version}-${rpm.release}.x86_64.rpm`,
     `oddity-${version}-x86_64.AppImage`,
     `oddity-${version}-linux-x86_64.tar.gz`,
