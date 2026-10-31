@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   archVersion,
+  debFileName,
   debVersion,
   gentooVersion,
   isPrerelease,
@@ -21,6 +22,22 @@ test("预发布版本按 Debian 规则转换", () => {
   assert.equal(debVersion("0.1.0-alpha.2"), "0.1.0~alpha.2");
   assert.equal(debVersion("0.1.0-rc.1"), "0.1.0~rc.1");
   assert.equal(isPrerelease("0.1.0-alpha.2"), true);
+});
+
+test("deb 资产文件名使用 GitHub 规范化后的形式", () => {
+  assert.equal(debFileName("0.1.0"), "oddity_0.1.0_amd64.deb");
+  assert.equal(
+    debFileName("0.1.0-alpha.2"),
+    "oddity_0.1.0.alpha.2_amd64.deb",
+  );
+  assert.equal(
+    debFileName("0.1.0-alpha-2"),
+    "oddity_0.1.0.alpha.2_amd64.deb",
+  );
+  assert.equal(
+    debFileName("0.1.0+build.7"),
+    "oddity_0.1.0+build.7_amd64.deb",
+  );
 });
 
 test("预发布版本按 RPM 规则拆分 Version 和 Release", () => {

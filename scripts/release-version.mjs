@@ -38,6 +38,12 @@ export function debVersion(version) {
   return `${parsed.core}~${prerelease}${build}`;
 }
 
+// GitHub 会把 Release 资产名中的 "~" 规范成 ".", 而 SHA256SUMS 记录的是
+// 上传后的资产名. 这里直接生成规范化后的文件名, 避免校验和与实际资产对不上.
+export function debFileName(version) {
+  return `oddity_${debVersion(version).replaceAll("~", ".")}_amd64.deb`;
+}
+
 // RPM 的 Version 不允许 "-", 预发布拆到 Release 的 0.* 段,
 // 这样正式版的 Release 1 仍然可以正常升级.
 export function rpmMetadata(version) {
