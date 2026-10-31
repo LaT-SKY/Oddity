@@ -27,6 +27,10 @@ jobs:
         with:
           script: |
             const marker = "<!-- oddity-issue-title-check -->";
+            if (context.payload.issue?.user?.login === "github-actions[bot]") {
+              core.info("机器人账号创建的 Issue 跳过标题检查");
+              return;
+            }
             const prefixPattern = /^\[([^\]]+)\]\s*(.*)$/;
             const mappings = [
               { label: "crash", prefix: "CRASH" },
